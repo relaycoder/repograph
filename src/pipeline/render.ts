@@ -1,5 +1,4 @@
-import path from 'node:path';
-import type { Renderer, RankedCodeGraph, RendererOptions, CodeNode } from '../types.js';
+import type { Renderer, RankedCodeGraph, RendererOptions } from '../types.js';
 
 const generateMermaidGraph = (rankedGraph: RankedCodeGraph): string => {
   const { graph } = rankedGraph;

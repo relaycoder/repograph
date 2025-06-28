@@ -2,9 +2,9 @@ import Graph from 'graphology';
 import path from 'node:path';
 import { getParser } from '../tree-sitter/languages.js';
 import { TS_QUERY } from '../tree-sitter/queries.js';
-import type { Analyzer, CodeGraph, CodeNode, CodeNodeType, FileContent } from '../types.js';
+import type { Analyzer, CodeNode, CodeNodeType, FileContent } from '../types.js';
 
-const getNodeText = (node: import('web-tree-sitter').SyntaxNode, content: string): string => {
+const getNodeText = (node: import('web-tree-sitter').Node, content: string): string => {
   return content.slice(node.startIndex, node.endIndex);
 };
 
@@ -20,7 +20,10 @@ const getLineFromIndex = (content: string, index: number): number => {
 export const createTreeSitterAnalyzer = (): Analyzer => {
   return async (files: readonly FileContent[]) => {
     const parser = await getParser();
-    const tsLang = parser.getLanguage();
+    const tsLang = parser.language;
+    if (!tsLang) {
+      throw new Error('Parser language not set');
+    }
     const query = tsLang.query(TS_QUERY);
 
     const graph: Graph<CodeNode> = new Graph({
@@ -47,9 +50,10 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
     // Phase 2: Parse files and add symbol nodes and edges
     for (const file of files) {
       const tree = parser.parse(file.content);
+      if (!tree) {
+        continue; // Skip files that couldn't be parsed
+      }
       const captures = query.captures(tree.rootNode);
-
-      const importSources = new Map<string, string>();
 
       for (const { name, node } of captures) {
         const [type, subtype] = name.split('.');
@@ -75,24 +79,26 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
           'type': 'type',
         };
 
-        if (subtype === 'name' && definitionMap[type]) {
+        if (subtype === 'name' && type && definitionMap[type]) {
           const symbolType = definitionMap[type];
           const symbolName = getNodeText(node, file.content);
           const symbolId = `${file.path}#${symbolName}`;
           
           if (!graph.hasNode(symbolId)) {
-            const definitionNode = captures.find(c => c.name.endsWith('.definition') && c.node.equals(node.parent!.parent!))?.node ?? node.parent!;
-            graph.addNode(symbolId, {
-              id: symbolId,
-              type: symbolType,
-              name: symbolName,
-              filePath: file.path,
-              startLine: getLineFromIndex(file.content, definitionNode.startIndex),
-              endLine: getLineFromIndex(file.content, definitionNode.endIndex),
-              codeSnippet: definitionNode.text.split('{')[0].trim(),
-            });
-            // Add edge from file to the symbol it contains
-            graph.addDirectedEdge(file.path, symbolId, { type: 'contains' });
+            const definitionNode = captures.find((c: any) => c.name.endsWith('.definition') && c.node.equals(node.parent?.parent))?.node ?? node.parent;
+            if (definitionNode) {
+              graph.addNode(symbolId, {
+                id: symbolId,
+                type: symbolType,
+                name: symbolName,
+                filePath: file.path,
+                startLine: getLineFromIndex(file.content, definitionNode.startIndex),
+                endLine: getLineFromIndex(file.content, definitionNode.endIndex),
+                codeSnippet: definitionNode.text?.split('{')[0]?.trim() || '',
+              });
+              // Add edge from file to the symbol it contains
+              graph.addDirectedEdge(file.path, symbolId, { type: 'contains' });
+            }
           }
         }
       }

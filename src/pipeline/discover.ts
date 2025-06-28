@@ -21,7 +21,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
   return async ({ root, include, ignore, noGitignore = false }) => {
     const patterns = include && include.length > 0 ? [...include] : ['**/*'];
     
-    const ignoreFilter = Ignore.default();
+    const ignoreFilter = Ignore();
     if (!noGitignore) {
       const gitignoreContent = await readGitignore(root);
       ignoreFilter.add(gitignoreContent);

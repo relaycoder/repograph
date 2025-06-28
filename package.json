@@ -1,12 +1,71 @@
 {
   "name": "repograph",
-  "module": "index.ts",
+  "version": "0.1.0",
+  "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
   "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
   },
-  "peerDependencies": {
-    "typescript": "^5"
+  "files": [
+    "dist",
+    "wasm"
+  ],
+  "scripts": {
+    "clean": "rimraf dist wasm",
+    "setup:wasm": "mkdir -p wasm && cp node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm wasm/ && cp node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm/",
+    "build": "npm run clean && tsc -p tsconfig.build.json && npm run setup:wasm",
+    "prepublishOnly": "npm run build",
+    "dev": "tsc -w",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "globby": "^14.1.0",
+    "graphology": "^0.26.0",
+    "graphology-pagerank": "^1.1.0",
+    "ignore": "^7.0.5",
+    "web-tree-sitter": "^0.25.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "bun-types": "^1.1.12",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "rimraf": "^5.0.7",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-typescript": "^0.23.2",
+    "typescript": "^5.4.5"
+  },
+  "keywords": [
+    "codemap",
+    "graph",
+    "visualization",
+    "code-analysis",
+    "tree-sitter",
+    "repo-analysis",
+    "ai-context",
+    "bun",
+    "functional-programming"
+  ],
+  "author": "Your Name <you@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/repograph.git"
+  },
+  "homepage": "https://github.com/your-username/repograph#readme",
+  "bugs": {
+    "url": "https://github.com/your-username/repograph/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
   }
 }

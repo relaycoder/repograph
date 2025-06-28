@@ -1,5 +1,5 @@
 import { pagerank } from 'graphology-pagerank';
-import type { CodeGraph, Ranker, RankedCodeGraph, FileContent } from '../types.js';
+import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
 import { execSync } from 'node:child_process';
 
 /**
@@ -16,7 +16,7 @@ export const createPageRanker = (): Ranker => {
     const ranksData = pagerank(graph);
     const ranks = new Map<string, number>();
     for (const node in ranksData) {
-      ranks.set(node, ranksData[node]);
+      ranks.set(node, ranksData[node] ?? 0);
     }
     return { graph, ranks };
   };
