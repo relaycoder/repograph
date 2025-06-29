@@ -111,7 +111,7 @@ export const createMarkdownRenderer = (): Renderer => {
             md += `- **\`${symbol.type} ${symbol.name}\`**${relations} - _L${symbol.startLine}_\n`;
             if (symbol.codeSnippet) {
               // Use language from file extension for syntax highlighting if possible
-              const lang = fileNode.filePath.split('.').pop() || 'typescript';
+              const lang = fileNode.language || fileNode.filePath.split('.').pop() || '';
               md += `  \`\`\`${lang}\n  ${symbol.codeSnippet}\n  \`\`\`\n`;
             }
           }

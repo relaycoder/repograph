@@ -37,6 +37,7 @@ export type CodeNode = {
   readonly filePath: string;
   readonly startLine: number;
   readonly endLine: number;
+  readonly language?: string; // For file nodes, the detected language
   readonly codeSnippet?: string; // e.g., function signature
 };
 
