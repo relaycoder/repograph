@@ -66,7 +66,7 @@ describe('CLI End-to-End Tests', () => {
       };
       await createTestFiles(tempDir, files);
 
-      const result = await runCLI([tempDir], tempDir);
+      const result = await runCLI([tempDir]);
 
       expect(result.exitCode).toBe(0);
       await assertFileExists(path.join(tempDir, 'repograph.md'));
@@ -83,7 +83,7 @@ describe('CLI End-to-End Tests', () => {
       await createTestFiles(tempDir, files);
 
       const outputPath = path.join(tempDir, 'custom-output.md');
-      const result = await runCLI([tempDir, '--output', outputPath], tempDir);
+      const result = await runCLI([tempDir, '--output', outputPath]);
 
       expect(result.exitCode).toBe(0);
       await assertFileExists(outputPath);
@@ -99,7 +99,7 @@ describe('CLI End-to-End Tests', () => {
       const result = await runCLI([
         tempDir,
         '--include', '**/*.ts'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       
@@ -118,7 +118,7 @@ describe('CLI End-to-End Tests', () => {
       const result = await runCLI([
         tempDir,
         '--ignore', '**/*.spec.ts'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       
@@ -136,7 +136,7 @@ describe('CLI End-to-End Tests', () => {
       const result = await runCLI([
         tempDir,
         '--ranking-strategy', 'git-changes'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       await assertFileExists(path.join(tempDir, 'repograph.md'));
@@ -153,7 +153,7 @@ describe('CLI End-to-End Tests', () => {
       const result = await runCLI([
         tempDir,
         '--no-gitignore'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       
@@ -245,7 +245,7 @@ describe('CLI End-to-End Tests', () => {
         tempDir,
         '--include', '**/*.ts',
         '--include', '**/*.js'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       
@@ -268,7 +268,7 @@ describe('CLI End-to-End Tests', () => {
         tempDir,
         '--ignore', '**/*.spec.ts',
         '--ignore', '**/*.test.ts'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       
@@ -296,7 +296,7 @@ describe('CLI End-to-End Tests', () => {
       };
       await createTestFiles(tempDir, files);
 
-      const result = await runCLI([tempDir], tempDir);
+      const result = await runCLI([tempDir]);
 
       expect(result.exitCode).toBe(0);
       
@@ -341,7 +341,7 @@ export class ApiServer {
       };
       await createTestFiles(tempDir, files);
 
-      const result = await runCLI([tempDir], tempDir);
+      const result = await runCLI([tempDir]);
 
       expect(result.exitCode).toBe(0);
       
@@ -361,7 +361,7 @@ export class ApiServer {
       const result = await runCLI([
         tempDir,
         '--include', '**/*.ts'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       
@@ -380,7 +380,7 @@ export class ApiServer {
         tempDir,
         '--include', '**/*.ts',
         '--ranking-strategy', 'pagerank'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       
@@ -395,7 +395,7 @@ export class ApiServer {
       const fixture = await loadFixture('minimal-project');
       await createProjectFromFixture(tempDir, fixture);
 
-      const result = await runCLI([tempDir], tempDir);
+      const result = await runCLI([tempDir]);
 
       expect(result.exitCode).toBe(0);
       
@@ -429,7 +429,7 @@ export class ApiServer {
       await createTestFiles(tempDir, files);
 
       const startTime = Date.now();
-      const result = await runCLI([tempDir], tempDir);
+      const result = await runCLI([tempDir]);
       const endTime = Date.now();
 
       expect(result.exitCode).toBe(0);
@@ -482,7 +482,7 @@ export class Calculator {
       const result = await runCLI([
         tempDir,
         '--include', 'src/**/*.ts'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       
@@ -521,7 +521,7 @@ component.render();`
       const result = await runCLI([
         tempDir,
         '--include', '**/*.ts'
-      ], tempDir);
+      ]);
 
       expect(result.exitCode).toBe(0);
       
@@ -552,7 +552,7 @@ component.render();`
         'logs/'
       ]);
 
-      const result = await runCLI([tempDir], tempDir);
+      const result = await runCLI([tempDir]);
 
       expect(result.exitCode).toBe(0);
       

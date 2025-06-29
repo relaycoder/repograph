@@ -15,10 +15,14 @@ export const TS_QUERY = `
 
 (variable_declarator value: (arrow_function)) @function.arrow.definition
 (public_field_definition value: (arrow_function)) @function.arrow.definition
+(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
 
 (interface_declaration) @interface.definition
 (export_statement declaration: (interface_declaration)) @interface.definition
 
 (type_alias_declaration) @type.definition
 (export_statement declaration: (type_alias_declaration)) @type.definition
+
+(method_definition) @method.definition
+(public_field_definition) @field.definition
 `;
