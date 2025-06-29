@@ -5,6 +5,7 @@ import { createPageRanker, createGitRanker } from './pipeline/rank.js';
 import { createMarkdownRenderer } from './pipeline/render.js';
 import type { RepoGraphOptions, Ranker } from './types.js';
 import path from 'node:path';
+import { logger } from './utils/logger.util.js';
 
 /**
  * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
@@ -17,7 +18,12 @@ export const generateMap = async (options: RepoGraphOptions = {}): Promise<void>
     root = process.cwd(),
     output = './repograph.md',
     rankingStrategy = 'pagerank',
+    logLevel = 'info',
   } = options;
+
+  if (logLevel) {
+    logger.setLevel(logLevel);
+  }
 
   let ranker: Ranker;
   if (rankingStrategy === 'git-changes') {

@@ -1,6 +1,7 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Analyzer, FileDiscoverer, Ranker, Renderer } from './types.js';
+import { logger } from './utils/logger.util.js';
+import { writeFile } from './utils/fs.util.js';
 
 type MapGenerator = (config: {
   readonly root: string;
@@ -38,25 +39,25 @@ export const createMapGenerator = (pipeline: {
   return async (config) => {
     const { root, output, include, ignore, noGitignore, rendererOptions } = config;
 
-    console.log('1/5 Discovering files...');
+    logger.info('1/5 Discovering files...');
     const files = await pipeline.discover({ root, include, ignore, noGitignore });
-    console.log(`  -> Found ${files.length} files to analyze.`);
+    logger.info(`  -> Found ${files.length} files to analyze.`);
 
-    console.log('2/5 Analyzing code and building graph...');
+    logger.info('2/5 Analyzing code and building graph...');
     const graph = await pipeline.analyze(files);
-    console.log(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+    logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
 
-    console.log('3/5 Ranking graph nodes...');
+    logger.info('3/5 Ranking graph nodes...');
     const rankedGraph = await pipeline.rank(graph);
-    console.log('  -> Ranking complete.');
+    logger.info('  -> Ranking complete.');
 
-    console.log('4/5 Rendering output...');
+    logger.info('4/5 Rendering output...');
     const markdown = pipeline.render(rankedGraph, rendererOptions);
-    console.log('  -> Rendering complete.');
+    logger.info('  -> Rendering complete.');
 
-    console.log('5/5 Writing report to disk...');
     const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, markdown);
+    logger.info(`5/5 Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+    await writeFile(outputPath, markdown);
+    logger.info('  -> Report saved.');
   };
 };

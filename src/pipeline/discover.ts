@@ -1,16 +1,10 @@
 import { globby } from 'globby';
 import path from 'node:path';
-import fs from 'node:fs/promises';
 import Ignore from 'ignore';
 import type { FileContent, FileDiscoverer } from '../types.js';
-
-const readGitignore = async (root: string): Promise<string> => {
-  try {
-    return await fs.readFile(path.join(root, '.gitignore'), 'utf-8');
-  } catch {
-    return '';
-  }
-};
+import { isDirectory, readFile } from '../utils/fs.util.js';
+import { FileSystemError } from '../utils/error.util.js';
+import { logger } from '../utils/logger.util.js';
 
 /**
  * Creates the default file discoverer. It uses globby to find all files,
@@ -20,17 +14,11 @@ const readGitignore = async (root: string): Promise<string> => {
 export const createDefaultDiscoverer = (): FileDiscoverer => {
   return async ({ root, include, ignore, noGitignore = false }) => {
     try {
-      const stats = await fs.stat(root);
-      if (!stats.isDirectory()) {
-        throw new Error(`Root path is not a directory: ${root}`);
+      if (!(await isDirectory(root))) {
+        throw new FileSystemError('Root path is not a directory or does not exist', root);
       }
     } catch (e) {
-      // Type guard to check for Node.js file system error
-      if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
-        throw new Error(`Root directory does not exist: ${root}`);
-      } else {
-        throw e;
-      }
+      throw e;
     }
     const patterns = include && include.length > 0 ? [...include] : ['**/*'];
     
@@ -44,7 +32,12 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     
     // Add .gitignore patterns if not disabled
     if (!noGitignore) {
-      const gitignoreContent = await readGitignore(root);
+      let gitignoreContent = '';
+      try {
+        gitignoreContent = await readFile(path.join(root, '.gitignore'));
+      } catch {
+        // .gitignore is optional, so we can ignore errors here.
+      }
       if (gitignoreContent) {
         ignoreFilter.add(gitignoreContent);
       }
@@ -70,13 +63,10 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
         try {
           const absolutePath = path.join(root, relativePath);
-          const buffer = await fs.readFile(absolutePath);
-          // A simple heuristic to filter out binary files is checking for a null byte.
-          if (buffer.includes(0)) return null;
-          const content = buffer.toString('utf-8');
+          const content = await readFile(absolutePath);
           return { path: relativePath, content };
-        } catch {
-          // Ignore files that can't be read (e.g., binary files, permission errors)
+        } catch (e) {
+          logger.debug(`Skipping file that could not be read: ${relativePath}`, e instanceof Error ? e.message : e);
           return null;
         }
       })

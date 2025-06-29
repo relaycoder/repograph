@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { logger } from './utils/logger.util.js';
+import { RepoGraphError } from './utils/error.util.js';
 // High-Level API for simple use cases
 import { generateMap as executeGenerateMap } from './high-level.js';
 import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
@@ -60,6 +62,7 @@ Options:
   --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
   --no-gitignore           Do not respect .gitignore files.
   --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
+  --log-level <level>      Set the logging level. (default: "info", options: "silent", "error", "warn", "info", "debug")
 
 Output Formatting:
   --no-header              Do not include the main "RepoGraph" header.
@@ -79,7 +82,7 @@ Output Formatting:
 
   if (args.includes('--version') || args.includes('-v')) {
     // In a real app, you'd get this from package.json
-    console.log('0.1.0');
+    logger.info('0.1.0');
     process.exit(0);
   }
 
@@ -91,6 +94,7 @@ Output Formatting:
     ignore?: readonly string[];
     noGitignore?: boolean;
     rankingStrategy?: 'pagerank' | 'git-changes';
+    logLevel?: IRepoGraphOptions['logLevel'];
     rendererOptions?: IRepoGraphOptions['rendererOptions'];
   } = {};
   const includePatterns: string[] = [];
@@ -133,6 +137,9 @@ Output Formatting:
         break;
       case '--ranking-strategy':
         options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
+        break;
+      case '--log-level':
+        options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
         break;
       // --- Renderer Options ---
       case '--no-header':
@@ -188,17 +195,17 @@ Output Formatting:
 
   const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
 
-  console.log(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
+  logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
   executeGenerateMap(options)
     .then(() => {
       const relativePath = path.relative(process.cwd(), finalOutput);
-      console.log(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
+      logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
     })
     .catch((error: unknown) => {
-      if (error instanceof Error) {
-        console.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
+      if (error instanceof RepoGraphError) {
+        logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
       } else {
-        console.error('\n❌ An unknown error occurred while generating the RepoGraph map.');
+        logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
       }
       process.exit(1);
     });

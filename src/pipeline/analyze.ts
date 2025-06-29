@@ -3,6 +3,8 @@ import { createParserForLanguage } from '../tree-sitter/languages.js';
 import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config.js';
 import type { Analyzer, CodeNode, CodeNodeType, FileContent, CodeEdge } from '../types.js';
 import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
+import { logger } from '../utils/logger.util.js';
+import { ParserError } from '../utils/error.util.js';
 
 // --- UTILITY FUNCTIONS ---
 
@@ -233,7 +235,7 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
           if (tree) fileParseData.set(file.path, { file, captures: query.captures(tree.rootNode), langConfig });
         }
       } catch (error) {
-        console.warn(`Failed to process ${langName} files:`, error);
+        logger.warn(new ParserError(`Failed to process ${langName} files`, langName, error));
       }
     }
 

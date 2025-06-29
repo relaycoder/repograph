@@ -2,6 +2,8 @@ import * as Parser from 'web-tree-sitter';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config.js';
+import { logger } from '../utils/logger.util.js';
+import { ParserError } from '../utils/error.util.js';
 
 // Helper to get the correct path in different environments
 const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
@@ -46,9 +48,9 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
     loadedLanguages.set(config.name, loadedLanguage);
     return loadedLanguage;
   } catch (error) {
-    console.error(`Failed to load Tree-sitter WASM file for ${config.name}:`, error);
-    console.error(`Please ensure '${config.wasmPath.split('/')[0]}' is installed in node_modules.`);
-    throw new Error(`Could not load ${config.name} parser.`);
+    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure '${config.wasmPath.split('/')[0]}' is installed.`;
+    logger.error(message, error);
+    throw new ParserError(message, config.name, error);
   }
 };
 

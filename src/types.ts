@@ -109,6 +109,8 @@ export type RepoGraphOptions = {
   readonly rankingStrategy?: 'pagerank' | 'git-changes';
   /** Configuration for the final Markdown output. */
   readonly rendererOptions?: RendererOptions;
+  /** Logging level. @default 'info' */
+  readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
 };
 
 // Low-Level Functional Pipeline Contracts
