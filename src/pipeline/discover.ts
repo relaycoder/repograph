@@ -34,23 +34,36 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     }
     const patterns = include && include.length > 0 ? [...include] : ['**/*'];
     
+    // Use the ignore package for proper gitignore handling
     const ignoreFilter = Ignore();
+    
+    // Always ignore node_modules and .git
+    ignoreFilter.add('**/node_modules/**');
+    ignoreFilter.add('**/.git/**');
+    ignoreFilter.add('.gitignore');
+    
+    // Add .gitignore patterns if not disabled
     if (!noGitignore) {
       const gitignoreContent = await readGitignore(root);
-      ignoreFilter.add(gitignoreContent);
+      if (gitignoreContent) {
+        ignoreFilter.add(gitignoreContent);
+      }
     }
-    if (ignore) {
+    
+    // Add user-specified ignore patterns
+    if (ignore && ignore.length > 0) {
       ignoreFilter.add(ignore.join('\n'));
     }
 
+    // Use globby to find all files matching the include patterns
     const relativePaths = await globby(patterns, {
       cwd: root,
-      gitignore: false, // We handle gitignore manually with the `ignore` package
-      ignore: [...(ignore || []), '**/node_modules/**', '**/.git/**'],
+      gitignore: false, // We handle gitignore patterns manually
       dot: true,
       absolute: false,
     });
-
+    
+    // Filter the paths using the ignore package
     const filteredPaths = relativePaths.filter(p => !ignoreFilter.ignores(p));
 
     const fileContents = await Promise.all(

@@ -373,9 +373,10 @@ describe('File Discovery', () => {
         root: tempDir
       });
 
-      expect(result).toHaveLength(4);
+      // Note: .gitignore is excluded by default
+      expect(result).toHaveLength(3);
       const paths = result.map(f => f.path).sort();
-      expect(paths).toEqual(['.env', '.gitignore', '.hidden/file.ts', 'src/index.ts']);
+      expect(paths).toEqual(['.env', '.hidden/file.ts', 'src/index.ts']);
     });
   });
 

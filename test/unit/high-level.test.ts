@@ -38,7 +38,8 @@ describe('High-Level API', () => {
         output: path.join(tempDir, 'test.md')
       };
 
-      await expect(generateMap(options)).resolves.not.toThrow();
+      await generateMap(options);
+      // If we get here without throwing, the test passes
     });
 
     it('should use default values for missing options', async () => {
@@ -91,8 +92,9 @@ describe('High-Level API', () => {
         rankingStrategy: 'git-changes'
       };
 
-      await expect(generateMap(pageRankOptions)).resolves.not.toThrow();
-      await expect(generateMap(gitOptions)).resolves.not.toThrow();
+      await generateMap(pageRankOptions);
+      await generateMap(gitOptions);
+      // If we get here without throwing, the test passes
     });
 
     it('should pass through all options to pipeline', async () => {
@@ -233,7 +235,7 @@ describe('High-Level API', () => {
       };
 
       // Should not throw, but may result in empty output
-      await expect(generateMap(options)).resolves.not.toThrow();
+      await generateMap(options);
     });
 
     it('should validate renderer options', async () => {
@@ -252,7 +254,7 @@ describe('High-Level API', () => {
         }
       };
 
-      await expect(generateMap(options)).resolves.not.toThrow();
+      await generateMap(options);
     });
   });
 
@@ -277,7 +279,7 @@ describe('High-Level API', () => {
         }
       };
 
-      await expect(generateMap(completeOptions)).resolves.not.toThrow();
+      await generateMap(completeOptions);
     });
 
     it('should handle partial options correctly', async () => {
@@ -290,7 +292,7 @@ describe('High-Level API', () => {
         root: tempDir
       };
 
-      await expect(generateMap(minimalOptions)).resolves.not.toThrow();
+      await generateMap(minimalOptions);
     });
 
     it('should handle empty options object', async () => {
@@ -304,7 +306,7 @@ describe('High-Level API', () => {
         };
         await createTestFiles(tempDir, files);
 
-        await expect(generateMap({})).resolves.not.toThrow();
+        await generateMap({});
       } finally {
         process.chdir(originalCwd);
       }

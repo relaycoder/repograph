@@ -25,7 +25,7 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
     if (!tsLang) {
       throw new Error('Parser language not set');
     }
-    const query = tsLang.query(TS_QUERY);
+    const query = new (await import('web-tree-sitter')).Query(tsLang, TS_QUERY);
 
     const graph: Graph<CodeNode> = new Graph({
       allowSelfLoops: false,
@@ -56,8 +56,45 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
       }
       const captures = query.captures(tree.rootNode);
 
-      const processedDefinitions = new Set<number>();
+      const processedSymbols = new Set<string>();
+      const processedClassNodes = new Set<number>(); // Track which class declaration nodes were processed
+      const duplicateClassNames = new Set<string>(); // Track class names that have duplicates
 
+      // First pass: identify duplicate class names
+      const seenClassNodes = new Set<number>(); // Track actual class declaration nodes
+      const classNames = new Map<string, number>(); // symbolId -> count
+      for (const { name, node } of captures) {
+        const parts = name.split('.');
+        const type = parts.slice(0, -1).join('.');
+        const subtype = parts[parts.length - 1];
+        
+        if (subtype === 'definition' && type === 'class') {
+          let classNode = node;
+          if (classNode.type === 'export_statement') {
+            classNode = classNode.namedChildren[0] ?? classNode;
+          }
+          if (classNode.type === 'class_declaration') {
+            // Skip if we've already seen this exact class declaration node
+            if (seenClassNodes.has(classNode.startIndex)) {
+              continue;
+            }
+            seenClassNodes.add(classNode.startIndex);
+            
+            const nameNode = classNode.childForFieldName('name');
+            if (nameNode) {
+              const className = nameNode.text;
+              const symbolId = `${file.path}#${className}`;
+              const count = classNames.get(symbolId) || 0;
+              classNames.set(symbolId, count + 1);
+              if (count + 1 > 1) {
+                duplicateClassNames.add(className);
+              }
+            }
+          }
+        }
+      }
+
+      // Second pass: process symbols
       for (const { name, node } of captures) {
         const parts = name.split('.');
         const type = parts.slice(0, -1).join('.');
@@ -85,8 +122,6 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
         }
 
         if (subtype !== 'definition') continue;
-        if (processedDefinitions.has(node.startIndex)) continue;
-        processedDefinitions.add(node.startIndex);
 
         const definitionMap: Record<string, CodeNodeType> = {
           class: 'class',
@@ -99,6 +134,14 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
         };
         const symbolType = definitionMap[name] || definitionMap[type!];
         if (!symbolType) continue;
+
+        // Skip field definitions that are actually arrow functions (they'll be handled by the arrow function capture)
+        if (symbolType === 'field' && node.type === 'public_field_definition') {
+          const valueNode = node.childForFieldName('value');
+          if (valueNode && valueNode.type === 'arrow_function') {
+            continue; // Skip this, it will be handled by the arrow function capture
+          }
+        }
 
         let declarationNode = node;
         let nameNode: import('web-tree-sitter').Node | null = null;
@@ -116,19 +159,26 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
               const classNameNode = classParent.childForFieldName('name');
               if (classNameNode) {
                 const className = classNameNode.text;
-                nameNode = declarationNode.childForFieldName('name');
-                if (nameNode) {
-                  const methodName = nameNode.text;
-                  const symbolName = `${className}.${methodName}`;
-                  const symbolId = `${file.path}#${symbolName}`;
-                  if (!graph.hasNode(symbolId)) {
-                    graph.addNode(symbolId, {
-                      id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
-                      startLine: getLineFromIndex(file.content, node.startIndex),
-                      endLine: getLineFromIndex(file.content, node.endIndex),
-                      codeSnippet: node.text?.split('{')[0]?.trim() || '',
-                    });
-                    graph.addDirectedEdge(file.path, symbolId, { type: 'contains' });
+                const classSymbolId = `${file.path}#${className}`;
+                
+                // Only add methods/fields if this specific class declaration was processed
+                // and the class name is not duplicated
+                if (processedClassNodes.has(classParent.startIndex) && !duplicateClassNames.has(className)) {
+                  nameNode = declarationNode.childForFieldName('name');
+                  if (nameNode) {
+                    const methodName = nameNode.text;
+                    const symbolName = `${className}.${methodName}`;
+                    const symbolId = `${file.path}#${symbolName}`;
+                    if (!processedSymbols.has(symbolId) && !graph.hasNode(symbolId)) {
+                      processedSymbols.add(symbolId);
+                      graph.addNode(symbolId, {
+                        id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
+                        startLine: getLineFromIndex(file.content, node.startIndex),
+                        endLine: getLineFromIndex(file.content, node.endIndex),
+                        codeSnippet: node.text?.split('{')[0]?.trim() || '',
+                      });
+                      graph.addDirectedEdge(file.path, symbolId, { type: 'contains' });
+                    }
                   }
                 }
               }
@@ -149,6 +199,9 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
           } else if (declarationNode.type === 'variable_declarator') {
             // For regular arrow functions: variable_declarator
             nameNode = declarationNode.childForFieldName('name');
+          } else if (declarationNode.type === 'public_field_definition') {
+            // For class field arrow functions: public_field_definition
+            nameNode = declarationNode.childForFieldName('name');
           }
         } else {
           // For non-arrow functions, the captured node might be an export statement,
@@ -162,7 +215,22 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
         if (nameNode) {
           const symbolName = nameNode.text;
           const symbolId = `${file.path}#${symbolName}`;
-          if (symbolName && !graph.hasNode(symbolId)) {
+          
+          // Skip if we've already processed this symbol or if the node already exists
+          if (symbolName && !processedSymbols.has(symbolId) && !graph.hasNode(symbolId)) {
+            processedSymbols.add(symbolId);
+            
+            // For class declarations, track the specific node that was processed
+            if (symbolType === 'class') {
+              let classNode = declarationNode;
+              if (classNode.type === 'export_statement') {
+                classNode = classNode.namedChildren[0] ?? classNode;
+              }
+              if (classNode.type === 'class_declaration') {
+                processedClassNodes.add(classNode.startIndex);
+              }
+            }
+            
             graph.addNode(symbolId, {
               id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
               startLine: getLineFromIndex(file.content, node.startIndex),

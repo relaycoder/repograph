@@ -51,7 +51,7 @@ export const createMapGenerator = (pipeline: {
     const markdown = pipeline.render(rankedGraph, rendererOptions);
 
     // 5. Write to disk
-    const outputPath = path.resolve(root, output);
+    const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
     await fs.writeFile(outputPath, markdown);
   };
