@@ -14,7 +14,6 @@ export type CodeNodeType =
   | 'class'
   | 'function'
   | 'interface'
-  | 'import'
   | 'variable'
   | 'type'
   | 'arrow_function'

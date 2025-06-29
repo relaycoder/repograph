@@ -26,7 +26,7 @@ export type FileContent = {
 // Represents a single, identifiable symbol in the code.
 export type CodeNode = {
   readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
-  readonly type: 'file' | 'class' | 'function' | 'interface' | 'import' | 'variable';
+  readonly type: 'file' | 'class' | 'function' | 'interface' | 'variable';
   readonly name: string; // e.g., 'MyClass'
   readonly filePath: string;
   readonly startLine: number;
@@ -122,10 +122,10 @@ export type FileDiscoverer = (config: {
 export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
 
 // Ranks the nodes in a graph.
-export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>>;
+export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
 
 // Renders a ranked graph into a string format.
-export type Renderer = (graph: Promise<RankedCodeGraph, options?: any) => string;
+export type Renderer = (graph: RankedCodeGraph, options?: any) => string;
 ```
 
 ### 4.3. Default Implementations (Function Factories)
@@ -197,7 +197,7 @@ import {
 import type { CodeGraph, RankedCodeGraph, Ranker } from 'repograph';
 
 // 1. Define our custom ranking function
-const myComplexityRanker: Ranker = (graph: CodeGraph): RankedCodeGraph => {
+const myComplexityRanker: Ranker = async (graph: CodeGraph): Promise<RankedCodeGraph> => {
   console.log('Using custom complexity ranker!');
   const ranks = new Map<string, number>();
   // ... custom logic to calculate complexity and assign rank ...

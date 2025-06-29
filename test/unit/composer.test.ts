@@ -405,7 +405,7 @@ describe('Composer', () => {
           }
         }
         
-        return { graph, ranks };
+        return { ...graph, ranks };
       };
 
       // Custom renderer that handles special files
@@ -672,10 +672,10 @@ describe('Composer', () => {
         return analyzedGraph;
       };
 
-      const trackingRanker: Ranker = async (graph, files) => {
+      const trackingRanker: Ranker = async (graph) => {
         rankedGraph = graph;
         const defaultRanker = createPageRanker();
-        return await defaultRanker(graph, files);
+        return await defaultRanker(graph);
       };
 
       const generator = createMapGenerator({
@@ -703,9 +703,9 @@ describe('Composer', () => {
       let rankerOutput: any;
       let rendererInput: any;
 
-      const trackingRanker: Ranker = async (graph, files) => {
+      const trackingRanker: Ranker = async (graph) => {
         const defaultRanker = createPageRanker();
-        rankerOutput = await defaultRanker(graph, files);
+        rankerOutput = await defaultRanker(graph);
         return rankerOutput;
       };
 

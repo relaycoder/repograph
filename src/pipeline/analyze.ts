@@ -182,7 +182,7 @@ async function processRelationshipsForLanguage(
   graph: { nodes: Map<string, CodeNode>, edges: CodeEdge[] },
   files: FileContent[],
   parser: import('web-tree-sitter').Parser,
-  languageConfig: import('./language-config.js').LanguageConfig,
+  languageConfig: import('../tree-sitter/language-config.js').LanguageConfig,
   resolver: SymbolResolver,
 ): Promise<void> {
   const query = new (await import('web-tree-sitter')).Query(parser.language, languageConfig.query);
