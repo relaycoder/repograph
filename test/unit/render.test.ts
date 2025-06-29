@@ -178,16 +178,18 @@ describe('Markdown Rendering', () => {
       const rankedGraph: RankedCodeGraph = { graph: graph, ranks };
       const markdown = renderer(rankedGraph);
 
-      expect(markdown).toContain('### Top 10 Most Important Files');
-      expect(markdown).toContain('| Rank | File | Description |');
+      const topFilesSection = markdown.split('## 📂 File & Symbol Breakdown')[0]!;
+
+      expect(topFilesSection).toContain('### Top 10 Most Important Files');
+      expect(topFilesSection).toContain('| Rank | File | Description |');
       
       // Should contain the top 10 files (file15 to file6)
-      expect(markdown).toContain('`src/file15.ts`');
-      expect(markdown).toContain('`src/file6.ts`');
+      expect(topFilesSection).toContain('`src/file15.ts`');
+      expect(topFilesSection).toContain('`src/file6.ts`');
       
       // Should not contain the lower ranked files
-      expect(markdown).not.toContain('`src/file1.ts`');
-      expect(markdown).not.toContain('`src/file5.ts`');
+      expect(topFilesSection).not.toContain('`src/file1.ts`');
+      expect(topFilesSection).not.toContain('`src/file5.ts`');
     });
 
     it('should include symbol details by default', () => {

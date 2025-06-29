@@ -25,6 +25,16 @@ export const createMapGenerator = (pipeline: {
   readonly rank: Ranker;
   readonly render: Renderer;
 }): MapGenerator => {
+  if (
+    !pipeline ||
+    typeof pipeline.discover !== 'function' ||
+    typeof pipeline.analyze !== 'function' ||
+    typeof pipeline.rank !== 'function' ||
+    typeof pipeline.render !== 'function'
+  ) {
+    throw new Error('createMapGenerator: A valid pipeline object with discover, analyze, rank, and render functions must be provided.');
+  }
+
   return async (config) => {
     const { root, output, include, ignore, noGitignore, rendererOptions } = config;
 

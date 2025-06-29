@@ -27,9 +27,9 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
     const query = tsLang.query(TS_QUERY);
 
     const graph: Graph<CodeNode> = new Graph({
-      multi: true,
       allowSelfLoops: false,
       type: 'directed',
+      multi: false,
     });
 
     // Phase 1: Add all files as nodes
@@ -55,50 +55,55 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
       }
       const captures = query.captures(tree.rootNode);
 
+      const processedDefinitions = new Set<number>();
+
       for (const { name, node } of captures) {
         const [type, subtype] = name.split('.');
         
         if (type === 'import' && subtype === 'source') {
-            const sourcePath = getNodeText(node, file.content).replace(/['"`]/g, '');
-            const fromFileId = file.path;
-            const toFileId = path.join(path.dirname(fromFileId), sourcePath).replace(/\.(ts|js)x?$/, '') + '.ts'; // Simplistic resolution
-             
-            if (graph.hasNode(toFileId)) {
-                if(!graph.hasEdge(fromFileId, toFileId)) {
-                   graph.addDirectedEdge(fromFileId, toFileId, { type: 'imports' });
-                }
+          const sourcePath = getNodeText(node, file.content).replace(/['"`]/g, '');
+          const fromFileId = file.path;
+          const toFileId = path.join(path.dirname(fromFileId), sourcePath).replace(/\.(ts|js)x?$/, '') + '.ts'; // Simplistic resolution
+           
+          if (graph.hasNode(toFileId)) {
+            if (!graph.hasEdge(fromFileId, toFileId)) {
+              graph.addDirectedEdge(fromFileId, toFileId, { type: 'imports' });
             }
-            continue;
+          }
+          continue;
         }
 
-        const definitionMap: Record<string, CodeNodeType> = {
-          'class': 'class',
-          'function': 'function',
-          'function.arrow': 'arrow_function',
-          'interface': 'interface',
-          'type': 'type',
-        };
+        if (subtype !== 'definition') continue;
+        if (processedDefinitions.has(node.startIndex)) continue;
+        processedDefinitions.add(node.startIndex);
 
-        if (subtype === 'name' && type && definitionMap[type]) {
-          const symbolType = definitionMap[type];
-          const symbolName = getNodeText(node, file.content);
+        const definitionMap: Record<string, CodeNodeType> = {
+          class: 'class',
+          function: 'function',
+          'function.arrow': 'arrow_function',
+          interface: 'interface',
+          type: 'type',
+        };
+        const symbolType = definitionMap[type!];
+        if (!symbolType) continue;
+
+        // For exports, the actual declaration is nested.
+        const declarationNode = node.type === 'export_statement' ? node.namedChildren[0] : node;
+        if (!declarationNode) continue;
+
+        const nameNode = declarationNode.childForFieldName('name') ?? declarationNode.firstNamedChild?.childForFieldName('name');
+
+        if (nameNode) {
+          const symbolName = nameNode.text;
           const symbolId = `${file.path}#${symbolName}`;
-          
           if (!graph.hasNode(symbolId)) {
-            const definitionNode = captures.find((c: any) => c.name.endsWith('.definition') && c.node.equals(node.parent?.parent))?.node ?? node.parent;
-            if (definitionNode) {
-              graph.addNode(symbolId, {
-                id: symbolId,
-                type: symbolType,
-                name: symbolName,
-                filePath: file.path,
-                startLine: getLineFromIndex(file.content, definitionNode.startIndex),
-                endLine: getLineFromIndex(file.content, definitionNode.endIndex),
-                codeSnippet: definitionNode.text?.split('{')[0]?.trim() || '',
-              });
-              // Add edge from file to the symbol it contains
-              graph.addDirectedEdge(file.path, symbolId, { type: 'contains' });
-            }
+            graph.addNode(symbolId, {
+              id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
+              startLine: getLineFromIndex(file.content, node.startIndex),
+              endLine: getLineFromIndex(file.content, node.endIndex),
+              codeSnippet: node.text?.split('{')[0]?.trim() || '',
+            });
+            graph.addDirectedEdge(file.path, symbolId, { type: 'contains' });
           }
         }
       }

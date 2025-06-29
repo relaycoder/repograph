@@ -7,22 +7,18 @@ export const TS_QUERY = `
 (import_statement
   source: (string) @import.source) @import.statement
 
-(class_declaration
-  name: (type_identifier) @class.name) @class.definition
+(class_declaration) @class.definition
+(export_statement declaration: (class_declaration)) @class.definition
 
-(function_declaration
-  name: (identifier) @function.name) @function.definition
+(function_declaration) @function.definition
+(export_statement declaration: (function_declaration)) @function.definition
 
-(lexical_declaration
-  (variable_declarator
-    name: (identifier) @function.arrow.name
-    value: (arrow_function)
-  )
-) @function.arrow.definition
+(lexical_declaration (variable_declarator value: (arrow_function))) @function.arrow.definition
+(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
 
-(interface_declaration
-  name: (type_identifier) @interface.name) @interface.definition
+(interface_declaration) @interface.definition
+(export_statement declaration: (interface_declaration)) @interface.definition
 
-(type_alias_declaration
-  name: (type_identifier) @type.name) @type.definition
+(type_alias_declaration) @type.definition
+(export_statement declaration: (type_alias_declaration)) @type.definition
 `;

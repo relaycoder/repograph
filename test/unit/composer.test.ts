@@ -370,11 +370,9 @@ describe('Composer', () => {
       // Custom discoverer for .special files
       const customDiscoverer: FileDiscoverer = async (options) => {
         const defaultDiscoverer = createDefaultDiscoverer();
-        const defaultFiles = await defaultDiscoverer(options);
-        
-        // Add special files
-        const specialFiles = defaultFiles.filter(f => f.path.endsWith('.special'));
-        return [...defaultFiles, ...specialFiles];
+        // The original logic had a bug that duplicated files. We just need to
+        // ensure all files are discovered for the test.
+        return defaultDiscoverer(options);
       };
 
       // Custom analyzer that handles .special files
