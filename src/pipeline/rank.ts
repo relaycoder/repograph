@@ -4,49 +4,48 @@ import Graph from 'graphology';
 import { execSync } from 'node:child_process';
 
 /**
- * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily
- * referenced by other important nodes will receive a higher rank.
+ * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
+ * other important nodes will receive a higher rank.
  * @returns A Ranker function.
  */
 export const createPageRanker = (): Ranker => {
   return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
     // PageRank can only be computed on graphs with nodes.
-    if (graph.order === 0) {
-      return { graph, ranks: new Map() };
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks: new Map() };
     }
 
-    // Pagerank doesn't work on multi-graphs, so we need a simplified representation.
-    let graphForRank: CodeGraph = graph;
-    if (graph.multi) {
-      const simpleGraph = new Graph({ type: 'directed' });
-      graph.forEachNode((node, attrs) => simpleGraph.addNode(node, attrs));
-      graph.forEachEdge((_edge, _attrs, source, target) => {
-        if (!simpleGraph.hasEdge(source, target)) {
-          simpleGraph.addDirectedEdge(source, target);
-        }
-      });
-      graphForRank = simpleGraph;
+    // Pagerank lib requires a graphology instance.
+    const simpleGraph = new Graph({ type: 'directed' });
+    for (const [nodeId, node] of graph.nodes) {
+      simpleGraph.addNode(nodeId, node);
+    }
+    for (const edge of graph.edges) {
+      if (!simpleGraph.hasEdge(edge.fromId, edge.toId)) {
+        simpleGraph.addDirectedEdge(edge.fromId, edge.toId);
+      }
     }
 
+    const graphForRank = simpleGraph;
     const ranksData = pagerank(graphForRank);
     const ranks = new Map<string, number>();
     for (const node in ranksData) {
       ranks.set(node, ranksData[node] ?? 0);
     }
-    return { graph, ranks };
+    return { ...graph, ranks };
   };
 };
 
 /**
- * Creates a ranker based on Git commit history. Files changed more frequently
- * are considered more important. Requires Git to be installed.
+ * Creates a ranker based on Git commit history. Files changed more frequently are considered
+ * more important. Requires Git to be installed.
  * @returns A Ranker function.
  */
 export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
   return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
     const { maxCommits = 500 } = options;
     const ranks = new Map<string, number>();
-    
+
     try {
       const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
       const output = execSync(command, { encoding: 'utf-8' });
@@ -56,10 +55,10 @@ export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker =
       for (const file of files) {
         changeCounts[file] = (changeCounts[file] || 0) + 1;
       }
-      
+
       const maxChanges = Math.max(...Object.values(changeCounts), 1);
-      
-      graph.forEachNode((nodeId, attributes) => {
+
+      for (const [nodeId, attributes] of graph.nodes) {
         // We only rank file nodes with this strategy
         if (attributes.type === 'file') {
           const count = changeCounts[attributes.filePath] || 0;
@@ -67,13 +66,14 @@ export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker =
         } else {
           ranks.set(nodeId, 0);
         }
-      });
-
+      }
     } catch (e) {
       console.warn('Git command failed. Could not generate git-based ranks. Is git installed?');
-      graph.forEachNode((nodeId) => ranks.set(nodeId, 0));
+      for (const nodeId of graph.nodes.keys()) {
+        ranks.set(nodeId, 0);
+      }
     }
-    
-    return { graph, ranks };
+
+    return { ...graph, ranks };
   };
 };

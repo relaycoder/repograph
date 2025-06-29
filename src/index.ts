@@ -77,7 +77,7 @@ Options:
     include?: readonly string[];
     ignore?: readonly string[];
     noGitignore?: boolean;
-    rankingStrategy?: 'pagerank' | 'git-changes' | 'alphabetical';
+    rankingStrategy?: 'pagerank' | 'git-changes';
     rendererOptions?: IRepoGraphOptions['rendererOptions'];
   } = {};
   const includePatterns: string[] = [];

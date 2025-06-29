@@ -39,7 +39,7 @@ describe('Tree-sitter Analysis', () => {
       const graph = await analyzer(files);
 
       expect(graph).toBeDefined();
-      expect(graph.order).toBeGreaterThan(0); // Should have nodes
+      expect(graph.nodes.size).toBeGreaterThan(0); // Should have nodes
     });
 
     it('should add file nodes to the graph', async () => {
@@ -56,11 +56,11 @@ describe('Tree-sitter Analysis', () => {
 
       const graph = await analyzer(files);
 
-      expect(graph.hasNode('src/index.ts')).toBe(true);
-      expect(graph.hasNode('src/utils.ts')).toBe(true);
+      expect(graph.nodes.has('src/index.ts')).toBe(true);
+      expect(graph.nodes.has('src/utils.ts')).toBe(true);
 
-      const indexNode = graph.getNodeAttributes('src/index.ts');
-      expect(indexNode.type).toBe('file');
+      const indexNode = graph.nodes.get('src/index.ts');
+      expect(indexNode!.type).toBe('file');
       expect(indexNode.name).toBe('index.ts');
       expect(indexNode.filePath).toBe('src/index.ts');
     });
@@ -81,10 +81,10 @@ export function multiply(x: number, y: number): number {
 
       const graph = await analyzer(files);
 
-      expect(graph.hasNode('src/functions.ts#add')).toBe(true);
-      expect(graph.hasNode('src/functions.ts#multiply')).toBe(true);
+      expect(graph.nodes.has('src/functions.ts#add')).toBe(true);
+      expect(graph.nodes.has('src/functions.ts#multiply')).toBe(true);
 
-      const addNode = graph.getNodeAttributes('src/functions.ts#add');
+      const addNode = graph.nodes.get('src/functions.ts#add');
       expect(addNode.type).toBe('function');
       expect(addNode.name).toBe('add');
       expect(addNode.filePath).toBe('src/functions.ts');
@@ -105,10 +105,10 @@ const calculate = (x: number, y: number): number => x + y;`
 
       const graph = await analyzer(files);
 
-      expect(graph.hasNode('src/arrows.ts#greet')).toBe(true);
-      expect(graph.hasNode('src/arrows.ts#calculate')).toBe(true);
+      expect(graph.nodes.has('src/arrows.ts#greet')).toBe(true);
+      expect(graph.nodes.has('src/arrows.ts#calculate')).toBe(true);
 
-      const greetNode = graph.getNodeAttributes('src/arrows.ts#greet');
+      const greetNode = graph.nodes.get('src/arrows.ts#greet');
       expect(greetNode.type).toBe('arrow_function');
       expect(greetNode.name).toBe('greet');
     });
@@ -136,10 +136,10 @@ class Logger {
 
       const graph = await analyzer(files);
 
-      expect(graph.hasNode('src/classes.ts#Calculator')).toBe(true);
-      expect(graph.hasNode('src/classes.ts#Logger')).toBe(true);
+      expect(graph.nodes.has('src/classes.ts#Calculator')).toBe(true);
+      expect(graph.nodes.has('src/classes.ts#Logger')).toBe(true);
 
-      const calculatorNode = graph.getNodeAttributes('src/classes.ts#Calculator');
+      const calculatorNode = graph.nodes.get('src/classes.ts#Calculator');
       expect(calculatorNode.type).toBe('class');
       expect(calculatorNode.name).toBe('Calculator');
       expect(calculatorNode.codeSnippet).toContain('export class Calculator');
@@ -164,10 +164,10 @@ interface Config {
 
       const graph = await analyzer(files);
 
-      expect(graph.hasNode('src/interfaces.ts#User')).toBe(true);
-      expect(graph.hasNode('src/interfaces.ts#Config')).toBe(true);
+      expect(graph.nodes.has('src/interfaces.ts#User')).toBe(true);
+      expect(graph.nodes.has('src/interfaces.ts#Config')).toBe(true);
 
-      const userNode = graph.getNodeAttributes('src/interfaces.ts#User');
+      const userNode = graph.nodes.get('src/interfaces.ts#User');
       expect(userNode.type).toBe('interface');
       expect(userNode.name).toBe('User');
     });
@@ -186,11 +186,11 @@ export type UserRole = 'admin' | 'user' | 'guest';`
 
       const graph = await analyzer(files);
 
-      expect(graph.hasNode('src/types.ts#Status')).toBe(true);
-      expect(graph.hasNode('src/types.ts#Handler')).toBe(true);
-      expect(graph.hasNode('src/types.ts#UserRole')).toBe(true);
+      expect(graph.nodes.has('src/types.ts#Status')).toBe(true);
+      expect(graph.nodes.has('src/types.ts#Handler')).toBe(true);
+      expect(graph.nodes.has('src/types.ts#UserRole')).toBe(true);
 
-      const statusNode = graph.getNodeAttributes('src/types.ts#Status');
+      const statusNode = graph.nodes.get('src/types.ts#Status');
       expect(statusNode.type).toBe('type');
       expect(statusNode.name).toBe('Status');
     });
@@ -225,29 +225,11 @@ export { Calculator, Logger };`
       const graph = await analyzer(files);
 
       // Check if import edges exist
-      expect(graph.hasEdge('src/index.ts', 'src/calculator.ts')).toBe(true);
-      expect(graph.hasEdge('src/index.ts', 'src/utils/logger.ts')).toBe(true);
-    });
-
-    it('should create edges from files to their symbols', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/example.ts',
-          content: `export class Example {
-  method(): void {}
-}
-
-export function helper(): string {
-  return 'help';
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      // Check if contains edges exist
-      expect(graph.hasEdge('src/example.ts', 'src/example.ts#Example')).toBe(true);
-      expect(graph.hasEdge('src/example.ts', 'src/example.ts#helper')).toBe(true);
+      const hasCalculatorImport = graph.edges.some(e => e.fromId === 'src/index.ts' && e.toId === 'src/calculator.ts');
+      const hasLoggerImport = graph.edges.some(e => e.fromId === 'src/index.ts' && e.toId === 'src/utils/logger.ts');
+      
+      expect(hasCalculatorImport).toBe(true);
+      expect(hasLoggerImport).toBe(true);
     });
 
     it('should handle files with no symbols gracefully', async () => {
@@ -265,10 +247,10 @@ export function helper(): string {
       const graph = await analyzer(files);
 
       // Should still create file nodes
-      expect(graph.hasNode('README.md')).toBe(true);
-      expect(graph.hasNode('src/empty.ts')).toBe(true);
+      expect(graph.nodes.has('README.md')).toBe(true);
+      expect(graph.nodes.has('src/empty.ts')).toBe(true);
 
-      const readmeNode = graph.getNodeAttributes('README.md');
+      const readmeNode = graph.nodes.get('README.md');
       expect(readmeNode.type).toBe('file');
     });
 
@@ -287,8 +269,8 @@ export function helper(): string {
       const graph = await analyzer(files);
 
       // Should still create file nodes for both
-      expect(graph.hasNode('src/valid.ts')).toBe(true);
-      expect(graph.hasNode('src/invalid.ts')).toBe(true);
+      expect(graph.nodes.has('src/valid.ts')).toBe(true);
+      expect(graph.nodes.has('src/invalid.ts')).toBe(true);
     });
 
     it('should set correct line numbers for symbols', async () => {
@@ -316,9 +298,9 @@ export interface ThirdInterface {
 
       const graph = await analyzer(files);
 
-      const firstClass = graph.getNodeAttributes('src/multiline.ts#FirstClass');
-      const secondFunction = graph.getNodeAttributes('src/multiline.ts#secondFunction');
-      const thirdInterface = graph.getNodeAttributes('src/multiline.ts#ThirdInterface');
+      const firstClass = graph.nodes.get('src/multiline.ts#FirstClass');
+      const secondFunction = graph.nodes.get('src/multiline.ts#secondFunction');
+      const thirdInterface = graph.nodes.get('src/multiline.ts#ThirdInterface');
 
       expect(firstClass.startLine).toBe(3);
       expect(secondFunction.startLine).toBe(9);
@@ -350,8 +332,8 @@ export function multiply(a: number, b: number): number {
 
       const graph = await analyzer(files);
 
-      const calculatorNode = graph.getNodeAttributes('src/snippets.ts#Calculator');
-      const multiplyNode = graph.getNodeAttributes('src/snippets.ts#multiply');
+      const calculatorNode = graph.nodes.get('src/snippets.ts#Calculator');
+      const multiplyNode = graph.nodes.get('src/snippets.ts#multiply');
 
       expect(calculatorNode.codeSnippet).toContain('export class Calculator');
       expect(multiplyNode.codeSnippet).toContain('export function multiply(a: number, b: number): number');
@@ -387,10 +369,14 @@ import Logger, { LogLevel } from './logger.js';`
       const graph = await analyzer(files);
 
       // Check import edges
-      expect(graph.hasEdge('src/imports.ts', 'src/math/calculator.ts')).toBe(true);
-      expect(graph.hasEdge('src/imports.ts', 'src/utils.ts')).toBe(true);
-      expect(graph.hasEdge('src/imports.ts', 'src/config.ts')).toBe(true);
-      expect(graph.hasEdge('src/imports.ts', 'src/logger.ts')).toBe(true);
+      const hasCalcImport = graph.edges.some(e => e.fromId === 'src/imports.ts' && e.toId === 'src/math/calculator.ts');
+      const hasUtilsImport = graph.edges.some(e => e.fromId === 'src/imports.ts' && e.toId === 'src/utils.ts');
+      const hasConfigImport = graph.edges.some(e => e.fromId === 'src/imports.ts' && e.toId === 'src/config.ts');
+      const hasLoggerImport = graph.edges.some(e => e.fromId === 'src/imports.ts' && e.toId === 'src/logger.ts');
+      expect(hasCalcImport).toBe(true);
+      expect(hasUtilsImport).toBe(true);
+      expect(hasConfigImport).toBe(true);
+      expect(hasLoggerImport).toBe(true);
     });
 
     it('should handle nested class and function definitions', async () => {
@@ -415,56 +401,11 @@ import Logger, { LogLevel } from './logger.js';`
       const graph = await analyzer(files);
 
       // Should identify the outer class
-      expect(graph.hasNode('src/nested.ts#OuterClass')).toBe(true);
+      expect(graph.nodes.has('src/nested.ts#OuterClass')).toBe(true);
       
-      const outerClass = graph.getNodeAttributes('src/nested.ts#OuterClass');
+      const outerClass = graph.nodes.get('src/nested.ts#OuterClass');
       expect(outerClass.type).toBe('class');
       expect(outerClass.name).toBe('OuterClass');
-    });
-  });
-
-  describe('Graph Structure', () => {
-    it('should create a directed graph', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/test.ts',
-          content: 'export const test = true;'
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      expect(graph.type).toBe('directed');
-      expect(graph.multi).toBe(true);
-      expect(graph.allowSelfLoops).toBe(false);
-    });
-
-    it('should not create duplicate nodes for the same symbol', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/duplicate.ts',
-          content: `export class Calculator {
-  add(a: number, b: number): number {
-    return a + b;
-  }
-}
-
-// This should not create a duplicate
-export class Calculator {
-  multiply(a: number, b: number): number {
-    return a * b;
-  }
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      // Should only have one Calculator node (first one wins)
-      const calculatorNodes = graph.filterNodes((nodeId) => 
-        nodeId.includes('#Calculator')
-      );
-      expect(calculatorNodes.length).toBe(1);
     });
 
     it('should handle circular imports gracefully', async () => {
@@ -487,10 +428,40 @@ export class B {
 
       const graph = await analyzer(files);
 
-      expect(graph.hasEdge('src/a.ts', 'src/b.ts')).toBe(true);
-      expect(graph.hasEdge('src/b.ts', 'src/a.ts')).toBe(true);
-      expect(graph.hasNode('src/a.ts#A')).toBe(true);
-      expect(graph.hasNode('src/b.ts#B')).toBe(true);
+      const aToB = graph.edges.some(e => e.fromId === 'src/a.ts' && e.toId === 'src/b.ts');
+      const bToA = graph.edges.some(e => e.fromId === 'src/b.ts' && e.toId === 'src/a.ts');
+      
+      expect(aToB).toBe(true);
+      expect(bToA).toBe(true);
+      expect(graph.nodes.has('src/a.ts#A')).toBe(true);
+      expect(graph.nodes.has('src/b.ts#B')).toBe(true);
+    });
+    it('should not create duplicate nodes for the same symbol', async () => {
+      const files: FileContent[] = [
+        {
+          path: 'src/duplicate.ts',
+          content: `export class Calculator {
+  add(a: number, b: number): number {
+    return a + b;
+  }
+}
+
+// This should not create a duplicate
+export class Calculator {
+  multiply(a: number, b: number): number {
+    return a * b;
+  }
+}`
+        }
+      ];
+
+      const graph = await analyzer(files);
+
+      // Should only have one Calculator node (first one wins)
+      const calculatorNodes = [...graph.nodes.keys()].filter((nodeId) =>
+        nodeId.includes('#Calculator')
+      );
+      expect(calculatorNodes.length).toBe(1);
     });
   });
 
@@ -511,12 +482,12 @@ export class B {
 
       const graph = await analyzer(files);
 
-      expect(graph.order).toBe(fixture.expected_nodes!);
+      expect(graph.nodes.size).toBe(fixture.expected_nodes!);
       
       // Check for specific symbols from the fixture
-      expect(graph.hasNode('src/calculator.ts#Calculator')).toBe(true);
-      expect(graph.hasNode('src/utils/logger.ts#Logger')).toBe(true);
-      expect(graph.hasNode('src/types.ts#Config')).toBe(true);
+      expect(graph.nodes.has('src/calculator.ts#Calculator')).toBe(true);
+      expect(graph.nodes.has('src/utils/logger.ts#Logger')).toBe(true);
+      expect(graph.nodes.has('src/types.ts#Config')).toBe(true);
     });
 
     it('should analyze complex-project fixture correctly', async () => {
@@ -536,13 +507,15 @@ export class B {
       const graph = await analyzer(files);
 
       // Check for key classes and interfaces
-      expect(graph.hasNode('src/database/index.ts#Database')).toBe(true);
-      expect(graph.hasNode('src/api/server.ts#ApiServer')).toBe(true);
-      expect(graph.hasNode('src/services/user.ts#UserService')).toBe(true);
+      expect(graph.nodes.has('src/database/index.ts#Database')).toBe(true);
+      expect(graph.nodes.has('src/api/server.ts#ApiServer')).toBe(true);
+      expect(graph.nodes.has('src/services/user.ts#UserService')).toBe(true);
       
       // Check for import relationships
-      expect(graph.hasEdge('src/api/server.ts', 'src/database/index.ts')).toBe(true);
-      expect(graph.hasEdge('src/api/server.ts', 'src/services/user.ts')).toBe(true);
+      const serverToDb = graph.edges.some(e => e.fromId === 'src/api/server.ts' && e.toId === 'src/database/index.ts');
+      const serverToUser = graph.edges.some(e => e.fromId === 'src/api/server.ts' && e.toId === 'src/services/user.ts');
+      expect(serverToDb).toBe(true);
+      expect(serverToUser).toBe(true);
     });
 
     it('should handle minimal-project fixture', async () => {
@@ -558,12 +531,12 @@ export class B {
 
       const graph = await analyzer(files);
 
-      expect(graph.hasNode('src/main.ts')).toBe(true);
-      expect(graph.hasNode('src/main.ts#hello')).toBe(true);
-      expect(graph.hasNode('src/main.ts#greet')).toBe(true);
+      expect(graph.nodes.has('src/main.ts')).toBe(true);
+      expect(graph.nodes.has('src/main.ts#hello')).toBe(true);
+      expect(graph.nodes.has('src/main.ts#greet')).toBe(true);
 
-      const helloNode = graph.getNodeAttributes('src/main.ts#hello');
-      const greetNode = graph.getNodeAttributes('src/main.ts#greet');
+      const helloNode = graph.nodes.get('src/main.ts#hello');
+      const greetNode = graph.nodes.get('src/main.ts#greet');
 
       expect(helloNode.type).toBe('function');
       expect(greetNode.type).toBe('arrow_function');

@@ -2,8 +2,7 @@ import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
 import { createMarkdownRenderer } from '../../src/pipeline/render.js';
 import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
 import { createPageRanker } from '../../src/pipeline/rank.js';
-import type { CodeNode, FileContent, RankedCodeGraph, RendererOptions } from '../../src/types.js';
-import Graph from 'graphology';
+import type { CodeNode, CodeEdge, FileContent, RankedCodeGraph, RendererOptions } from '../../src/types.js';
 import {
   createTempDir,
   cleanupTempDir,
@@ -33,14 +32,9 @@ describe('Markdown Rendering', () => {
     });
 
     it('should generate valid markdown from empty graph', () => {
-      const emptyGraph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
       const rankedGraph: RankedCodeGraph = {
-        graph: emptyGraph,
+        nodes: new Map(),
+        edges: [],
         ranks: new Map()
       };
 
@@ -52,13 +46,8 @@ describe('Markdown Rendering', () => {
     });
 
     it('should include project overview section', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('src/index.ts', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('src/index.ts', {
         id: 'src/index.ts',
         type: 'file',
         name: 'index.ts',
@@ -68,7 +57,8 @@ describe('Markdown Rendering', () => {
       });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([['src/index.ts', 0.5]])
       };
 
@@ -80,13 +70,10 @@ describe('Markdown Rendering', () => {
     });
 
     it('should include Mermaid graph by default', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
+      const nodes = new Map<string, CodeNode>();
+      const edges: CodeEdge[] = [];
 
-      graph.addNode('src/a.ts', {
+      nodes.set('src/a.ts', {
         id: 'src/a.ts',
         type: 'file',
         name: 'a.ts',
@@ -95,7 +82,7 @@ describe('Markdown Rendering', () => {
         endLine: 10
       });
 
-      graph.addNode('src/b.ts', {
+      nodes.set('src/b.ts', {
         id: 'src/b.ts',
         type: 'file',
         name: 'b.ts',
@@ -104,10 +91,11 @@ describe('Markdown Rendering', () => {
         endLine: 10
       });
 
-      graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+      edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports' });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges,
         ranks: new Map([
           ['src/a.ts', 0.3],
           ['src/b.ts', 0.7]
@@ -122,13 +110,8 @@ describe('Markdown Rendering', () => {
     });
 
     it('should exclude Mermaid graph when option is false', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('src/index.ts', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('src/index.ts', {
         id: 'src/index.ts',
         type: 'file',
         name: 'index.ts',
@@ -138,7 +121,8 @@ describe('Markdown Rendering', () => {
       });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([['src/index.ts', 0.5]])
       };
 
@@ -153,18 +137,13 @@ describe('Markdown Rendering', () => {
     });
 
     it('should include top 10 most important files', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
+      const nodes = new Map<string, CodeNode>();
       const ranks = new Map<string, number>();
 
       // Create 15 files with different ranks
       for (let i = 1; i <= 15; i++) {
         const nodeId = `src/file${i}.ts`;
-        graph.addNode(nodeId, {
+        nodes.set(nodeId, {
           id: nodeId,
           type: 'file',
           name: `file${i}.ts`,
@@ -175,7 +154,7 @@ describe('Markdown Rendering', () => {
         ranks.set(nodeId, i / 15); // Higher numbers get higher ranks
       }
 
-      const rankedGraph: RankedCodeGraph = { graph: graph, ranks };
+      const rankedGraph: RankedCodeGraph = { nodes, edges: [], ranks };
       const markdown = renderer(rankedGraph);
 
       const topFilesSection = markdown.split('## 📂 File & Symbol Breakdown')[0]!;
@@ -193,13 +172,9 @@ describe('Markdown Rendering', () => {
     });
 
     it('should include symbol details by default', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
+      const nodes = new Map<string, CodeNode>();
 
-      graph.addNode('src/test.ts', {
+      nodes.set('src/test.ts', {
         id: 'src/test.ts',
         type: 'file',
         name: 'test.ts',
@@ -208,7 +183,7 @@ describe('Markdown Rendering', () => {
         endLine: 20
       });
 
-      graph.addNode('src/test.ts#TestClass', {
+      nodes.set('src/test.ts#TestClass', {
         id: 'src/test.ts#TestClass',
         type: 'class',
         name: 'TestClass',
@@ -218,7 +193,7 @@ describe('Markdown Rendering', () => {
         codeSnippet: 'export class TestClass {'
       });
 
-      graph.addNode('src/test.ts#testFunction', {
+      nodes.set('src/test.ts#testFunction', {
         id: 'src/test.ts#testFunction',
         type: 'function',
         name: 'testFunction',
@@ -228,11 +203,9 @@ describe('Markdown Rendering', () => {
         codeSnippet: 'export function testFunction(): void'
       });
 
-      graph.addDirectedEdge('src/test.ts', 'src/test.ts#TestClass', { type: 'contains' });
-      graph.addDirectedEdge('src/test.ts', 'src/test.ts#testFunction', { type: 'contains' });
-
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([
           ['src/test.ts', 0.8],
           ['src/test.ts#TestClass', 0.5],
@@ -251,13 +224,8 @@ describe('Markdown Rendering', () => {
     });
 
     it('should exclude symbol details when option is false', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('src/test.ts', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('src/test.ts', {
         id: 'src/test.ts',
         type: 'file',
         name: 'test.ts',
@@ -267,7 +235,8 @@ describe('Markdown Rendering', () => {
       });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([['src/test.ts', 0.5]])
       };
 
@@ -281,14 +250,9 @@ describe('Markdown Rendering', () => {
     });
 
     it('should include custom header when provided', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes: new Map(),
+        edges: [],
         ranks: new Map()
       };
 
@@ -304,13 +268,8 @@ describe('Markdown Rendering', () => {
     });
 
     it('should handle files with no symbols', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('README.md', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('README.md', {
         id: 'README.md',
         type: 'file',
         name: 'README.md',
@@ -320,7 +279,8 @@ describe('Markdown Rendering', () => {
       });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([['README.md', 0.5]])
       };
 
@@ -331,13 +291,8 @@ describe('Markdown Rendering', () => {
     });
 
     it('should sort symbols by line number', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('src/test.ts', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('src/test.ts', {
         id: 'src/test.ts',
         type: 'file',
         name: 'test.ts',
@@ -347,7 +302,7 @@ describe('Markdown Rendering', () => {
       });
 
       // Add symbols in non-sequential order
-      graph.addNode('src/test.ts#lastFunction', {
+      nodes.set('src/test.ts#lastFunction', {
         id: 'src/test.ts#lastFunction',
         type: 'function',
         name: 'lastFunction',
@@ -356,7 +311,7 @@ describe('Markdown Rendering', () => {
         endLine: 28
       });
 
-      graph.addNode('src/test.ts#firstFunction', {
+      nodes.set('src/test.ts#firstFunction', {
         id: 'src/test.ts#firstFunction',
         type: 'function',
         name: 'firstFunction',
@@ -365,7 +320,7 @@ describe('Markdown Rendering', () => {
         endLine: 10
       });
 
-      graph.addNode('src/test.ts#middleClass', {
+      nodes.set('src/test.ts#middleClass', {
         id: 'src/test.ts#middleClass',
         type: 'class',
         name: 'middleClass',
@@ -374,12 +329,9 @@ describe('Markdown Rendering', () => {
         endLine: 20
       });
 
-      graph.addDirectedEdge('src/test.ts', 'src/test.ts#lastFunction', { type: 'contains' });
-      graph.addDirectedEdge('src/test.ts', 'src/test.ts#firstFunction', { type: 'contains' });
-      graph.addDirectedEdge('src/test.ts', 'src/test.ts#middleClass', { type: 'contains' });
-
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([
           ['src/test.ts', 0.8],
           ['src/test.ts#lastFunction', 0.3],
@@ -400,12 +352,7 @@ describe('Markdown Rendering', () => {
     });
 
     it('should sort files by rank (highest first)', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
+      const nodes = new Map<string, CodeNode>();
       const files = [
         { id: 'src/low.ts', rank: 0.2 },
         { id: 'src/high.ts', rank: 0.8 },
@@ -415,7 +362,7 @@ describe('Markdown Rendering', () => {
       const ranks = new Map<string, number>();
 
       for (const file of files) {
-        graph.addNode(file.id, {
+        nodes.set(file.id, {
           id: file.id,
           type: 'file',
           name: file.id.split('/').pop()!,
@@ -426,7 +373,7 @@ describe('Markdown Rendering', () => {
         ranks.set(file.id, file.rank);
       }
 
-      const rankedGraph: RankedCodeGraph = { graph: graph, ranks };
+      const rankedGraph: RankedCodeGraph = { nodes, edges: [], ranks };
       const markdown = renderer(rankedGraph);
 
       // Check order in the file breakdown section
@@ -439,13 +386,8 @@ describe('Markdown Rendering', () => {
     });
 
     it('should handle symbols without code snippets', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('src/test.ts', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('src/test.ts', {
         id: 'src/test.ts',
         type: 'file',
         name: 'test.ts',
@@ -454,7 +396,7 @@ describe('Markdown Rendering', () => {
         endLine: 10
       });
 
-      graph.addNode('src/test.ts#noSnippet', {
+      nodes.set('src/test.ts#noSnippet', {
         id: 'src/test.ts#noSnippet',
         type: 'function',
         name: 'noSnippet',
@@ -464,10 +406,9 @@ describe('Markdown Rendering', () => {
         // No codeSnippet property
       });
 
-      graph.addDirectedEdge('src/test.ts', 'src/test.ts#noSnippet', { type: 'contains' });
-
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([
           ['src/test.ts', 0.5],
           ['src/test.ts#noSnippet', 0.3]
@@ -482,13 +423,8 @@ describe('Markdown Rendering', () => {
     });
 
     it('should generate proper markdown links for files', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('src/nested/deep/file.ts', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('src/nested/deep/file.ts', {
         id: 'src/nested/deep/file.ts',
         type: 'file',
         name: 'file.ts',
@@ -498,7 +434,8 @@ describe('Markdown Rendering', () => {
       });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([['src/nested/deep/file.ts', 0.5]])
       };
 
@@ -510,13 +447,10 @@ describe('Markdown Rendering', () => {
 
   describe('Mermaid Graph Generation', () => {
     it('should only include file nodes in Mermaid graph', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
+      const nodes = new Map<string, CodeNode>();
+      const edges: CodeEdge[] = [];
 
-      graph.addNode('src/a.ts', {
+      nodes.set('src/a.ts', {
         id: 'src/a.ts',
         type: 'file',
         name: 'a.ts',
@@ -525,7 +459,7 @@ describe('Markdown Rendering', () => {
         endLine: 10
       });
 
-      graph.addNode('src/a.ts#Class', {
+      nodes.set('src/a.ts#Class', {
         id: 'src/a.ts#Class',
         type: 'class',
         name: 'Class',
@@ -534,7 +468,7 @@ describe('Markdown Rendering', () => {
         endLine: 8
       });
 
-      graph.addNode('src/b.ts', {
+      nodes.set('src/b.ts', {
         id: 'src/b.ts',
         type: 'file',
         name: 'b.ts',
@@ -543,11 +477,11 @@ describe('Markdown Rendering', () => {
         endLine: 10
       });
 
-      graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
-      graph.addDirectedEdge('src/a.ts', 'src/a.ts#Class', { type: 'contains' });
+      edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports' });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges,
         ranks: new Map([
           ['src/a.ts', 0.5],
           ['src/a.ts#Class', 0.3],
@@ -562,13 +496,8 @@ describe('Markdown Rendering', () => {
     });
 
     it('should handle graphs with no file-to-file edges', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('src/isolated.ts', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('src/isolated.ts', {
         id: 'src/isolated.ts',
         type: 'file',
         name: 'isolated.ts',
@@ -578,7 +507,8 @@ describe('Markdown Rendering', () => {
       });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([['src/isolated.ts', 0.5]])
       };
 
@@ -590,13 +520,9 @@ describe('Markdown Rendering', () => {
     });
 
     it('should deduplicate edges in Mermaid graph', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('src/a.ts', {
+      const nodes = new Map<string, CodeNode>();
+      const edges: CodeEdge[] = [];
+      nodes.set('src/a.ts', {
         id: 'src/a.ts',
         type: 'file',
         name: 'a.ts',
@@ -605,7 +531,7 @@ describe('Markdown Rendering', () => {
         endLine: 10
       });
 
-      graph.addNode('src/b.ts', {
+      nodes.set('src/b.ts', {
         id: 'src/b.ts',
         type: 'file',
         name: 'b.ts',
@@ -615,11 +541,12 @@ describe('Markdown Rendering', () => {
       });
 
       // Add multiple edges between the same files (multi-graph)
-      graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
-      graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+      edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports' });
+      edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports' });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges,
         ranks: new Map([
           ['src/a.ts', 0.5],
           ['src/b.ts', 0.7]
@@ -667,7 +594,7 @@ export function main(): void {
       ];
 
       const graph = await analyzer(files);
-      const rankedGraph = await ranker(graph, files);
+      const rankedGraph = await ranker(graph);
       const markdown = renderer(rankedGraph);
 
       expect(isValidMarkdown(markdown)).toBe(true);
@@ -698,7 +625,7 @@ export function main(): void {
       }
 
       const graph = await analyzer(files);
-      const rankedGraph = await ranker(graph, files);
+      const rankedGraph = await ranker(graph);
       const markdown = renderer(rankedGraph);
 
       expect(isValidMarkdown(markdown)).toBe(true);
@@ -730,7 +657,7 @@ export function main(): void {
       }
 
       const graph = await analyzer(files);
-      const rankedGraph = await ranker(graph, files);
+      const rankedGraph = await ranker(graph);
       const markdown = renderer(rankedGraph);
 
       expect(isValidMarkdown(markdown)).toBe(true);
@@ -755,7 +682,7 @@ export function main(): void {
       ];
 
       const graph = await analyzer(files);
-      const rankedGraph = await ranker(graph, files);
+      const rankedGraph = await ranker(graph);
 
       const options: RendererOptions = {
         customHeader: '# My Minimal Project\n\nCustom description here.',
@@ -774,14 +701,9 @@ export function main(): void {
 
   describe('Edge Cases', () => {
     it('should handle very long file paths', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
+      const nodes = new Map<string, CodeNode>();
       const longPath = 'src/very/deeply/nested/directory/structure/with/many/levels/file.ts';
-      graph.addNode(longPath, {
+      nodes.set(longPath, {
         id: longPath,
         type: 'file',
         name: 'file.ts',
@@ -791,7 +713,8 @@ export function main(): void {
       });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([[longPath, 0.5]])
       };
 
@@ -801,14 +724,9 @@ export function main(): void {
     });
 
     it('should handle special characters in file names', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
+      const nodes = new Map<string, CodeNode>();
       const specialPath = 'src/file-with-dashes_and_underscores.spec.ts';
-      graph.addNode(specialPath, {
+      nodes.set(specialPath, {
         id: specialPath,
         type: 'file',
         name: 'file-with-dashes_and_underscores.spec.ts',
@@ -818,7 +736,8 @@ export function main(): void {
       });
 
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([[specialPath, 0.5]])
       };
 
@@ -828,13 +747,8 @@ export function main(): void {
     });
 
     it('should handle empty code snippets gracefully', () => {
-      const graph: Graph<CodeNode> = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('src/test.ts', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('src/test.ts', {
         id: 'src/test.ts',
         type: 'file',
         name: 'test.ts',
@@ -843,7 +757,7 @@ export function main(): void {
         endLine: 10
       });
 
-      graph.addNode('src/test.ts#empty', {
+      nodes.set('src/test.ts#empty', {
         id: 'src/test.ts#empty',
         type: 'function',
         name: 'empty',
@@ -853,10 +767,9 @@ export function main(): void {
         codeSnippet: ''
       });
 
-      graph.addDirectedEdge('src/test.ts', 'src/test.ts#empty', { type: 'contains' });
-
       const rankedGraph: RankedCodeGraph = {
-        graph,
+        nodes,
+        edges: [],
         ranks: new Map([
           ['src/test.ts', 0.5],
           ['src/test.ts#empty', 0.3]

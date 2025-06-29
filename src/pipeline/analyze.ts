@@ -1,10 +1,9 @@
-import Graph from 'graphology';
 import path from 'node:path';
 import { createParserForLanguage } from '../tree-sitter/languages.js';
 import { getLanguageConfigForFile } from '../tree-sitter/language-config.js';
-import type { Analyzer, CodeNode, CodeNodeType, FileContent } from '../types.js';
+import type { Analyzer, CodeNode, CodeNodeType, FileContent, CodeGraph, CodeEdge } from '../types.js';
 
-const getNodeText = (node: import('web-tree-sitter').Node, content: string): string => {
+export const getNodeText = (node: import('web-tree-sitter').Node, content: string): string => {
   return content.slice(node.startIndex, node.endIndex);
 };
 
@@ -21,17 +20,14 @@ const getLineFromIndex = (content: string, index: number): number => {
  */
 export const createTreeSitterAnalyzer = (): Analyzer => {
   return async (files: readonly FileContent[]) => {
-    const graph: Graph<CodeNode> = new Graph({
-      allowSelfLoops: false,
-      type: 'directed',
-      multi: true,
-    });
+    const nodes = new Map<string, CodeNode>();
+    const edges: CodeEdge[] = [];
 
     // Phase 1: Add all files as nodes
     for (const file of files) {
       const fileId = file.path;
-      if (!graph.hasNode(fileId)) {
-        graph.addNode(fileId, {
+      if (!nodes.has(fileId)) {
+        nodes.set(fileId, {
           id: fileId,
           type: 'file',
           name: path.basename(file.path),
@@ -65,41 +61,51 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
         (unsupportedFiles.length > 5 ? '...' : ''));
     }
 
-    // Phase 3: Process each language group
+    // Phase 3: Process definitions for all language groups
     for (const [languageName, languageFiles] of filesByLanguage) {
       const languageConfig = getLanguageConfigForFile(languageFiles[0].path);
       if (!languageConfig) continue;
 
       try {
         const parser = await createParserForLanguage(languageConfig);
-        const query = new (await import('web-tree-sitter')).Query(parser.language, languageConfig.query);
-
-        await processFilesForLanguage(graph, languageFiles, parser, query, languageConfig);
+        await processDefinitionsForLanguage({ nodes, edges }, languageFiles, parser, languageConfig);
       } catch (error) {
         console.warn(`Failed to process ${languageName} files:`, error);
-        // Continue processing other languages
       }
     }
 
-    return graph;
+    // Phase 4: Process relationships for all language groups
+    const resolver = new SymbolResolver(nodes, edges);
+    for (const [languageName, languageFiles] of filesByLanguage) {
+        const languageConfig = getLanguageConfigForFile(languageFiles[0].path);
+        if (!languageConfig) continue;
+
+        try {
+          const parser = await createParserForLanguage(languageConfig);
+          await processRelationshipsForLanguage({ nodes, edges }, languageFiles, parser, languageConfig, resolver);
+        } catch (error) {
+          console.warn(`Failed to process relationships for ${languageName} files:`, error);
+        }
+    }
+
+    return { nodes: Object.freeze(nodes), edges: Object.freeze(edges) };
   };
 };
 
 /**
- * Process files for a specific language
+ * PHASE 3: Process symbol definitions for a set of files of the same language.
  */
-async function processFilesForLanguage(
-  graph: Graph<CodeNode>,
+async function processDefinitionsForLanguage(
+  graph: { nodes: Map<string, CodeNode>, edges: CodeEdge[] },
   files: FileContent[],
   parser: import('web-tree-sitter').Parser,
-  query: import('web-tree-sitter').Query,
-  languageConfig: import('./language-config.js').LanguageConfig
+  languageConfig: import('../tree-sitter/language-config.js').LanguageConfig,
 ): Promise<void> {
+  const query = new (await import('web-tree-sitter')).Query(parser.language, languageConfig.query);
+
   for (const file of files) {
     const tree = parser.parse(file.content);
-    if (!tree) {
-      continue; // Skip files that couldn't be parsed
-    }
+    if (!tree) continue;
     const captures = query.captures(tree.rootNode);
 
     const processedSymbols = new Set<string>();
@@ -142,27 +148,19 @@ async function processFilesForLanguage(
       }
     }
 
-    // Second pass: process symbols
+    // Second pass: process symbol definitions
     for (const { name, node } of captures) {
       const parts = name.split('.');
-      const type = parts.slice(0, -1).join('.');
       const subtype = parts[parts.length - 1];
-
-      // Handle imports
-      if (type === 'import' && subtype === 'source') {
-        await processImport(graph, file, node, languageConfig);
-        continue;
-      }
 
       if (subtype !== 'definition') continue;
 
-      // Map capture names to symbol types
+      const type = parts.slice(0, -1).join('.');
       const symbolType = getSymbolTypeFromCapture(name, type, languageConfig);
       if (!symbolType) continue;
 
-      // Process the symbol
       await processSymbol(
-        graph, 
+        graph.nodes,
         file, 
         node, 
         name, 
@@ -178,35 +176,113 @@ async function processFilesForLanguage(
 }
 
 /**
- * Process an import statement
+ * PHASE 4: Process relationships (imports, calls, inheritance) for a set of files.
  */
-async function processImport(
-  graph: Graph<CodeNode>,
-  file: FileContent,
-  node: import('web-tree-sitter').Node,
-  languageConfig: import('./language-config.js').LanguageConfig
+async function processRelationshipsForLanguage(
+  graph: { nodes: Map<string, CodeNode>, edges: CodeEdge[] },
+  files: FileContent[],
+  parser: import('web-tree-sitter').Parser,
+  languageConfig: import('./language-config.js').LanguageConfig,
+  resolver: SymbolResolver,
 ): Promise<void> {
-  // This is simplified - different languages have different import handling
-  if (languageConfig.name === 'typescript') {
-    const sourcePath = getNodeText(node, file.content).replace(/['"`]/g, '');
-    const fromFileId = file.path;
-    let toFileId = path.normalize(path.join(path.dirname(fromFileId), sourcePath));
-    
-    if (/\.(js|jsx|mjs)$/.test(toFileId)) {
-      const tsVariant = toFileId.replace(/\.(js|jsx|mjs)$/, '.ts');
-      if (graph.hasNode(tsVariant)) toFileId = tsVariant;
+  const query = new (await import('web-tree-sitter')).Query(parser.language, languageConfig.query);
+
+  for (const file of files) {
+    const tree = parser.parse(file.content);
+    if (!tree) {
+      continue; // Skip files that couldn't be parsed
     }
-    if (!path.extname(toFileId) && graph.hasNode(`${toFileId}.ts`)) {
-      toFileId = `${toFileId}.ts`;
-    }
-     
-    if (graph.hasNode(toFileId)) {
-      if (!graph.hasEdge(fromFileId, toFileId)) {
-        graph.addDirectedEdge(fromFileId, toFileId, { type: 'imports' });
+    const captures = query.captures(tree.rootNode);
+
+    for (const { name, node } of captures) {
+      const parts = name.split('.');
+      const type = parts.slice(0, -1).join('.');
+      const subtype = parts[parts.length - 1];
+
+      // Handle imports
+      if (type === 'import' && subtype === 'source') {
+        const allFilePaths = [...graph.nodes.keys()].filter(k => graph.nodes.get(k)?.type === 'file');
+        const importedFilePath = resolveImportPath(
+          file.path,
+          getNodeText(node, file.content),
+          languageConfig.name,
+          allFilePaths
+        );
+        if (importedFilePath && graph.nodes.has(importedFilePath)) {
+            const edge: CodeEdge = { fromId: file.path, toId: importedFilePath, type: 'imports' };
+            if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
+                graph.edges.push(edge);
+            }
+        }
+        continue;
+      }
+
+      // Handle other relationships (inheritance, implementation, calls)
+      if (['inheritance', 'implementation', 'call'].includes(subtype)) {
+        const fromId = findEnclosingSymbolId(node, file, graph.nodes);
+        if (!fromId) continue;
+
+        const toName = getNodeText(node, file.content).replace(/<.*>$/, ''); // a.b.c<T> -> a.b.c
+        const toNode = resolver.resolve(toName, file.path);
+        if (!toNode) continue;
+
+        const edgeType = subtype === 'inheritance' ? 'inherits' : subtype === 'implementation' ? 'implements' : 'calls';
+        const edge: CodeEdge = { fromId, toId: toNode.id, type: edgeType };
+
+        if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
+            graph.edges.push(edge);
+        }
       }
     }
   }
-  // TODO: Add import handling for other languages
+}
+
+function resolveImportPath(
+  fromFile: string,
+  importIdentifier: string,
+  language: string,
+  allFiles: string[]
+): string | null {
+  const sourcePath = importIdentifier.replace(/['"`]/g, '');
+
+  // Simplified resolution logic
+  const potentialEndings: Record<string, string[]> = {
+    typescript: ['.ts', '.tsx', '/index.ts', '/index.tsx', '.js', '.jsx', '.mjs', '.cjs'],
+    javascript: ['.js', '.jsx', '/index.js', '/index.jsx', '.mjs', '.cjs'],
+    python: ['.py', '/__init__.py'],
+    java: ['.java'],
+    c: ['.h', '.c'],
+    cpp: ['.hpp', '.h', '.cpp', '.cc', '.cxx'],
+    csharp: ['.cs'],
+    go: ['.go'],
+    rust: ['.rs', '/mod.rs'],
+  };
+  const basedir = path.dirname(fromFile);
+  let resolvedPath = path.normalize(path.join(basedir, sourcePath));
+
+  // 1. Check for absolute path match first.
+  if (allFiles.includes(resolvedPath)) return resolvedPath;
+
+  const endings = potentialEndings[language] || [];
+  // 2. Try adding extensions for relative paths, or for paths without extensions.
+  if (!path.extname(sourcePath)) {
+    for (const end of endings) {
+      if (allFiles.includes(resolvedPath + end)) return resolvedPath + end;
+       // For Java/C#, where imports are like `com.package.Class`, try converting to path.
+      if ((language === 'java' || language === 'csharp') && sourcePath.includes('.')) {
+        const packagePath = sourcePath.replace(/\./g, '/');
+        const fileFromRoot = packagePath + end;
+        if (allFiles.includes(fileFromRoot)) return fileFromRoot;
+      }
+    }
+  }
+
+  // Note: This is a simplified resolver. A full implementation would need to handle:
+  // - tsconfig.json paths for TypeScript
+  // - package.json dependencies / node_modules
+  // - GOPATH / Go modules
+  // - Maven/Gradle source sets for Java, etc.
+  return null;
 }
 
 /**
@@ -238,6 +314,8 @@ function getSymbolTypeFromCapture(
     static: 'static',
     union: 'union',
     template: 'template',
+    call: 'call',
+    inheritance: 'inheritance'
   };
 
   // Try the full capture name first, then the type part
@@ -248,7 +326,7 @@ function getSymbolTypeFromCapture(
  * Process a symbol definition
  */
 async function processSymbol(
-  graph: Graph<CodeNode>,
+  nodes: Map<string, CodeNode>,
   file: FileContent,
   node: import('web-tree-sitter').Node,
   captureName: string,
@@ -281,8 +359,8 @@ async function processSymbol(
   // Handle different node structures based on symbol type and language
   if (languageConfig.name === 'typescript' && (symbolType === 'method' || symbolType === 'field')) {
     // TypeScript-specific method/field handling
-    const result = await processTypeScriptMethodOrField(
-      graph, file, node, symbolType, processedSymbols, processedClassNodes, duplicateClassNames
+    const result = processTypeScriptMethodOrField(
+      nodes, file, node, symbolType, processedSymbols, processedClassNodes, duplicateClassNames
     );
     if (result) return; // Successfully processed or should skip
   } else if (languageConfig.name === 'typescript' && symbolType === 'arrow_function') {
@@ -308,7 +386,7 @@ async function processSymbol(
     const symbolName = nameNode.text;
     const symbolId = `${file.path}#${symbolName}`;
     
-    if (symbolName && !processedSymbols.has(symbolId) && !graph.hasNode(symbolId)) {
+    if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
       processedSymbols.add(symbolId);
       
       // Track processed class nodes
@@ -322,7 +400,7 @@ async function processSymbol(
         }
       }
       
-      graph.addNode(symbolId, {
+      nodes.set(symbolId, {
         id: symbolId, 
         type: symbolType, 
         name: symbolName, 
@@ -331,7 +409,6 @@ async function processSymbol(
         endLine: getLineFromIndex(file.content, node.endIndex),
         codeSnippet: node.text?.split('{')[0]?.trim() || '',
       });
-      graph.addDirectedEdge(file.path, symbolId, { type: 'contains' });
     }
   }
 }
@@ -339,15 +416,15 @@ async function processSymbol(
 /**
  * TypeScript-specific method/field processing
  */
-async function processTypeScriptMethodOrField(
-  graph: Graph<CodeNode>,
+function processTypeScriptMethodOrField(
+  nodes: Map<string, CodeNode>,
   file: FileContent,
   node: import('web-tree-sitter').Node,
   symbolType: CodeNodeType,
   processedSymbols: Set<string>,
   processedClassNodes: Set<number>,
   duplicateClassNames: Set<string>
-): Promise<boolean> {
+): boolean {
   let parent = node.parent;
   while (parent && parent.type !== 'class_body') {
     parent = parent.parent;
@@ -365,15 +442,14 @@ async function processTypeScriptMethodOrField(
             const methodName = nameNode.text;
             const symbolName = `${className}.${methodName}`;
             const symbolId = `${file.path}#${symbolName}`;
-            if (!processedSymbols.has(symbolId) && !graph.hasNode(symbolId)) {
+            if (!processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
               processedSymbols.add(symbolId);
-              graph.addNode(symbolId, {
+              nodes.set(symbolId, {
                 id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
                 startLine: getLineFromIndex(file.content, node.startIndex),
                 endLine: getLineFromIndex(file.content, node.endIndex),
                 codeSnippet: node.text?.split('{')[0]?.trim() || '',
               });
-              graph.addDirectedEdge(file.path, symbolId, { type: 'contains' });
             }
           }
         }
@@ -466,4 +542,89 @@ function getCSymbolName(
   
   // For struct/union/enum, try the standard approach
   return declarationNode.childForFieldName('name');
+}
+
+/**
+ * A best-effort symbol resolver to find the ID of a referenced symbol.
+ */
+class SymbolResolver {
+  constructor(
+    private nodes: ReadonlyMap<string, CodeNode>,
+    private edges: readonly CodeEdge[],
+  ) {}
+
+  /**
+   * Resolves a symbol name to a CodeNode.
+   * @param symbolName The name of the symbol to resolve (e.g., "MyClass").
+   * @param contextFile The path of the file where the reference occurs.
+   * @returns The resolved CodeNode or null.
+   */
+  resolve(
+    symbolName: string,
+    contextFile: string,
+  ): CodeNode | null {
+    // 1. Check for definition in the same file.
+    // This is a simplified check. It won't find nested symbols correctly without more context.
+    const sameFileId = `${contextFile}#${symbolName}`;
+    if (this.nodes.has(sameFileId)) {
+      return this.nodes.get(sameFileId)!;
+    }
+
+    // 2. Check in imported files.
+    const importedFiles = this.edges
+      .filter(e => e.fromId === contextFile && e.type === 'imports')
+      .map(e => e.toId);
+    
+    for (const file of importedFiles) {
+      const importedId = `${file}#${symbolName}`;
+      if (this.nodes.has(importedId)) {
+        return this.nodes.get(importedId)!;
+      }
+    }
+
+    // 3. Fallback: search all files (might be ambiguous).
+    for (const node of this.nodes.values()) {
+      if (node.name === symbolName) {
+        // To reduce ambiguity, prefer non-method symbols.
+        if (['class', 'function', 'interface', 'struct', 'type', 'enum'].includes(node.type)) {
+          return node;
+        }
+      }
+    }
+
+    return null;
+  }
+}
+
+/**
+ * Traverses up the AST from a start node to find the enclosing symbol definition
+ * and returns its unique ID.
+ * @param startNode The node to start traversal from.
+ * @param file The file content object.
+ * @param nodes The map of all code nodes.
+ * @returns The unique ID of the enclosing symbol, or the file path as a fallback.
+ */
+function findEnclosingSymbolId(
+    startNode: import('web-tree-sitter').Node,
+    file: FileContent,
+    nodes: ReadonlyMap<string, CodeNode>
+): string | null {
+    let current: import('web-tree-sitter').Node | null = startNode.parent;
+    while(current) {
+        // This is a simplified check. A full implementation would be more robust.
+        const nameNode = current.childForFieldName('name');
+        if (nameNode) {
+            let symbolName = nameNode.text;
+            if (current.type === 'method_definition' || (current.type === 'public_field_definition' && !current.text.includes('=>'))) {
+                const classNode = current.parent?.parent; // class_body -> class_declaration
+                if (classNode?.type === 'class_declaration') {
+                    symbolName = `${classNode.childForFieldName('name')?.text}.${symbolName}`;
+                }
+            }
+            const symbolId = `${file.path}#${symbolName}`;
+            if (nodes.has(symbolId)) return symbolId;
+        }
+        current = current.parent;
+    }
+    return file.path; // Fallback to file node
 }

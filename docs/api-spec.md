@@ -122,10 +122,10 @@ export type FileDiscoverer = (config: {
 export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
 
 // Ranks the nodes in a graph.
-export type Ranker = (graph: CodeGraph) => RankedCodeGraph;
+export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>>;
 
 // Renders a ranked graph into a string format.
-export type Renderer = (graph: RankedCodeGraph, options?: any) => string;
+export type Renderer = (graph: Promise<RankedCodeGraph, options?: any) => string;
 ```
 
 ### 4.3. Default Implementations (Function Factories)

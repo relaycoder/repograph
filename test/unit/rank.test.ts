@@ -1,8 +1,7 @@
 import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
 import { createPageRanker, createGitRanker } from '../../src/pipeline/rank.js';
 import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
-import type { FileContent, CodeGraph } from '../../src/types.js';
-import Graph from 'graphology';
+import type { FileContent, CodeGraph, CodeNode, CodeEdge } from '../../src/types.js';
 import {
   createTempDir,
   cleanupTempDir,
@@ -37,27 +36,24 @@ describe('Graph Ranking', () => {
     });
 
     it('should handle empty graphs gracefully', async () => {
-      const emptyGraph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
+      const emptyGraph: CodeGraph = {
+        nodes: new Map(),
+        edges: [],
+      };
 
-      const result = await pageRanker(emptyGraph, []);
+      const result = await pageRanker(emptyGraph);
 
-      expect(result.graph).toBe(emptyGraph);
+      expect(result.nodes).toBe(emptyGraph.nodes);
+      expect(result.edges).toBe(emptyGraph.edges);
       expect(result.ranks.size).toBe(0);
     });
 
     it('should assign ranks to all nodes in the graph', async () => {
-      const graph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
+      const nodes = new Map<string, CodeNode>();
+      const edges: CodeEdge[] = [];
 
       // Create a simple graph with nodes and edges
-      graph.addNode('file1', {
+      nodes.set('file1', {
         id: 'file1',
         type: 'file',
         name: 'file1.ts',
@@ -66,7 +62,7 @@ describe('Graph Ranking', () => {
         endLine: 10
       });
 
-      graph.addNode('file2', {
+      nodes.set('file2', {
         id: 'file2',
         type: 'file',
         name: 'file2.ts',
@@ -75,7 +71,7 @@ describe('Graph Ranking', () => {
         endLine: 15
       });
 
-      graph.addNode('symbol1', {
+      nodes.set('symbol1', {
         id: 'symbol1',
         type: 'function',
         name: 'func1',
@@ -84,10 +80,10 @@ describe('Graph Ranking', () => {
         endLine: 5
       });
 
-      graph.addDirectedEdge('file1', 'file2', { type: 'imports' });
-      graph.addDirectedEdge('file1', 'symbol1', { type: 'contains' });
+      edges.push({ fromId: 'file1', toId: 'file2', type: 'imports' });
 
-      const result = await pageRanker(graph, []);
+      const graph: CodeGraph = { nodes, edges };
+      const result = await pageRanker(graph);
 
       expect(result.ranks.size).toBe(3);
       expect(result.ranks.has('file1')).toBe(true);
@@ -101,14 +97,11 @@ describe('Graph Ranking', () => {
     });
 
     it('should assign higher ranks to more connected nodes', async () => {
-      const graph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
+      const nodes = new Map<string, CodeNode>();
+      const edges: CodeEdge[] = [];
 
       // Create a hub node that many others connect to
-      graph.addNode('hub', {
+      nodes.set('hub', {
         id: 'hub',
         type: 'file',
         name: 'hub.ts',
@@ -120,7 +113,7 @@ describe('Graph Ranking', () => {
       // Create several nodes that import from the hub
       for (let i = 1; i <= 5; i++) {
         const nodeId = `node${i}`;
-        graph.addNode(nodeId, {
+        nodes.set(nodeId, {
           id: nodeId,
           type: 'file',
           name: `${nodeId}.ts`,
@@ -128,11 +121,11 @@ describe('Graph Ranking', () => {
           startLine: 1,
           endLine: 10
         });
-        graph.addDirectedEdge(nodeId, 'hub', { type: 'imports' });
+        edges.push({ fromId: nodeId, toId: 'hub', type: 'imports' });
       }
 
       // Create an isolated node
-      graph.addNode('isolated', {
+      nodes.set('isolated', {
         id: 'isolated',
         type: 'file',
         name: 'isolated.ts',
@@ -141,7 +134,8 @@ describe('Graph Ranking', () => {
         endLine: 10
       });
 
-      const result = await pageRanker(graph, []);
+      const graph: CodeGraph = { nodes, edges };
+      const result = await pageRanker(graph);
 
       const hubRank = result.ranks.get('hub')!;
       const isolatedRank = result.ranks.get('isolated')!;
@@ -151,13 +145,8 @@ describe('Graph Ranking', () => {
     });
 
     it('should return RankedCodeGraph with correct structure', async () => {
-      const graph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('test', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('test', {
         id: 'test',
         type: 'file',
         name: 'test.ts',
@@ -165,12 +154,14 @@ describe('Graph Ranking', () => {
         startLine: 1,
         endLine: 10
       });
+      const graph: CodeGraph = { nodes, edges: [] };
 
-      const result = await pageRanker(graph, []);
+      const result = await pageRanker(graph);
 
-      expect(result).toHaveProperty('graph');
+      expect(result).toHaveProperty('nodes');
+      expect(result).toHaveProperty('edges');
       expect(result).toHaveProperty('ranks');
-      expect(result.graph).toBe(graph);
+      expect(result.nodes).toBe(graph.nodes);
       expect(result.ranks).toBeInstanceOf(Map);
     });
 
@@ -211,7 +202,7 @@ export class Calculator {
       ];
 
       const graph = await analyzer(files);
-      const result = await pageRanker(graph, files);
+      const result = await pageRanker(graph);
 
       expect(result.ranks.size).toBeGreaterThan(0);
       
@@ -233,26 +224,21 @@ export class Calculator {
     });
 
     it('should handle empty graphs gracefully', async () => {
-      const emptyGraph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
+      const emptyGraph: CodeGraph = {
+        nodes: new Map(),
+        edges: [],
+      };
 
-      const result = await gitRanker(emptyGraph, []);
+      const result = await gitRanker(emptyGraph);
 
-      expect(result.graph).toBe(emptyGraph);
+      expect(result.nodes).toBe(emptyGraph.nodes);
+      expect(result.edges).toBe(emptyGraph.edges);
       expect(result.ranks.size).toBe(0);
     });
 
     it('should assign zero ranks when git is not available', async () => {
-      const graph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('file1', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('file1', {
         id: 'file1',
         type: 'file',
         name: 'file1.ts',
@@ -261,7 +247,7 @@ export class Calculator {
         endLine: 10
       });
 
-      graph.addNode('symbol1', {
+      nodes.set('symbol1', {
         id: 'symbol1',
         type: 'function',
         name: 'func1',
@@ -269,13 +255,14 @@ export class Calculator {
         startLine: 2,
         endLine: 5
       });
+      const graph: CodeGraph = { nodes, edges: [] };
 
       // Change to a directory without git
       const originalCwd = process.cwd();
       process.chdir(tempDir);
 
       try {
-        const result = await gitRanker(graph, []);
+        const result = await gitRanker(graph);
 
         expect(result.ranks.size).toBe(2);
         expect(result.ranks.get('file1')).toBe(0);
@@ -286,13 +273,8 @@ export class Calculator {
     });
 
     it('should only rank file nodes with git strategy', async () => {
-      const graph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('file1', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('file1', {
         id: 'file1',
         type: 'file',
         name: 'file1.ts',
@@ -301,7 +283,7 @@ export class Calculator {
         endLine: 10
       });
 
-      graph.addNode('symbol1', {
+      nodes.set('symbol1', {
         id: 'symbol1',
         type: 'function',
         name: 'func1',
@@ -309,8 +291,9 @@ export class Calculator {
         startLine: 2,
         endLine: 5
       });
+      const graph: CodeGraph = { nodes, edges: [] };
 
-      const result = await gitRanker(graph, []);
+      const result = await gitRanker(graph);
 
       // Symbol nodes should get rank 0 with git strategy
       expect(result.ranks.get('symbol1')).toBe(0);
@@ -329,13 +312,8 @@ export class Calculator {
         'file2.ts': 'content2'
       });
 
-      const graph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('file1.ts', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('file1.ts', {
         id: 'file1.ts',
         type: 'file',
         name: 'file1.ts',
@@ -343,8 +321,7 @@ export class Calculator {
         startLine: 1,
         endLine: 10
       });
-
-      graph.addNode('file2.ts', {
+      nodes.set('file2.ts', {
         id: 'file2.ts',
         type: 'file',
         name: 'file2.ts',
@@ -352,6 +329,7 @@ export class Calculator {
         startLine: 1,
         endLine: 10
       });
+      const graph: CodeGraph = { nodes, edges: [] };
 
       const originalCwd = process.cwd();
       process.chdir(tempDir);
@@ -373,7 +351,7 @@ export class Calculator {
         execSync('git add file1.ts', { stdio: 'ignore' });
         execSync('git commit -m "Update file1 again"', { stdio: 'ignore' });
 
-        const result = await gitRanker(graph, []);
+        const result = await gitRanker(graph);
 
         // All ranks should be between 0 and 1
         for (const rank of result.ranks.values()) {
@@ -423,8 +401,8 @@ export { Utils };`
       const pageRanker = createPageRanker();
       const gitRanker = createGitRanker();
 
-      const pageRankResult = await pageRanker(graph, files);
-      const gitRankResult = await gitRanker(graph, files);
+      const pageRankResult = await pageRanker(graph);
+      const gitRankResult = await gitRanker(graph);
 
       // Results should have same structure but potentially different ranks
       expect(pageRankResult.ranks.size).toBe(gitRankResult.ranks.size);
@@ -435,14 +413,10 @@ export { Utils };`
     });
 
     it('should handle graphs with no edges', async () => {
-      const graph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
+      const nodes = new Map<string, CodeNode>();
 
       // Add isolated nodes
-      graph.addNode('file1', {
+      nodes.set('file1', {
         id: 'file1',
         type: 'file',
         name: 'file1.ts',
@@ -450,8 +424,7 @@ export { Utils };`
         startLine: 1,
         endLine: 10
       });
-
-      graph.addNode('file2', {
+      nodes.set('file2', {
         id: 'file2',
         type: 'file',
         name: 'file2.ts',
@@ -459,9 +432,10 @@ export { Utils };`
         startLine: 1,
         endLine: 10
       });
+      const graph: CodeGraph = { nodes, edges: [] };
 
       const pageRanker = createPageRanker();
-      const result = await pageRanker(graph, []);
+      const result = await pageRanker(graph);
 
       expect(result.ranks.size).toBe(2);
       
@@ -492,7 +466,7 @@ export { Utils };`
 
       const graph = await analyzer(files);
       const pageRanker = createPageRanker();
-      const result = await pageRanker(graph, files);
+      const result = await pageRanker(graph);
 
       expect(result.ranks.size).toBeGreaterThan(0);
       
@@ -522,7 +496,7 @@ export { Utils };`
 
       const graph = await analyzer(files);
       const pageRanker = createPageRanker();
-      const result = await pageRanker(graph, files);
+      const result = await pageRanker(graph);
 
       // Database and types should have high ranks as they're widely imported
       const databaseRank = result.ranks.get('src/database/index.ts');
@@ -546,7 +520,7 @@ export { Utils };`
 
       const graph = await analyzer(files);
       const pageRanker = createPageRanker();
-      const result = await pageRanker(graph, files);
+      const result = await pageRanker(graph);
 
       expect(result.ranks.size).toBe(fixture.expected_nodes!);
       
@@ -559,13 +533,8 @@ export { Utils };`
 
   describe('Edge Cases', () => {
     it('should handle self-referential imports', async () => {
-      const graph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
-
-      graph.addNode('file1', {
+      const nodes = new Map<string, CodeNode>();
+      nodes.set('file1', {
         id: 'file1',
         type: 'file',
         name: 'file1.ts',
@@ -573,28 +542,26 @@ export { Utils };`
         startLine: 1,
         endLine: 10
       });
+      const graph: CodeGraph = { nodes, edges: [] };
 
       // Note: self-loops are disabled in our graph configuration
       // This tests that the ranker handles this gracefully
 
       const pageRanker = createPageRanker();
-      const result = await pageRanker(graph, []);
+      const result = await pageRanker(graph);
 
       expect(result.ranks.size).toBe(1);
       expect(result.ranks.get('file1')).toBeGreaterThan(0);
     });
 
     it('should handle very large graphs efficiently', async () => {
-      const graph: CodeGraph = new Graph({
-        multi: true,
-        allowSelfLoops: false,
-        type: 'directed',
-      });
+      const nodes = new Map<string, CodeNode>();
+      const edges: CodeEdge[] = [];
 
       // Create a large graph with many nodes
       const nodeCount = 1000;
       for (let i = 0; i < nodeCount; i++) {
-        graph.addNode(`node${i}`, {
+        nodes.set(`node${i}`, {
           id: `node${i}`,
           type: 'file',
           name: `file${i}.ts`,
@@ -606,12 +573,13 @@ export { Utils };`
 
       // Add some edges
       for (let i = 0; i < nodeCount - 1; i++) {
-        graph.addDirectedEdge(`node${i}`, `node${i + 1}`, { type: 'imports' });
+        edges.push({ fromId: `node${i}`, toId: `node${i + 1}`, type: 'imports' });
       }
+      const graph: CodeGraph = { nodes, edges };
 
       const pageRanker = createPageRanker();
       const startTime = Date.now();
-      const result = await pageRanker(graph, []);
+      const result = await pageRanker(graph);
       const endTime = Date.now();
 
       expect(result.ranks.size).toBe(nodeCount);

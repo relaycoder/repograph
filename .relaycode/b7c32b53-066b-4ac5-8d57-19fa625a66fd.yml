@@ -1,0 +1,6054 @@
+uuid: b7c32b53-066b-4ac5-8d57-19fa625a66fd
+projectId: repograph
+createdAt: '2025-06-29T08:13:20.411Z'
+gitCommitMsg: 'fix(tests): Align test suite with post-refactor codebase'
+promptSummary: >-
+  The user's previous refactoring broke many tests. I was asked to fix the test
+  suite and ensure it aligns with the new data structures (plain objects instead
+  of graphology instances), updated function signatures, and the removal of
+  non-spec features like 'contains' edges.
+reasoning:
+  - >-
+    Of course. It looks like a recent refactoring has caused widespread test
+    failures. I'll fix the broken tests and align the codebase to ensure
+    everything is consistent with the new architecture and documentation. Here
+    are the patches to resolve the issues.
+  - >-
+    First, I'll correct `docs/api-spec.md` to ensure the `Ranker` type correctly
+    reflects its asynchronous nature by returning a `Promise`.
+  - >-
+    The `alphabetical` ranking strategy was mentioned in the types but not
+    implemented. I'll remove it from the type definitions and high-level API to
+    prevent confusion.
+  - >-
+    Now I'll fix the unit tests. The analyzer tests need to be updated to work
+    with the new plain object `CodeGraph` structure and I'll remove the test for
+    the non-existent `'contains'` edges.
+  - >-
+    Next, I'll update the composer tests. They use custom components that rely
+    on the old `graphology` structure.
+  - The ranker unit tests also need significant changes to their setup code.
+  - >-
+    Finally, I'll update the render unit tests, which were also heavily reliant
+    on `graphology` for test setup.
+  - >-
+    These changes should resolve the test failures and bring the codebase into
+    alignment with its documentation.
+operations:
+  - type: write
+    path: docs/api-spec.md
+    content: |-
+      --- docs/api-spec.md
+      +++ docs/api-spec.md
+      @@ -93,7 +93,7 @@
+       export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
+       
+       // Ranks the nodes in a graph.
+      -export type Ranker = (graph: CodeGraph) => RankedCodeGraph;
+      +export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
+       
+       // Renders a ranked graph into a string format.
+       export type Renderer = (graph: RankedCodeGraph, options?: any) => string;
+    patchStrategy: new-unified
+  - type: write
+    path: src/types.ts
+    content: |-
+      --- src/types.ts
+      +++ src/types.ts
+      @@ -82,7 +82,7 @@
+         /** Disables the use of .gitignore. @default false */
+         readonly noGitignore?: boolean;
+         /** The ranking strategy to use. @default 'pagerank' */
+      -  readonly rankingStrategy?: 'pagerank' | 'git-changes' | 'alphabetical';
+      +  readonly rankingStrategy?: 'pagerank' | 'git-changes';
+         /** Configuration for the final Markdown output. */
+         readonly rendererOptions?: RendererOptions;
+       };
+    patchStrategy: new-unified
+  - type: write
+    path: src/high-level.ts
+    content: >-
+      --- src/high-level.ts
+
+      +++ src/high-level.ts
+
+      @@ -19,12 +19,9 @@
+           case 'git-changes':
+             ranker = createGitRanker();
+             break;
+      -    case 'alphabetical':
+
+      -      // This is a valid option in types, but not implemented.
+
+      -      throw new Error("The 'alphabetical' ranking strategy is not yet
+      implemented.");
+           case 'pagerank':
+           default:
+      -      if (rankingStrategy !== 'pagerank') {
+
+      +      if (rankingStrategy !== 'pagerank' && rankingStrategy !==
+      'git-changes') {
+               throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+             }
+             ranker = createPageRanker();
+    patchStrategy: new-unified
+  - type: write
+    path: src/index.ts
+    content: |-
+      --- src/index.ts
+      +++ src/index.ts
+      @@ -66,7 +66,7 @@
+           include?: readonly string[];
+           ignore?: readonly string[];
+           noGitignore?: boolean;
+      -    rankingStrategy?: 'pagerank' | 'git-changes' | 'alphabetical';
+      +    rankingStrategy?: 'pagerank' | 'git-changes';
+           rendererOptions?: IRepoGraphOptions['rendererOptions'];
+         } = {};
+         const includePatterns: string[] = [];
+    patchStrategy: new-unified
+  - type: write
+    path: test/unit/analyze.test.ts
+    content: >-
+      --- test/unit/analyze.test.ts
+
+      +++ test/unit/analyze.test.ts
+
+      @@ -25,7 +25,7 @@
+             const graph = await analyzer(files);
+       
+             expect(graph).toBeDefined();
+      -      expect(graph.order).toBeGreaterThan(0); // Should have nodes
+
+      +      expect(graph.nodes.size).toBeGreaterThan(0); // Should have nodes
+           });
+       
+           it('should add file nodes to the graph', async () => {
+      @@ -40,11 +40,11 @@
+       
+             const graph = await analyzer(files);
+       
+      -      expect(graph.hasNode('src/index.ts')).toBe(true);
+
+      -      expect(graph.hasNode('src/utils.ts')).toBe(true);
+
+      +      expect(graph.nodes.has('src/index.ts')).toBe(true);
+
+      +      expect(graph.nodes.has('src/utils.ts')).toBe(true);
+       
+      -      const indexNode = graph.getNodeAttributes('src/index.ts');
+
+      -      expect(indexNode.type).toBe('file');
+
+      +      const indexNode = graph.nodes.get('src/index.ts');
+
+      +      expect(indexNode!.type).toBe('file');
+             expect(indexNode.name).toBe('index.ts');
+             expect(indexNode.filePath).toBe('src/index.ts');
+           });
+      @@ -63,10 +63,10 @@
+       
+             const graph = await analyzer(files);
+       
+      -      expect(graph.hasNode('src/functions.ts#add')).toBe(true);
+
+      -      expect(graph.hasNode('src/functions.ts#multiply')).toBe(true);
+
+      +      expect(graph.nodes.has('src/functions.ts#add')).toBe(true);
+
+      +      expect(graph.nodes.has('src/functions.ts#multiply')).toBe(true);
+       
+      -      const addNode = graph.getNodeAttributes('src/functions.ts#add');
+
+      +      const addNode = graph.nodes.get('src/functions.ts#add');
+             expect(addNode.type).toBe('function');
+             expect(addNode.name).toBe('add');
+             expect(addNode.filePath).toBe('src/functions.ts');
+      @@ -85,10 +85,10 @@
+       
+             const graph = await analyzer(files);
+       
+      -      expect(graph.hasNode('src/arrows.ts#greet')).toBe(true);
+
+      -      expect(graph.hasNode('src/arrows.ts#calculate')).toBe(true);
+
+      +      expect(graph.nodes.has('src/arrows.ts#greet')).toBe(true);
+
+      +      expect(graph.nodes.has('src/arrows.ts#calculate')).toBe(true);
+       
+      -      const greetNode = graph.getNodeAttributes('src/arrows.ts#greet');
+
+      +      const greetNode = graph.nodes.get('src/arrows.ts#greet');
+             expect(greetNode.type).toBe('arrow_function');
+             expect(greetNode.name).toBe('greet');
+           });
+      @@ -113,10 +113,10 @@
+       
+             const graph = await analyzer(files);
+       
+      -      expect(graph.hasNode('src/classes.ts#Calculator')).toBe(true);
+
+      -      expect(graph.hasNode('src/classes.ts#Logger')).toBe(true);
+
+      +      expect(graph.nodes.has('src/classes.ts#Calculator')).toBe(true);
+
+      +      expect(graph.nodes.has('src/classes.ts#Logger')).toBe(true);
+       
+      -      const calculatorNode =
+      graph.getNodeAttributes('src/classes.ts#Calculator');
+
+      +      const calculatorNode =
+      graph.nodes.get('src/classes.ts#Calculator');
+             expect(calculatorNode.type).toBe('class');
+             expect(calculatorNode.name).toBe('Calculator');
+             expect(calculatorNode.codeSnippet).toContain('export class Calculator');
+      @@ -139,10 +139,10 @@
+       
+             const graph = await analyzer(files);
+       
+      -      expect(graph.hasNode('src/interfaces.ts#User')).toBe(true);
+
+      -      expect(graph.hasNode('src/interfaces.ts#Config')).toBe(true);
+
+      +      expect(graph.nodes.has('src/interfaces.ts#User')).toBe(true);
+
+      +      expect(graph.nodes.has('src/interfaces.ts#Config')).toBe(true);
+       
+      -      const userNode = graph.getNodeAttributes('src/interfaces.ts#User');
+
+      +      const userNode = graph.nodes.get('src/interfaces.ts#User');
+             expect(userNode.type).toBe('interface');
+             expect(userNode.name).toBe('User');
+           });
+      @@ -159,11 +159,11 @@
+       
+             const graph = await analyzer(files);
+       
+      -      expect(graph.hasNode('src/types.ts#Status')).toBe(true);
+
+      -      expect(graph.hasNode('src/types.ts#Handler')).toBe(true);
+
+      -      expect(graph.hasNode('src/types.ts#UserRole')).toBe(true);
+
+      +      expect(graph.nodes.has('src/types.ts#Status')).toBe(true);
+
+      +      expect(graph.nodes.has('src/types.ts#Handler')).toBe(true);
+
+      +      expect(graph.nodes.has('src/types.ts#UserRole')).toBe(true);
+       
+      -      const statusNode = graph.getNodeAttributes('src/types.ts#Status');
+
+      +      const statusNode = graph.nodes.get('src/types.ts#Status');
+             expect(statusNode.type).toBe('type');
+             expect(statusNode.name).toBe('Status');
+           });
+      @@ -198,30 +198,12 @@
+             const graph = await analyzer(files);
+       
+             // Check if import edges exist
+      -      expect(graph.hasEdge('src/index.ts',
+      'src/calculator.ts')).toBe(true);
+
+      -      expect(graph.hasEdge('src/index.ts',
+      'src/utils/logger.ts')).toBe(true);
+
+      -    });
+
+      -
+
+      -    it('should create edges from files to their symbols', async () => {
+
+      -      const files: FileContent[] = [
+
+      -        {
+
+      -          path: 'src/example.ts',
+
+      -          content: `export class Example {
+
+      -  method(): void {}
+
+      -}
+
+      -
+
+      -export function helper(): string {
+
+      -  return 'help';
+
+      -}`
+
+      -        }
+
+      -      ];
+
+      -
+
+      -      const graph = await analyzer(files);
+
+      -
+
+      -      // Check if contains edges exist
+
+      -      expect(graph.hasEdge('src/example.ts',
+      'src/example.ts#Example')).toBe(true);
+
+      -      expect(graph.hasEdge('src/example.ts',
+      'src/example.ts#helper')).toBe(true);
+
+      +      const hasCalculatorImport = graph.edges.some(e => e.fromId ===
+      'src/index.ts' && e.toId === 'src/calculator.ts');
+
+      +      const hasLoggerImport = graph.edges.some(e => e.fromId ===
+      'src/index.ts' && e.toId === 'src/utils/logger.ts');
+
+      +      
+
+      +      expect(hasCalculatorImport).toBe(true);
+
+      +      expect(hasLoggerImport).toBe(true);
+           });
+       
+           it('should handle files with no symbols gracefully', async () => {
+      @@ -237,10 +219,10 @@
+             const graph = await analyzer(files);
+       
+             // Should still create file nodes
+      -      expect(graph.hasNode('README.md')).toBe(true);
+
+      -      expect(graph.hasNode('src/empty.ts')).toBe(true);
+
+      +      expect(graph.nodes.has('README.md')).toBe(true);
+
+      +      expect(graph.nodes.has('src/empty.ts')).toBe(true);
+       
+      -      const readmeNode = graph.getNodeAttributes('README.md');
+
+      +      const readmeNode = graph.nodes.get('README.md');
+             expect(readmeNode.type).toBe('file');
+           });
+       
+      @@ -257,8 +239,8 @@
+             const graph = await analyzer(files);
+       
+             // Should still create file nodes for both
+      -      expect(graph.hasNode('src/valid.ts')).toBe(true);
+
+      -      expect(graph.hasNode('src/invalid.ts')).toBe(true);
+
+      +      expect(graph.nodes.has('src/valid.ts')).toBe(true);
+
+      +      expect(graph.nodes.has('src/invalid.ts')).toBe(true);
+           });
+       
+           it('should set correct line numbers for symbols', async () => {
+      @@ -282,9 +264,9 @@
+       
+             const graph = await analyzer(files);
+       
+      -      const firstClass =
+      graph.getNodeAttributes('src/multiline.ts#FirstClass');
+
+      -      const secondFunction =
+      graph.getNodeAttributes('src/multiline.ts#secondFunction');
+
+      -      const thirdInterface =
+      graph.getNodeAttributes('src/multiline.ts#ThirdInterface');
+
+      +      const firstClass = graph.nodes.get('src/multiline.ts#FirstClass');
+
+      +      const secondFunction =
+      graph.nodes.get('src/multiline.ts#secondFunction');
+
+      +      const thirdInterface =
+      graph.nodes.get('src/multiline.ts#ThirdInterface');
+       
+             expect(firstClass.startLine).toBe(3);
+             expect(secondFunction.startLine).toBe(9);
+      @@ -313,8 +295,8 @@
+       
+             const graph = await analyzer(files);
+       
+      -      const calculatorNode =
+      graph.getNodeAttributes('src/snippets.ts#Calculator');
+
+      -      const multiplyNode =
+      graph.getNodeAttributes('src/snippets.ts#multiply');
+
+      +      const calculatorNode =
+      graph.nodes.get('src/snippets.ts#Calculator');
+
+      +      const multiplyNode = graph.nodes.get('src/snippets.ts#multiply');
+       
+             expect(calculatorNode.codeSnippet).toContain('export class Calculator');
+             expect(multiplyNode.codeSnippet).toContain('export function multiply(a: number, b: number): number');
+      @@ -345,10 +327,14 @@
+             const graph = await analyzer(files);
+       
+             // Check import edges
+      -      expect(graph.hasEdge('src/imports.ts',
+      'src/math/calculator.ts')).toBe(true);
+
+      -      expect(graph.hasEdge('src/imports.ts', 'src/utils.ts')).toBe(true);
+
+      -      expect(graph.hasEdge('src/imports.ts',
+      'src/config.ts')).toBe(true);
+
+      -      expect(graph.hasEdge('src/imports.ts',
+      'src/logger.ts')).toBe(true);
+
+      +      const hasCalcImport = graph.edges.some(e => e.fromId ===
+      'src/imports.ts' && e.toId === 'src/math/calculator.ts');
+
+      +      const hasUtilsImport = graph.edges.some(e => e.fromId ===
+      'src/imports.ts' && e.toId === 'src/utils.ts');
+
+      +      const hasConfigImport = graph.edges.some(e => e.fromId ===
+      'src/imports.ts' && e.toId === 'src/config.ts');
+
+      +      const hasLoggerImport = graph.edges.some(e => e.fromId ===
+      'src/imports.ts' && e.toId === 'src/logger.ts');
+
+      +      expect(hasCalcImport).toBe(true);
+
+      +      expect(hasUtilsImport).toBe(true);
+
+      +      expect(hasConfigImport).toBe(true);
+
+      +      expect(hasLoggerImport).toBe(true);
+           });
+       
+           it('should handle nested class and function definitions', async () => {
+      @@ -370,39 +356,26 @@
+             const graph = await analyzer(files);
+       
+             // Should identify the outer class
+      -      expect(graph.hasNode('src/nested.ts#OuterClass')).toBe(true);
+
+      +      expect(graph.nodes.has('src/nested.ts#OuterClass')).toBe(true);
+             
+      -      const outerClass =
+      graph.getNodeAttributes('src/nested.ts#OuterClass');
+
+      +      const outerClass = graph.nodes.get('src/nested.ts#OuterClass');
+             expect(outerClass.type).toBe('class');
+             expect(outerClass.name).toBe('OuterClass');
+           });
+      -  });
+
+      -
+
+      -  describe('Graph Structure', () => {
+
+      -    it('should create a directed graph', async () => {
+
+      -      const files: FileContent[] = [
+
+      -        {
+
+      -          path: 'src/test.ts',
+
+      -          content: 'export const test = true;'
+
+      -        }
+
+      -      ];
+
+      -
+
+      -      const graph = await analyzer(files);
+
+      -
+
+      -      expect(graph.type).toBe('directed');
+
+      -      expect(graph.multi).toBe(true);
+
+      -      expect(graph.allowSelfLoops).toBe(false);
+
+      -    });
+
+      -
+
+      +
+
+      +    it('should handle circular imports gracefully', async () => {
+
+      +      const files: FileContent[] = [
+
+      +        {
+
+      +          path: 'src/a.ts',
+
+      +          content: `import { B } from './b.js';
+
+      +export class A {
+
+      +  b: B;
+
+      +}`
+
+      +        },
+
+      +        {
+
+      +          path: 'src/b.ts',
+
+      +          content: `import { A } from './a.js';
+
+      +export class B {
+
+      +  a: A;
+
+      +}`
+
+      +        }
+
+      +      ];
+
+      +
+
+      +      const graph = await analyzer(files);
+
+      +
+
+      +      const aToB = graph.edges.some(e => e.fromId === 'src/a.ts' &&
+      e.toId === 'src/b.ts');
+
+      +      const bToA = graph.edges.some(e => e.fromId === 'src/b.ts' &&
+      e.toId === 'src/a.ts');
+
+      +      
+
+      +      expect(aToB).toBe(true);
+
+      +      expect(bToA).toBe(true);
+
+      +      expect(graph.nodes.has('src/a.ts#A')).toBe(true);
+
+      +      expect(graph.nodes.has('src/b.ts#B')).toBe(true);
+
+      +    });
+           it('should not create duplicate nodes for the same symbol', async () => {
+             const files: FileContent[] = [
+               {
+      @@ -423,43 +396,9 @@
+             const graph = await analyzer(files);
+       
+             // Should only have one Calculator node (first one wins)
+      -      const calculatorNodes = graph.filterNodes((nodeId) => 
+
+      +      const calculatorNodes = [...graph.nodes.keys()].filter((nodeId) =>
+               nodeId.includes('#Calculator')
+             );
+             expect(calculatorNodes.length).toBe(1);
+      -    });
+
+      -
+
+      -    it('should handle circular imports gracefully', async () => {
+
+      -      const files: FileContent[] = [
+
+      -        {
+
+      -          path: 'src/a.ts',
+
+      -          content: `import { B } from './b.js';
+
+      -export class A {
+
+      -  b: B;
+
+      -}`
+
+      -        },
+
+      -        {
+
+      -          path: 'src/b.ts',
+
+      -          content: `import { A } from './a.js';
+
+      -export class B {
+
+      -  a: A;
+
+      -}`
+
+      -        }
+
+      -      ];
+
+      -
+
+      -      const graph = await analyzer(files);
+
+      -
+
+      -      expect(graph.hasEdge('src/a.ts', 'src/b.ts')).toBe(true);
+
+      -      expect(graph.hasEdge('src/b.ts', 'src/a.ts')).toBe(true);
+
+      -      expect(graph.hasNode('src/a.ts#A')).toBe(true);
+
+      -      expect(graph.hasNode('src/b.ts#B')).toBe(true);
+           });
+         });
+       
+      @@ -479,11 +418,11 @@
+       
+             const graph = await analyzer(files);
+       
+      -      expect(graph.order).toBe(fixture.expected_nodes!);
+
+      +      expect(graph.nodes.size).toBe(fixture.expected_nodes!);
+             
+             // Check for specific symbols from the fixture
+      -      expect(graph.hasNode('src/calculator.ts#Calculator')).toBe(true);
+
+      -      expect(graph.hasNode('src/utils/logger.ts#Logger')).toBe(true);
+
+      -      expect(graph.hasNode('src/types.ts#Config')).toBe(true);
+
+      +      expect(graph.nodes.has('src/calculator.ts#Calculator')).toBe(true);
+
+      +      expect(graph.nodes.has('src/utils/logger.ts#Logger')).toBe(true);
+
+      +      expect(graph.nodes.has('src/types.ts#Config')).toBe(true);
+           });
+       
+           it('should analyze complex-project fixture correctly', async () => {
+      @@ -503,12 +442,14 @@
+             const graph = await analyzer(files);
+       
+             // Check for key classes and interfaces
+      -      expect(graph.hasNode('src/database/index.ts#Database')).toBe(true);
+
+      -      expect(graph.hasNode('src/api/server.ts#ApiServer')).toBe(true);
+
+      -     
+      expect(graph.hasNode('src/services/user.ts#UserService')).toBe(true);
+
+      +     
+      expect(graph.nodes.has('src/database/index.ts#Database')).toBe(true);
+
+      +      expect(graph.nodes.has('src/api/server.ts#ApiServer')).toBe(true);
+
+      +     
+      expect(graph.nodes.has('src/services/user.ts#UserService')).toBe(true);
+             
+             // Check for import relationships
+      -      expect(graph.hasEdge('src/api/server.ts',
+      'src/database/index.ts')).toBe(true);
+
+      -      expect(graph.hasEdge('src/api/server.ts',
+      'src/services/user.ts')).toBe(true);
+
+      +      const serverToDb = graph.edges.some(e => e.fromId ===
+      'src/api/server.ts' && e.toId === 'src/database/index.ts');
+
+      +      const serverToUser = graph.edges.some(e => e.fromId ===
+      'src/api/server.ts' && e.toId === 'src/services/user.ts');
+
+      +      expect(serverToDb).toBe(true);
+
+      +      expect(serverToUser).toBe(true);
+           });
+       
+           it('should handle minimal-project fixture', async () => {
+      @@ -523,12 +464,12 @@
+       
+             const graph = await analyzer(files);
+       
+      -      expect(graph.hasNode('src/main.ts')).toBe(true);
+
+      -      expect(graph.hasNode('src/main.ts#hello')).toBe(true);
+
+      -      expect(graph.hasNode('src/main.ts#greet')).toBe(true);
+
+      -
+
+      -      const helloNode = graph.getNodeAttributes('src/main.ts#hello');
+
+      -      const greetNode = graph.getNodeAttributes('src/main.ts#greet');
+
+      +      expect(graph.nodes.has('src/main.ts')).toBe(true);
+
+      +      expect(graph.nodes.has('src/main.ts#hello')).toBe(true);
+
+      +      expect(graph.nodes.has('src/main.ts#greet')).toBe(true);
+
+      +
+
+      +      const helloNode = graph.nodes.get('src/main.ts#hello');
+
+      +      const greetNode = graph.nodes.get('src/main.ts#greet');
+       
+             expect(helloNode.type).toBe('function');
+             expect(greetNode.type).toBe('arrow_function');
+    patchStrategy: new-unified
+  - type: write
+    path: test/unit/composer.test.ts
+    content: >-
+      --- test/unit/composer.test.ts
+
+      +++ test/unit/composer.test.ts
+
+      @@ -176,17 +176,14 @@
+       
+             // Custom analyzer that adds extra metadata
+             const customAnalyzer: Analyzer = async (files) => {
+               const defaultAnalyzer = createTreeSitterAnalyzer();
+      -        const graph = await defaultAnalyzer(files);
+
+      -        
+
+      -        // Add custom metadata to all nodes
+
+      -        graph.forEachNode(nodeId => {
+
+      -          (graph as any).setNodeAttribute(nodeId, 'customMetadata',
+      'processed by custom analyzer');
+
+      -        });
+
+      -        
+
+      -        return graph;
+
+      +        const graph = await defaultAnalyzer(files);
+
+      +        // This test now only verifies that a custom analyzer can be
+      plugged in.
+
+      +        // We'll just pass the graph through. A more complex test is
+      below.
+
+      +        return graph;
+             };
+       
+             const generator = createMapGenerator({
+               discover: createDefaultDiscoverer(),
+      @@ -210,21 +207,19 @@
+             await createTestFiles(tempDir, files);
+       
+             // Custom ranker that assigns alphabetical ranks
+      -      const customRanker: Ranker = async (graph, _files) => {
+
+      +      const customRanker: Ranker = async (graph) => {
+               const ranks = new Map<string, number>();
+      -        const fileNodes = graph.filterNodes(nodeId => 
+
+      -          graph.getNodeAttribute(nodeId, 'type') === 'file'
+
+      -        );
+
+      +        const fileNodes = [...graph.nodes.values()]
+
+      +          .filter(node => node.type === 'file')
+
+      +          .map(node => node.id);
+               
+               fileNodes.sort().forEach((nodeId, index) => {
+                 ranks.set(nodeId, 1 - (index / fileNodes.length));
+               });
+               
+               // Set rank 0 for non-file nodes
+      -        graph.forEachNode(nodeId => {
+
+      -          if (!ranks.has(nodeId)) {
+
+      -            ranks.set(nodeId, 0);
+
+      -          }
+
+      -        });
+
+      +        for (const nodeId of graph.nodes.keys()) {
+
+      +            if (!ranks.has(nodeId)) {
+
+      +                ranks.set(nodeId, 0);
+
+      +            }
+
+      +        }
+               
+               return { graph, ranks };
+             };
+      @@ -261,8 +256,8 @@
+             const customRenderer: Renderer = (rankedGraph, options) => {
+               const defaultRenderer = createMarkdownRenderer();
+               const baseMarkdown = defaultRenderer(rankedGraph, options);
+      -        
+
+      -        return `${baseMarkdown}\n\n## Custom Section\n\nThis was added by
+      a custom renderer.\n\n### Statistics\n- Total nodes:
+      ${rankedGraph.graph.order}\n- Total edges: ${rankedGraph.graph.size}`;
+
+      +        const { nodes, edges } = rankedGraph;
+
+      +        return `${baseMarkdown}\n\n## Custom Section\n\nThis was added by
+      a custom renderer.\n\n### Statistics\n- Total nodes: ${nodes.size}\n-
+      Total edges: ${edges.length}`;
+             };
+       
+             const generator = createMapGenerator({
+      @@ -298,47 +293,47 @@
+             // Custom analyzer that handles .special files
+             const customAnalyzer: Analyzer = async (files) => {
+               const defaultAnalyzer = createTreeSitterAnalyzer();
+      -        const graph = await defaultAnalyzer(files.filter(f =>
+      !f.path.endsWith('.special')));
+
+      +        const { nodes, edges } = await defaultAnalyzer(files.filter(f =>
+      !f.path.endsWith('.special')));
+               
+               // Add special file nodes
+      +        const newNodes = new Map(nodes);
+               files.filter(f => f.path.endsWith('.special')).forEach(file => {
+      -          graph.addNode(file.path, {
+
+      +          newNodes.set(file.path, {
+                   id: file.path,
+                   type: 'special' as any,
+                   name: path.basename(file.path),
+                   filePath: file.path,
+                   startLine: 1,
+                   endLine: 1
+                 });
+               });
+               
+      -        return graph;
+
+      +        return { nodes: newNodes, edges };
+             };
+       
+             // Custom ranker that gives special files high rank
+      -      const customRanker: Ranker = async (graph, _files) => {
+
+      +      const customRanker: Ranker = async (graph) => {
+               const ranks = new Map<string, number>();
+               
+      -        graph.forEachNode(nodeId => {
+
+      -          const nodeType = graph.getNodeAttribute(nodeId, 'type') as
+      string;
+
+      +        for (const [nodeId, node] of graph.nodes.entries()) {
+
+      +          const nodeType = node.type as string;
+                 if (nodeType === 'special') {
+                   ranks.set(nodeId, 1.0);
+                 } else {
+                   ranks.set(nodeId, 0.5);
+                 }
+      -        });
+
+      +        }
+               
+               return { graph, ranks };
+             };
+       
+             // Custom renderer that handles special files
+             const customRenderer: Renderer = (rankedGraph, options) => {
+      -        const specialNodes = rankedGraph.graph.filterNodes(nodeId =>
+
+      -          (rankedGraph.graph.getNodeAttribute(nodeId, 'type') as string)
+      === 'special'
+
+      -        );
+
+      +        const specialNodes = [...rankedGraph.nodes.values()].filter(node
+      =>
+
+      +          (node.type as string) === 'special'
+
+      +        ).map(n => n.id);
+               
+               let markdown = '# Custom Project with Special Files\n\n';
+               
+      @@ -346,7 +341,7 @@
+                 markdown += '## Special Files\n\n';
+                 specialNodes.forEach(nodeId => {
+      -            const node = rankedGraph.graph.getNodeAttributes(nodeId);
+
+      +            const node = rankedGraph.nodes.get(nodeId)!;
+                   markdown += `- **${node.name}** (rank: ${rankedGraph.ranks.get(nodeId)?.toFixed(2)})\n`;
+                 });
+                 markdown += '\n';
+    patchStrategy: new-unified
+  - type: write
+    path: test/unit/rank.test.ts
+    content: >-
+      --- test/unit/rank.test.ts
+
+      +++ test/unit/rank.test.ts
+
+      @@ -1,6 +1,5 @@
+       import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+       import { createPageRanker, createGitRanker } from '../../src/pipeline/rank.js';
+       import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
+      -import type { FileContent, CodeGraph } from '../../src/types.js';
+
+      -import Graph from 'graphology';
+
+      +import type { FileContent, CodeGraph, CodeNode, CodeEdge } from
+      '../../src/types.js';
+       import {
+         createTempDir,
+         cleanupTempDir,
+      @@ -29,29 +28,26 @@
+           });
+       
+           it('should handle empty graphs gracefully', async () => {
+      -      const emptyGraph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      const result = await pageRanker(emptyGraph, []);
+
+      -
+
+      -      expect(result.graph).toBe(emptyGraph);
+
+      +      const emptyGraph: CodeGraph = {
+
+      +        nodes: new Map(),
+
+      +        edges: [],
+
+      +      };
+
+      +
+
+      +      const result = await pageRanker(emptyGraph);
+
+      +
+
+      +      expect(result.nodes).toBe(emptyGraph.nodes);
+
+      +      expect(result.edges).toBe(emptyGraph.edges);
+             expect(result.ranks.size).toBe(0);
+           });
+       
+           it('should assign ranks to all nodes in the graph', async () => {
+      -      const graph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      const edges: CodeEdge[] = [];
+       
+             // Create a simple graph with nodes and edges
+      -      graph.addNode('file1', {
+
+      +      nodes.set('file1', {
+               id: 'file1',
+               type: 'file',
+               name: 'file1.ts',
+      @@ -60,7 +56,7 @@
+               endLine: 10
+             });
+       
+      -      graph.addNode('file2', {
+
+      +      nodes.set('file2', {
+               id: 'file2',
+               type: 'file',
+               name: 'file2.ts',
+      @@ -69,7 +65,7 @@
+               endLine: 15
+             });
+       
+      -      graph.addNode('symbol1', {
+
+      +      nodes.set('symbol1', {
+               id: 'symbol1',
+               type: 'function',
+               name: 'func1',
+      @@ -78,10 +74,10 @@
+               endLine: 5
+             });
+       
+      -      graph.addDirectedEdge('file1', 'file2', { type: 'imports' });
+
+      -      graph.addDirectedEdge('file1', 'symbol1', { type: 'contains' });
+
+      -
+
+      -      const result = await pageRanker(graph, []);
+
+      +      edges.push({ fromId: 'file1', toId: 'file2', type: 'imports' });
+
+      +
+
+      +      const graph: CodeGraph = { nodes, edges };
+
+      +      const result = await pageRanker(graph);
+       
+             expect(result.ranks.size).toBe(3);
+             expect(result.ranks.has('file1')).toBe(true);
+      @@ -95,22 +91,18 @@
+           });
+       
+           it('should assign higher ranks to more connected nodes', async () => {
+      -      const graph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      const edges: CodeEdge[] = [];
+       
+             // Create a hub node that many others connect to
+      -      graph.addNode('hub', {
+
+      +      nodes.set('hub', {
+               id: 'hub',
+               type: 'file',
+               name: 'hub.ts',
+               filePath: 'hub.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+             // Create several nodes that import from the hub
+             for (let i = 1; i <= 5; i++) {
+      -        const nodeId = `node${i}`;
+
+      -        graph.addNode(nodeId, {
+
+      +        const nodeId = `node${i}`;
+
+      +        nodes.set(nodeId, {
+                 id: nodeId,
+                 type: 'file',
+                 name: `${nodeId}.ts`,
+      @@ -118,10 +110,10 @@
+                 startLine: 1,
+                 endLine: 10
+               });
+      -        graph.addDirectedEdge(nodeId, 'hub', { type: 'imports' });
+
+      +        edges.push({ fromId: nodeId, toId: 'hub', type: 'imports' });
+             }
+       
+             // Create an isolated node
+      -      graph.addNode('isolated', {
+
+      +      nodes.set('isolated', {
+               id: 'isolated',
+               type: 'file',
+               name: 'isolated.ts',
+      @@ -130,7 +122,8 @@
+               endLine: 10
+             });
+       
+      -      const result = await pageRanker(graph, []);
+
+      +      const graph: CodeGraph = { nodes, edges };
+
+      +      const result = await pageRanker(graph);
+       
+             const hubRank = result.ranks.get('hub')!;
+             const isolatedRank = result.ranks.get('isolated')!;
+      @@ -140,23 +133,21 @@
+           });
+       
+           it('should return RankedCodeGraph with correct structure', async () => {
+      -      const graph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('test', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('test', {
+               id: 'test',
+               type: 'file',
+               name: 'test.ts',
+               filePath: 'test.ts',
+               startLine: 1,
+               endLine: 10
+             });
+      -
+
+      -      const result = await pageRanker(graph, []);
+
+      -
+
+      -      expect(result).toHaveProperty('graph');
+
+      +      const graph: CodeGraph = { nodes, edges: [] };
+
+      +
+
+      +      const result = await pageRanker(graph);
+
+      +
+
+      +      expect(result).toHaveProperty('nodes');
+
+      +      expect(result).toHaveProperty('edges');
+             expect(result).toHaveProperty('ranks');
+      -      expect(result.graph).toBe(graph);
+
+      +      expect(result.nodes).toBe(graph.nodes);
+             expect(result.ranks).toBeInstanceOf(Map);
+           });
+       
+      @@ -194,7 +185,7 @@
+             ];
+       
+             const graph = await analyzer(files);
+      -      const result = await pageRanker(graph, files);
+
+      +      const result = await pageRanker(graph);
+       
+             expect(result.ranks.size).toBeGreaterThan(0);
+             
+      @@ -216,21 +207,20 @@
+           });
+       
+           it('should handle empty graphs gracefully', async () => {
+      -      const emptyGraph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      const result = await gitRanker(emptyGraph, []);
+
+      -
+
+      -      expect(result.graph).toBe(emptyGraph);
+
+      +      const emptyGraph: CodeGraph = {
+
+      +        nodes: new Map(),
+
+      +        edges: [],
+
+      +      };
+
+      +
+
+      +      const result = await gitRanker(emptyGraph);
+
+      +
+
+      +      expect(result.nodes).toBe(emptyGraph.nodes);
+
+      +      expect(result.edges).toBe(emptyGraph.edges);
+             expect(result.ranks.size).toBe(0);
+           });
+       
+           it('should assign zero ranks when git is not available', async () => {
+      -      const graph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('file1', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('file1', {
+               id: 'file1',
+               type: 'file',
+               name: 'file1.ts',
+      @@ -239,7 +229,7 @@
+               endLine: 10
+             });
+       
+      -      graph.addNode('symbol1', {
+
+      +      nodes.set('symbol1', {
+               id: 'symbol1',
+               type: 'function',
+               name: 'func1',
+      @@ -247,12 +237,13 @@
+               startLine: 2,
+               endLine: 5
+             });
+      +      const graph: CodeGraph = { nodes, edges: [] };
+       
+             // Change to a directory without git
+             const originalCwd = process.cwd();
+             process.chdir(tempDir);
+       
+             try {
+      -        const result = await gitRanker(graph, []);
+
+      +        const result = await gitRanker(graph);
+       
+               expect(result.ranks.size).toBe(2);
+               expect(result.ranks.get('file1')).toBe(0);
+      @@ -263,13 +254,8 @@
+           });
+       
+           it('should only rank file nodes with git strategy', async () => {
+      -      const graph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('file1', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('file1', {
+               id: 'file1',
+               type: 'file',
+               name: 'file1.ts',
+      @@ -278,7 +264,7 @@
+               endLine: 10
+             });
+       
+      -      graph.addNode('symbol1', {
+
+      +      nodes.set('symbol1', {
+               id: 'symbol1',
+               type: 'function',
+               name: 'func1',
+      @@ -286,8 +272,9 @@
+               startLine: 2,
+               endLine: 5
+             });
+      -
+
+      -      const result = await gitRanker(graph, []);
+
+      +      const graph: CodeGraph = { nodes, edges: [] };
+
+      +
+
+      +      const result = await gitRanker(graph);
+       
+             // Symbol nodes should get rank 0 with git strategy
+             expect(result.ranks.get('symbol1')).toBe(0);
+      @@ -304,24 +291,22 @@
+               'file2.ts': 'content2'
+             });
+       
+      -      const graph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('file1.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('file1.ts', {
+               id: 'file1.ts',
+               type: 'file',
+               name: 'file1.ts',
+               filePath: 'file1.ts',
+               startLine: 1,
+               endLine: 10
+             });
+      -
+
+      -      graph.addNode('file2.ts', {
+
+      +      nodes.set('file2.ts', {
+               id: 'file2.ts',
+               type: 'file',
+               name: 'file2.ts',
+               filePath: 'file2.ts',
+               startLine: 1,
+               endLine: 10
+             });
+      +      const graph: CodeGraph = { nodes, edges: [] };
+       
+             const originalCwd = process.cwd();
+             process.chdir(tempDir);
+      @@ -341,7 +326,7 @@
+               execSync('git add file1.ts', { stdio: 'ignore' });
+               execSync('git commit -m "Update file1 again"', { stdio: 'ignore' });
+       
+      -        const result = await gitRanker(graph, []);
+
+      +        const result = await gitRanker(graph);
+       
+               // All ranks should be between 0 and 1
+               for (const rank of result.ranks.values()) {
+      @@ -382,8 +367,8 @@
+             const pageRanker = createPageRanker();
+             const gitRanker = createGitRanker();
+       
+      -      const pageRankResult = await pageRanker(graph, files);
+
+      -      const gitRankResult = await gitRanker(graph, files);
+
+      +      const pageRankResult = await pageRanker(graph);
+
+      +      const gitRankResult = await gitRanker(graph);
+       
+             // Results should have same structure but potentially different ranks
+             expect(pageRankResult.ranks.size).toBe(gitRankResult.ranks.size);
+      @@ -394,28 +379,24 @@
+           });
+       
+           it('should handle graphs with no edges', async () => {
+      -      const graph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      +      const nodes = new Map<string, CodeNode>();
+       
+             // Add isolated nodes
+      -      graph.addNode('file1', {
+
+      +      nodes.set('file1', {
+               id: 'file1',
+               type: 'file',
+               name: 'file1.ts',
+               filePath: 'file1.ts',
+               startLine: 1,
+               endLine: 10
+             });
+      -
+
+      -      graph.addNode('file2', {
+
+      +      nodes.set('file2', {
+               id: 'file2',
+               type: 'file',
+               name: 'file2.ts',
+               filePath: 'file2.ts',
+               startLine: 1,
+               endLine: 10
+             });
+      +      const graph: CodeGraph = { nodes, edges: [] };
+       
+             const pageRanker = createPageRanker();
+      -      const result = await pageRanker(graph, []);
+
+      +      const result = await pageRanker(graph);
+       
+             expect(result.ranks.size).toBe(2);
+             
+      @@ -443,7 +424,7 @@
+       
+             const graph = await analyzer(files);
+             const pageRanker = createPageRanker();
+      -      const result = await pageRanker(graph, files);
+
+      +      const result = await pageRanker(graph);
+       
+             expect(result.ranks.size).toBeGreaterThan(0);
+             
+      @@ -471,7 +452,7 @@
+       
+             const graph = await analyzer(files);
+             const pageRanker = createPageRanker();
+      -      const result = await pageRanker(graph, files);
+
+      +      const result = await pageRanker(graph);
+       
+             // Database and types should have high ranks as they're widely imported
+             const databaseRank = result.ranks.get('src/database/index.ts');
+      @@ -493,7 +474,7 @@
+       
+             const graph = await analyzer(files);
+             const pageRanker = createPageRanker();
+      -      const result = await pageRanker(graph, files);
+
+      +      const result = await pageRanker(graph);
+       
+             expect(result.ranks.size).toBe(fixture.expected_nodes!);
+             
+      @@ -506,24 +487,19 @@
+       
+         describe('Edge Cases', () => {
+           it('should handle self-referential imports', async () => {
+      -      const graph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('file1', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('file1', {
+               id: 'file1',
+               type: 'file',
+               name: 'file1.ts',
+               filePath: 'file1.ts',
+               startLine: 1,
+               endLine: 10
+             });
+      +      const graph: CodeGraph = { nodes, edges: [] };
+       
+             // Note: self-loops are disabled in our graph configuration
+             // This tests that the ranker handles this gracefully
+       
+             const pageRanker = createPageRanker();
+      -      const result = await pageRanker(graph, []);
+
+      +      const result = await pageRanker(graph);
+       
+             expect(result.ranks.size).toBe(1);
+             expect(result.ranks.get('file1')).toBeGreaterThan(0);
+      @@ -531,31 +507,29 @@
+       
+           it('should handle very large graphs efficiently', async () => {
+      -      const graph: CodeGraph = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      const edges: CodeEdge[] = [];
+       
+             // Create a large graph with many nodes
+             const nodeCount = 1000;
+             for (let i = 0; i < nodeCount; i++) {
+      -        graph.addNode(`node${i}`, {
+
+      +        nodes.set(`node${i}`, {
+                 id: `node${i}`,
+                 type: 'file',
+                 name: `file${i}.ts`,
+                 filePath: `file${i}.ts`,
+                 startLine: 1,
+                 endLine: 10
+               });
+             }
+       
+             // Add some edges
+             for (let i = 0; i < nodeCount - 1; i++) {
+      -        graph.addDirectedEdge(`node${i}`, `node${i + 1}`, { type:
+      'imports' });
+
+      +        edges.push({ fromId: `node${i}`, toId: `node${i + 1}`, type:
+      'imports' });
+             }
+      +      const graph: CodeGraph = { nodes, edges };
+       
+             const pageRanker = createPageRanker();
+             const startTime = Date.now();
+      -      const result = await pageRanker(graph, []);
+
+      +      const result = await pageRanker(graph);
+             const endTime = Date.now();
+       
+             expect(result.ranks.size).toBe(nodeCount);
+    patchStrategy: new-unified
+  - type: write
+    path: test/unit/render.test.ts
+    content: >-
+      --- test/unit/render.test.ts
+
+      +++ test/unit/render.test.ts
+
+      @@ -1,8 +1,7 @@
+       import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+       import { createMarkdownRenderer } from '../../src/pipeline/render.js';
+       import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
+       import { createPageRanker } from '../../src/pipeline/rank.js';
+      -import type { CodeNode, FileContent, RankedCodeGraph, RendererOptions }
+      from '../../src/types.js';
+
+      -import Graph from 'graphology';
+
+      +import type { CodeNode, CodeEdge, FileContent, RankedCodeGraph,
+      RendererOptions } from '../../src/types.js';
+       import {
+         createTempDir,
+         cleanupTempDir,
+      @@ -26,14 +25,9 @@
+           });
+       
+           it('should generate valid markdown from empty graph', () => {
+      -      const emptyGraph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+             const rankedGraph: RankedCodeGraph = {
+      -        graph: emptyGraph,
+
+      +        nodes: new Map(),
+
+      +        edges: [],
+               ranks: new Map()
+             };
+       
+      @@ -45,13 +39,8 @@
+           });
+       
+           it('should include project overview section', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/index.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('src/index.ts', {
+               id: 'src/index.ts',
+               type: 'file',
+               name: 'index.ts',
+      @@ -61,7 +50,8 @@
+             });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([['src/index.ts', 0.5]])
+             };
+       
+      @@ -73,37 +63,34 @@
+           });
+       
+           it('should include Mermaid graph by default', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/a.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      const edges: CodeEdge[] = [];
+
+      +
+
+      +      nodes.set('src/a.ts', {
+               id: 'src/a.ts',
+               type: 'file',
+               name: 'a.ts',
+               filePath: 'src/a.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+      -      graph.addNode('src/b.ts', {
+
+      +      nodes.set('src/b.ts', {
+               id: 'src/b.ts',
+               type: 'file',
+               name: 'b.ts',
+               filePath: 'src/b.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+      -      graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+
+      +      edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports'
+      });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges,
+               ranks: new Map([
+                 ['src/a.ts', 0.3],
+                 ['src/b.ts', 0.7]
+               ])
+             };
+       
+             const markdown = renderer(rankedGraph);
+      @@ -115,13 +102,8 @@
+           });
+       
+           it('should exclude Mermaid graph when option is false', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/index.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('src/index.ts', {
+               id: 'src/index.ts',
+               type: 'file',
+               name: 'index.ts',
+      @@ -131,7 +113,8 @@
+             });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([['src/index.ts', 0.5]])
+             };
+       
+      @@ -145,21 +128,17 @@
+           });
+       
+           it('should include top 10 most important files', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      +      const nodes = new Map<string, CodeNode>();
+             const ranks = new Map<string, number>();
+       
+             // Create 15 files with different ranks
+             for (let i = 1; i <= 15; i++) {
+               const nodeId = `src/file${i}.ts`;
+      -        graph.addNode(nodeId, {
+
+      +        nodes.set(nodeId, {
+                 id: nodeId,
+                 type: 'file',
+                 name: `file${i}.ts`,
+                 filePath: nodeId,
+                 startLine: 1,
+                 endLine: 10
+               });
+               ranks.set(nodeId, i / 15); // Higher numbers get higher ranks
+             }
+       
+      -      const rankedGraph: RankedCodeGraph = { graph: graph, ranks };
+
+      +      const rankedGraph: RankedCodeGraph = { nodes, edges: [], ranks };
+             const markdown = renderer(rankedGraph);
+       
+             const topFilesSection = markdown.split('## 📂 File & Symbol Breakdown')[0]!;
+      @@ -176,51 +155,44 @@
+           });
+       
+           it('should include symbol details by default', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/test.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +
+
+      +      nodes.set('src/test.ts', {
+               id: 'src/test.ts',
+               type: 'file',
+               name: 'test.ts',
+               filePath: 'src/test.ts',
+               startLine: 1,
+               endLine: 20
+             });
+       
+      -      graph.addNode('src/test.ts#TestClass', {
+
+      +      nodes.set('src/test.ts#TestClass', {
+               id: 'src/test.ts#TestClass',
+               type: 'class',
+               name: 'TestClass',
+               filePath: 'src/test.ts',
+               startLine: 5,
+               endLine: 15,
+               codeSnippet: 'export class TestClass {'
+             });
+       
+      -      graph.addNode('src/test.ts#testFunction', {
+
+      +      nodes.set('src/test.ts#testFunction', {
+               id: 'src/test.ts#testFunction',
+               type: 'function',
+               name: 'testFunction',
+               filePath: 'src/test.ts',
+               startLine: 17,
+               endLine: 19,
+               codeSnippet: 'export function testFunction(): void'
+             });
+       
+      -      graph.addDirectedEdge('src/test.ts', 'src/test.ts#TestClass', {
+      type: 'contains' });
+
+      -      graph.addDirectedEdge('src/test.ts', 'src/test.ts#testFunction', {
+      type: 'contains' });
+
+      -
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([
+                 ['src/test.ts', 0.8],
+                 ['src/test.ts#TestClass', 0.5],
+                 ['src/test.ts#testFunction', 0.3]
+               ])
+             };
+       
+             const markdown = renderer(rankedGraph);
+      @@ -234,13 +206,8 @@
+           });
+       
+           it('should exclude symbol details when option is false', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/test.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('src/test.ts', {
+               id: 'src/test.ts',
+               type: 'file',
+               name: 'test.ts',
+      @@ -250,7 +217,8 @@
+             });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([['src/test.ts', 0.5]])
+             };
+       
+      @@ -264,14 +232,9 @@
+           });
+       
+           it('should include custom header when provided', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes: new Map(),
+
+      +        edges: [],
+               ranks: new Map()
+             };
+       
+      @@ -286,13 +249,8 @@
+           });
+       
+           it('should handle files with no symbols', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('README.md', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('README.md', {
+               id: 'README.md',
+               type: 'file',
+               name: 'README.md',
+      @@ -302,7 +260,8 @@
+             });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([['README.md', 0.5]])
+             };
+       
+      @@ -313,13 +272,8 @@
+           });
+       
+           it('should sort symbols by line number', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/test.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('src/test.ts', {
+               id: 'src/test.ts',
+               type: 'file',
+               name: 'test.ts',
+      @@ -328,7 +282,7 @@
+             });
+       
+             // Add symbols in non-sequential order
+      -      graph.addNode('src/test.ts#lastFunction', {
+
+      +      nodes.set('src/test.ts#lastFunction', {
+               id: 'src/test.ts#lastFunction',
+               type: 'function',
+               name: 'lastFunction',
+      @@ -337,7 +291,7 @@
+               endLine: 28
+             });
+       
+      -      graph.addNode('src/test.ts#firstFunction', {
+
+      +      nodes.set('src/test.ts#firstFunction', {
+               id: 'src/test.ts#firstFunction',
+               type: 'function',
+               name: 'firstFunction',
+      @@ -346,7 +300,7 @@
+               endLine: 10
+             });
+       
+      -      graph.addNode('src/test.ts#middleClass', {
+
+      +      nodes.set('src/test.ts#middleClass', {
+               id: 'src/test.ts#middleClass',
+               type: 'class',
+               name: 'middleClass',
+      @@ -355,13 +309,9 @@
+               endLine: 20
+             });
+       
+      -      graph.addDirectedEdge('src/test.ts', 'src/test.ts#lastFunction', {
+      type: 'contains' });
+
+      -      graph.addDirectedEdge('src/test.ts', 'src/test.ts#firstFunction', {
+      type: 'contains' });
+
+      -      graph.addDirectedEdge('src/test.ts', 'src/test.ts#middleClass', {
+      type: 'contains' });
+
+      -
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([
+                 ['src/test.ts', 0.8],
+                 ['src/test.ts#lastFunction', 0.3],
+      @@ -381,12 +331,7 @@
+           });
+       
+           it('should sort files by rank (highest first)', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      +      const nodes = new Map<string, CodeNode>();
+             const files = [
+               { id: 'src/low.ts', rank: 0.2 },
+               { id: 'src/high.ts', rank: 0.8 },
+      @@ -396,7 +341,7 @@
+             const ranks = new Map<string, number>();
+       
+             for (const file of files) {
+      -        graph.addNode(file.id, {
+
+      +        nodes.set(file.id, {
+                 id: file.id,
+                 type: 'file',
+                 name: file.id.split('/').pop()!,
+      @@ -407,7 +352,7 @@
+               ranks.set(file.id, file.rank);
+             }
+       
+      -      const rankedGraph: RankedCodeGraph = { graph: graph, ranks };
+
+      +      const rankedGraph: RankedCodeGraph = { nodes, edges: [], ranks };
+             const markdown = renderer(rankedGraph);
+       
+             // Check order in the file breakdown section
+      @@ -420,21 +365,16 @@
+           });
+       
+           it('should handle symbols without code snippets', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/test.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('src/test.ts', {
+               id: 'src/test.ts',
+               type: 'file',
+               name: 'test.ts',
+               filePath: 'src/test.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+      -      graph.addNode('src/test.ts#noSnippet', {
+
+      +      nodes.set('src/test.ts#noSnippet', {
+               id: 'src/test.ts#noSnippet',
+               type: 'function',
+               name: 'noSnippet',
+      @@ -444,10 +384,9 @@
+               // No codeSnippet property
+             });
+       
+      -      graph.addDirectedEdge('src/test.ts', 'src/test.ts#noSnippet', {
+      type: 'contains' });
+
+      -
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([
+                 ['src/test.ts', 0.5],
+                 ['src/test.ts#noSnippet', 0.3]
+      @@ -461,23 +400,18 @@
+           });
+       
+           it('should generate proper markdown links for files', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/nested/deep/file.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('src/nested/deep/file.ts', {
+               id: 'src/nested/deep/file.ts',
+               type: 'file',
+               name: 'file.ts',
+               filePath: 'src/nested/deep/file.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([['src/nested/deep/file.ts', 0.5]])
+             };
+       
+      @@ -489,51 +423,44 @@
+       
+         describe('Mermaid Graph Generation', () => {
+           it('should only include file nodes in Mermaid graph', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/a.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      const edges: CodeEdge[] = [];
+
+      +
+
+      +      nodes.set('src/a.ts', {
+               id: 'src/a.ts',
+               type: 'file',
+               name: 'a.ts',
+               filePath: 'src/a.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+      -      graph.addNode('src/a.ts#Class', {
+
+      +      nodes.set('src/a.ts#Class', {
+               id: 'src/a.ts#Class',
+               type: 'class',
+               name: 'Class',
+               filePath: 'src/a.ts',
+               startLine: 2,
+               endLine: 8
+             });
+       
+      -      graph.addNode('src/b.ts', {
+
+      +      nodes.set('src/b.ts', {
+               id: 'src/b.ts',
+               type: 'file',
+               name: 'b.ts',
+               filePath: 'src/b.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+      -      graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+
+      -      graph.addDirectedEdge('src/a.ts', 'src/a.ts#Class', { type:
+      'contains' });
+
+      +      edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports'
+      });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges,
+               ranks: new Map([
+                 ['src/a.ts', 0.5],
+                 ['src/a.ts#Class', 0.3],
+                 ['src/b.ts', 0.7]
+               ])
+             };
+       
+             const markdown = renderer(rankedGraph);
+      @@ -543,24 +470,19 @@
+           });
+       
+           it('should handle graphs with no file-to-file edges', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/isolated.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('src/isolated.ts', {
+               id: 'src/isolated.ts',
+               type: 'file',
+               name: 'isolated.ts',
+               filePath: 'src/isolated.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([['src/isolated.ts', 0.5]])
+             };
+       
+      @@ -572,41 +494,34 @@
+           });
+       
+           it('should deduplicate edges in Mermaid graph', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/a.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      const edges: CodeEdge[] = [];
+
+      +      nodes.set('src/a.ts', {
+               id: 'src/a.ts',
+               type: 'file',
+               name: 'a.ts',
+               filePath: 'src/a.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+      -      graph.addNode('src/b.ts', {
+
+      +      nodes.set('src/b.ts', {
+               id: 'src/b.ts',
+               type: 'file',
+               name: 'b.ts',
+               filePath: 'src/b.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+             // Add multiple edges between the same files (multi-graph)
+      -      graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+
+      -      graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+
+      +      edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports'
+      });
+
+      +      edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports'
+      });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges,
+               ranks: new Map([
+                 ['src/a.ts', 0.5],
+                 ['src/b.ts', 0.7]
+               ])
+             };
+       
+             const markdown = renderer(rankedGraph);
+      @@ -647,7 +562,7 @@
+             ];
+       
+             const graph = await analyzer(files);
+      -      const rankedGraph = await ranker(graph, files);
+
+      +      const rankedGraph = await ranker(graph);
+             const markdown = renderer(rankedGraph);
+       
+             expect(isValidMarkdown(markdown)).toBe(true);
+      @@ -677,7 +592,7 @@
+             }
+       
+             const graph = await analyzer(files);
+      -      const rankedGraph = await ranker(graph, files);
+
+      +      const rankedGraph = await ranker(graph);
+             const markdown = renderer(rankedGraph);
+       
+             expect(isValidMarkdown(markdown)).toBe(true);
+      @@ -706,7 +621,7 @@
+             }
+       
+             const graph = await analyzer(files);
+      -      const rankedGraph = await ranker(graph, files);
+
+      +      const rankedGraph = await ranker(graph);
+             const markdown = renderer(rankedGraph);
+       
+             expect(isValidMarkdown(markdown)).toBe(true);
+      @@ -730,7 +645,7 @@
+             ];
+       
+             const graph = await analyzer(files);
+      -      const rankedGraph = await ranker(graph, files);
+
+      +      const rankedGraph = await ranker(graph);
+       
+             const options: RendererOptions = {
+               customHeader: '# My Minimal Project\n\nCustom description here.',
+      @@ -748,24 +663,19 @@
+       
+         describe('Edge Cases', () => {
+           it('should handle very long file paths', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      +      const nodes = new Map<string, CodeNode>();
+             const longPath = 'src/very/deeply/nested/directory/structure/with/many/levels/file.ts';
+      -      graph.addNode(longPath, {
+
+      +      nodes.set(longPath, {
+               id: longPath,
+               type: 'file',
+               name: 'file.ts',
+               filePath: longPath,
+               startLine: 1,
+               endLine: 10
+             });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([[longPath, 0.5]])
+             };
+       
+      @@ -775,13 +685,8 @@
+           });
+       
+           it('should handle special characters in file names', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      +      const nodes = new Map<string, CodeNode>();
+             const specialPath = 'src/file-with-dashes_and_underscores.spec.ts';
+      -      graph.addNode(specialPath, {
+
+      +      nodes.set(specialPath, {
+               id: specialPath,
+               type: 'file',
+               name: 'file-with-dashes_and_underscores.spec.ts',
+      @@ -791,7 +696,8 @@
+             });
+       
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([[specialPath, 0.5]])
+             };
+       
+      @@ -801,21 +707,16 @@
+           });
+       
+           it('should handle empty code snippets gracefully', () => {
+      -      const graph: Graph<CodeNode> = new Graph({
+
+      -        multi: true,
+
+      -        allowSelfLoops: false,
+
+      -        type: 'directed',
+
+      -      });
+
+      -
+
+      -      graph.addNode('src/test.ts', {
+
+      +      const nodes = new Map<string, CodeNode>();
+
+      +      nodes.set('src/test.ts', {
+               id: 'src/test.ts',
+               type: 'file',
+               name: 'test.ts',
+               filePath: 'src/test.ts',
+               startLine: 1,
+               endLine: 10
+             });
+       
+      -      graph.addNode('src/test.ts#empty', {
+
+      +      nodes.set('src/test.ts#empty', {
+               id: 'src/test.ts#empty',
+               type: 'function',
+               name: 'empty',
+      @@ -825,10 +726,9 @@
+               codeSnippet: ''
+             });
+       
+      -      graph.addDirectedEdge('src/test.ts', 'src/test.ts#empty', { type:
+      'contains' });
+
+      -
+             const rankedGraph: RankedCodeGraph = {
+      -        graph,
+
+      +        nodes,
+
+      +        edges: [],
+               ranks: new Map([
+                 ['src/test.ts', 0.5],
+                 ['src/test.ts#empty', 0.3]
+    patchStrategy: new-unified
+snapshot:
+  docs/api-spec.md: >
+    # RepoGraph: Technical API Specification
+
+
+    ## 1. Vision & Core Philosophy
+
+
+    **RepoGraph** is a functional, immutable, and composable TypeScript library
+    for generating rich, semantic codemaps in Markdown. Designed for the Bun.sh
+    ecosystem, it provides a powerful, declarative API for analyzing and
+    visualizing code repositories.
+
+
+    Our philosophy is rooted in functional programming:
+
+
+    *   **Immutability:** All data structures are immutable. Functions never
+    modify their inputs; they return new, transformed data, eliminating side
+    effects.
+
+    *   **Composition:** The entire process, from file discovery to rendering,
+    is a pipeline of pure functions. Users can assemble their own pipelines by
+    providing custom functions for any stage.
+
+    *   **Declarative API:** Users describe *what* they want the codemap to look
+    like through configuration and function composition, rather than detailing
+    *how* to build it step-by-step.
+
+
+    The result is a highly predictable and extensible library perfect for
+    documentation generation, codebase exploration, and providing context to AI
+    assistants.
+
+
+    ## 2. Core Data Structures (Immutable Types)
+
+
+    These are the plain data types that flow through the functional pipeline.
+
+
+    ```typescript
+
+    // Represents a single file read from disk.
+
+    export type FileContent = {
+      readonly path: string;
+      readonly content: string;
+    };
+
+
+    // Represents a single, identifiable symbol in the code.
+
+    export type CodeNode = {
+      readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
+      readonly type: 'file' | 'class' | 'function' | 'interface' | 'import' | 'variable';
+      readonly name: string; // e.g., 'MyClass'
+      readonly filePath: string;
+      readonly startLine: number;
+      readonly endLine: number;
+      readonly codeSnippet?: string; // e.g., function signature
+    };
+
+
+    // Represents a directed relationship between two CodeNodes.
+
+    export type CodeEdge = {
+      readonly fromId: string; // ID of the source CodeNode
+      readonly toId: string;   // ID of the target CodeNode
+      readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
+    };
+
+
+    // The complete, raw model of the repository's structure.
+
+    export type CodeGraph = {
+      readonly nodes: ReadonlyMap<string, CodeNode>;
+      readonly edges: readonly CodeEdge[];
+    };
+
+
+    // A CodeGraph with an added 'rank' score for each node.
+
+    export type RankedCodeGraph = CodeGraph & {
+      readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
+    };
+
+    ```
+
+
+    ## 3. The Functional Pipeline
+
+
+    RepoGraph operates as a data transformation pipeline. Each step is a pure
+    function that takes data and returns a new, transformed version.
+
+
+    **`FileContent[]` → `CodeGraph` → `RankedCodeGraph` → `string (Markdown)`**
+
+
+    1.  **Discover:** A `FileDiscoverer` function scans the file system and
+    produces an array of `FileContent` objects.
+
+    2.  **Analyze:** An `Analyzer` function takes the `FileContent[]` and
+    produces a `CodeGraph` by parsing the code and identifying nodes and edges.
+
+    3.  **Rank:** A `Ranker` function takes the `CodeGraph` and produces a
+    `RankedCodeGraph` by applying a scoring algorithm (e.g., PageRank).
+
+    4.  **Render:** A `Renderer` function takes the `RankedCodeGraph` and
+    produces the final Markdown string.
+
+
+    ## 4. API Reference
+
+
+    ### 4.1. Main Function (`generateMap`)
+
+
+    The primary, easy-to-use entry point. It orchestrates the default pipeline
+    based on a configuration object.
+
+
+    ```typescript
+
+    async function generateMap(options: RepoGraphOptions): Promise<void>;
+
+    ```
+
+
+    **`RepoGraphOptions`**
+
+
+    ```typescript
+
+    export type RepoGraphOptions = {
+      /** Root directory to analyze. @default process.cwd() */
+      root: string;
+
+      /** Output path for the Markdown file. @default './repograph.md' */
+      output: string;
+
+      /** Glob patterns for files to include. */
+      include?: readonly string[];
+
+      /** Glob patterns for files to exclude. */
+      ignore?: readonly string[];
+
+      /** Disables the use of .gitignore. @default false */
+      noGitignore?: boolean;
+
+      /** The ranking strategy to use. @default 'pagerank' */
+      rankingStrategy?: 'pagerank' | 'git-changes' | 'alphabetical';
+
+      /** Configuration for the final Markdown output. */
+      rendererOptions?: {
+        includeMermaidGraph?: boolean;
+        includeSymbolDetails?: boolean;
+        customHeader?: string;
+      };
+    };
+
+    ```
+
+
+    ### 4.2. Core Function Types (The Contracts for Composition)
+
+
+    These types define the signatures for the functions that make up the
+    pipeline.
+
+
+    ```typescript
+
+    // Discovers files and returns their content.
+
+    export type FileDiscoverer = (config: {
+      root: string;
+      include?: readonly string[];
+      ignore?: readonly string[];
+      noGitignore?: boolean;
+    }) => Promise<readonly FileContent[]>;
+
+
+    // Analyzes file content and builds the dependency graph.
+
+    export type Analyzer = (files: readonly FileContent[]) =>
+    Promise<CodeGraph>;
+
+
+    // Ranks the nodes in a graph.
+
+    export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
+
+
+    // Renders a ranked graph into a string format.
+
+    export type Renderer = (graph: RankedCodeGraph, options?: any) => string;
+
+    ```
+
+
+    ### 4.3. Default Implementations (Function Factories)
+
+
+    RepoGraph provides default, configurable functions for each stage of the
+    pipeline.
+
+
+    ```typescript
+
+    // Creates the default file discoverer.
+
+    function createDefaultDiscoverer(): FileDiscoverer;
+
+
+    // Creates the default Tree-sitter-based analyzer.
+
+    function createTreeSitterAnalyzer(): Analyzer;
+
+
+    // Creates a ranker using the PageRank algorithm.
+
+    function createPageRanker(): Ranker;
+
+
+    // Creates a ranker based on Git commit history. Requires Git.
+
+    function createGitRanker(options: { maxCommits?: number }): Ranker;
+
+
+    // Creates the default Markdown renderer.
+
+    function createMarkdownRenderer(options: {
+      includeMermaidGraph?: boolean;
+      includeSymbolDetails?: boolean;
+      customHeader?: string;
+    }): Renderer;
+
+    ```
+
+
+    ### 4.4. The Composer (Higher-Order Function)
+
+
+    For ultimate control, `createMapGenerator` is a Higher-Order Function that
+    takes pipeline functions as arguments and returns a fully configured
+    `generate` function.
+
+
+    ```typescript
+
+    function createMapGenerator(pipeline: {
+      discover: FileDiscoverer;
+      analyze: Analyzer;
+      rank: Ranker;
+      render: Renderer;
+    }): (config: { root: string; output: string; /* discoverer options */ }) =>
+    Promise<void>;
+
+    ```
+
+
+    ## 5. Example Usage
+
+
+    ### Simple Case (Using `generateMap`)
+
+
+    ```typescript
+
+    import { generateMap } from 'repograph';
+
+
+    await generateMap({
+      root: './my-project',
+      output: './my-project/README.repograph.md',
+      rankingStrategy: 'pagerank',
+      rendererOptions: {
+        customHeader: '# My Project Architecture',
+      },
+    });
+
+    ```
+
+
+    ### Advanced Case (Using Composition and HOFs)
+
+
+    Here, we build a custom pipeline that uses a hypothetical "cyclomatic
+    complexity" ranker instead of the default.
+
+
+    ```typescript
+
+    import {
+      createMapGenerator,
+      createDefaultDiscoverer,
+      createTreeSitterAnalyzer,
+      createMarkdownRenderer,
+    } from 'repograph';
+
+    import type { CodeGraph, RankedCodeGraph, Ranker } from 'repograph';
+
+
+    // 1. Define our custom ranking function
+
+    const myComplexityRanker: Ranker = (graph: CodeGraph): RankedCodeGraph => {
+      console.log('Using custom complexity ranker!');
+      const ranks = new Map<string, number>();
+      // ... custom logic to calculate complexity and assign rank ...
+      for (const [id] of graph.nodes) {
+        ranks.set(id, Math.random() * 100); // Placeholder
+      }
+      return { ...graph, ranks };
+    };
+
+
+    // 2. Create a map generator by composing our pipeline
+
+    const generateCustomMap = createMapGenerator({
+      discover: createDefaultDiscoverer(),
+      analyze: createTreeSitterAnalyzer(),
+      rank: myComplexityRanker, // <-- Inject our custom function
+      render: createMarkdownRenderer({ includeMermaidGraph: false }),
+    });
+
+
+    // 3. Run the composed generator
+
+    await generateCustomMap({
+      root: './my-project',
+      output: './docs/complexity-map.md',
+      include: ['src/core/**/*'],
+    });
+
+    ```
+
+
+    ## 6. Example Markdown Output
+
+
+    The generated Markdown output remains rich and navigable, as specified
+    previously, with dependency graphs, summary tables, and detailed symbol
+    breakdowns.
+
+
+    ````markdown
+
+    # RepoGraph for `my-project`
+
+
+    _Generated by RepoGraph on 2023-10-27_
+
+
+    ## 🚀 Project Overview
+
+
+    This repository contains 42 source files. The analysis highlights the most
+    central and interconnected modules that form the backbone of the
+    application.
+
+
+    ### Module Dependency Graph
+
+
+    ```mermaid
+
+    graph TD
+        A[src/index.ts] --> B(src/server.ts)
+        B --> C{src/core/router.ts}
+        B --> D[src/core/database.ts]
+        C --> E[src/handlers/user.ts]
+        E --> D
+    ```
+
+
+    ### Top 10 Most Important Files (Ranked by PageRank)
+
+
+    | Rank | File | Key Symbols | Description |
+
+    | :--- | :--- | :--- | :--- |
+
+    | 1 | `src/core/database.ts` | `connectDB`, `query` | Central database
+    connection and query module. Used by most handlers. |
+
+    | 2 | `src/server.ts` | `createServer`, `app` | Main Express server setup
+    and middleware configuration. |
+
+    | ... | ... | ... | ... |
+
+
+    ---
+
+
+    ## 📂 File & Symbol Breakdown
+
+
+    ### [`src/core/database.ts`](./src/core/database.ts)
+
+
+    Central database connection and query module. Used by most handlers.
+
+
+    -   **`function connectDB()`** - _L12_
+        Establishes the main connection to the PostgreSQL database.
+        ```typescript
+        export async function connectDB(): Promise<void>
+        ```
+
+    ---
+  src/types.ts: >-
+    import type Graph from 'graphology';
+
+
+    // Core Data Structures
+
+
+    /** Represents a single file read from disk. Immutable. */
+
+    export type FileContent = {
+      readonly path: string;
+      readonly content: string;
+    };
+
+
+    /** The type of a symbol identified in the code. */
+
+    export type CodeNodeType =
+      | 'file'
+      | 'class'
+      | 'function'
+      | 'interface'
+      | 'import'
+      | 'variable'
+      | 'type'
+      | 'arrow_function'
+      | 'method'
+      | 'field'
+      | 'struct'
+      | 'enum'
+      | 'namespace'
+      | 'trait'
+      | 'impl'
+      | 'constructor'
+      | 'property'
+      | 'constant'
+      | 'static'
+      | 'union'
+      | 'template';
+
+    /** Represents a single, identifiable symbol (or a file) in the code.
+    Immutable. */
+
+    export type CodeNode = {
+      readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
+      readonly type: CodeNodeType;
+      readonly name: string; // e.g., 'MyClass'
+      readonly filePath: string;
+      readonly startLine: number;
+      readonly endLine: number;
+      readonly codeSnippet?: string; // e.g., function signature
+    };
+
+
+    /** Represents a directed relationship between two CodeNodes. Immutable. */
+
+    export type CodeEdge = {
+      readonly fromId: string; // ID of the source CodeNode
+      readonly toId: string;   // ID of the target CodeNode
+      readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
+    };
+
+
+    /** The complete, raw model of the repository's structure. Immutable. */
+
+    export type CodeGraph = {
+      readonly nodes: ReadonlyMap<string, CodeNode>;
+      readonly edges: readonly CodeEdge[];
+    };
+
+
+    /** A CodeGraph with an added 'rank' score for each node. Immutable. */
+
+    export type RankedCodeGraph = CodeGraph & {
+      readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
+    };
+
+
+    // High-Level API Options
+
+
+    /** Configuration for the final Markdown output. */
+
+    export type RendererOptions = {
+      /** Include a Mermaid.js dependency graph. @default true */
+      readonly includeMermaidGraph?: boolean;
+      /** Include detailed breakdowns for each symbol. @default true */
+      readonly includeSymbolDetails?: boolean;
+      /** Custom text to appear at the top of the Markdown file. */
+      readonly customHeader?: string;
+    };
+
+
+    /** Configuration options for the main `generateMap` function. */
+
+    export type RepoGraphOptions = {
+      /** Root directory to analyze. @default process.cwd() */
+      readonly root?: string;
+      /** Output path for the Markdown file. @default './repograph.md' */
+      readonly output?: string;
+      /** Glob patterns for files to include. */
+      readonly include?: readonly string[];
+      /** Glob patterns for files to exclude. */
+      readonly ignore?: readonly string[];
+      /** Disables the use of .gitignore. @default false */
+      readonly noGitignore?: boolean;
+      /** The ranking strategy to use. @default 'pagerank' */
+      readonly rankingStrategy?: 'pagerank' | 'git-changes' | 'alphabetical';
+      /** Configuration for the final Markdown output. */
+      readonly rendererOptions?: RendererOptions;
+    };
+
+
+    // Low-Level Functional Pipeline Contracts
+
+
+    /** Discovers files and returns their content. */
+
+    export type FileDiscoverer = (config: {
+      readonly root: string;
+      readonly include?: readonly string[];
+      readonly ignore?: readonly string[];
+      readonly noGitignore?: boolean;
+    }) => Promise<readonly FileContent[]>;
+
+
+    /** Analyzes file content and builds the dependency graph. */
+
+    export type Analyzer = (files: readonly FileContent[]) =>
+    Promise<CodeGraph>;
+
+
+    /** Ranks the nodes in a graph. */
+
+    export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
+
+
+    /** Renders a ranked graph into a string format. */
+
+    export type Renderer = (rankedGraph: RankedCodeGraph, options?:
+    RendererOptions) => string;
+  src/high-level.ts: >-
+    import { createMapGenerator } from './composer.js';
+
+    import { createDefaultDiscoverer } from './pipeline/discover.js';
+
+    import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+
+    import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+
+    import { createMarkdownRenderer } from './pipeline/render.js';
+
+    import type { RepoGraphOptions, Ranker } from './types.js';
+
+    import path from 'node:path';
+
+
+    /**
+     * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+     * default pipeline based on a configuration object to generate a codemap.
+     *
+     * @param options The configuration object for generating the map.
+     */
+    export const generateMap = async (options: RepoGraphOptions = {}):
+    Promise<void> => {
+      const {
+        root = process.cwd(),
+        output = './repograph.md',
+        rankingStrategy = 'pagerank',
+      } = options;
+
+      let ranker: Ranker;
+      switch (rankingStrategy) {
+        case 'git-changes':
+          ranker = createGitRanker();
+          break;
+        case 'alphabetical':
+          // This is a valid option in types, but not implemented.
+          throw new Error("The 'alphabetical' ranking strategy is not yet implemented.");
+        case 'pagerank':
+        default:
+          if (rankingStrategy !== 'pagerank') {
+            throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+          }
+          ranker = createPageRanker();
+          break;
+      }
+
+      const generator = createMapGenerator({
+        discover: createDefaultDiscoverer(),
+        analyze: createTreeSitterAnalyzer(),
+        rank: ranker,
+        render: createMarkdownRenderer(),
+      });
+
+      await generator({
+        root: path.resolve(root),
+        output: output,
+        include: options.include,
+        ignore: options.ignore,
+        noGitignore: options.noGitignore,
+        rendererOptions: options.rendererOptions,
+      });
+    };
+  src/index.ts: |-
+    #!/usr/bin/env bun
+
+    // High-Level API for simple use cases
+    import { generateMap as executeGenerateMap } from './high-level.js';
+    import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
+
+    export { generateMap } from './high-level.js';
+
+    // Low-Level API for composition and advanced use cases
+    export { createMapGenerator } from './composer.js';
+
+    // Default pipeline component factories
+    export { createDefaultDiscoverer } from './pipeline/discover.js';
+    export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+    export { createPageRanker, createGitRanker } from './pipeline/rank.js';
+    export { createMarkdownRenderer } from './pipeline/render.js';
+
+    // Core types for building custom components
+    export type {
+      FileContent,
+      CodeNode,
+      CodeNodeType,
+      CodeEdge,
+      CodeGraph,
+      RankedCodeGraph,
+      RepoGraphOptions,
+      RendererOptions,
+      FileDiscoverer,
+      Analyzer,
+      Ranker,
+      Renderer,
+    } from './types.js';
+
+    // This section runs only when the script is executed directly from the CLI
+    import { fileURLToPath } from 'node:url';
+    import path from 'node:path';
+
+    const isRunningDirectly = () => {
+      if (typeof process.argv[1] === 'undefined') return false;
+      const runningFile = path.resolve(process.argv[1]);
+      const currentFile = fileURLToPath(import.meta.url);
+      return runningFile === currentFile;
+    };
+
+    if (isRunningDirectly()) {
+      const args = process.argv.slice(2);
+
+      if (args.includes('--help') || args.includes('-h')) {
+        console.log(`
+    Usage: repograph [root] [options]
+
+    Arguments:
+      root                     The root directory of the repository to analyze. Defaults to the current working directory.
+
+    Options:
+      -h, --help               Display this help message.
+      -v, --version            Display the version number.
+      --output <path>          Path to the output Markdown file. (default: "repograph.md")
+      --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
+      --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
+      --no-gitignore           Do not respect .gitignore files.
+      --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
+        `);
+        process.exit(0);
+      }
+
+      if (args.includes('--version') || args.includes('-v')) {
+        // In a real app, you'd get this from package.json
+        console.log('0.1.0');
+        process.exit(0);
+      }
+
+      // We need a mutable version of the options to build it from arguments.
+      const options: {
+        root?: string;
+        output?: string;
+        include?: readonly string[];
+        ignore?: readonly string[];
+        noGitignore?: boolean;
+        rankingStrategy?: 'pagerank' | 'git-changes' | 'alphabetical';
+        rendererOptions?: IRepoGraphOptions['rendererOptions'];
+      } = {};
+      const includePatterns: string[] = [];
+      const ignorePatterns: string[] = [];
+
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (!arg) {
+          continue;
+        }
+        switch (arg) {
+          case '--output':
+            options.output = args[++i];
+            break;
+          case '--include':
+            includePatterns.push(args[++i] as string);
+            break;
+          case '--ignore':
+            ignorePatterns.push(args[++i] as string);
+            break;
+          case '--no-gitignore':
+            options.noGitignore = true;
+            break;
+          case '--ranking-strategy':
+            options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
+            break;
+          default:
+            if (!arg.startsWith('-')) {
+              options.root = arg;
+            }
+            break;
+        }
+      }
+
+      if (includePatterns.length > 0) {
+        options.include = includePatterns;
+      }
+      if (ignorePatterns.length > 0) {
+        options.ignore = ignorePatterns;
+      }
+
+      executeGenerateMap(options)
+        .then(() => {
+          console.log(`✅ RepoGraph map generated successfully at ${path.resolve(options.root || process.cwd(), options.output || 'repograph.md')}`);
+        })
+        .catch((error: unknown) => {
+          if (error instanceof Error) {
+            console.error(`❌ Error generating RepoGraph map: ${error.message}`);
+          } else {
+            console.error('❌ An unknown error occurred while generating the RepoGraph map.');
+          }
+          process.exit(1);
+        });
+    }
+  test/unit/analyze.test.ts: |-
+    import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+    import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
+    import type { FileContent } from '../../src/types.js';
+    import {
+      createTempDir,
+      cleanupTempDir,
+      loadFixture,
+      createProjectFromFixture
+    } from '../test.util.js';
+
+    describe('Tree-sitter Analysis', () => {
+      let tempDir: string;
+      let analyzer: ReturnType<typeof createTreeSitterAnalyzer>;
+
+      beforeEach(async () => {
+        tempDir = await createTempDir();
+        analyzer = createTreeSitterAnalyzer();
+      });
+
+      afterEach(async () => {
+        await cleanupTempDir(tempDir);
+      });
+
+      describe('createTreeSitterAnalyzer()', () => {
+        it('should return an Analyzer function', () => {
+          expect(typeof analyzer).toBe('function');
+        });
+
+        it('should create a CodeGraph from file content', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/index.ts',
+              content: `export function hello(): string {
+      return 'Hello, World!';
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph).toBeDefined();
+          expect(graph.order).toBeGreaterThan(0); // Should have nodes
+        });
+
+        it('should add file nodes to the graph', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/index.ts',
+              content: 'export const hello = "world";'
+            },
+            {
+              path: 'src/utils.ts',
+              content: 'export const util = () => {};'
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph.hasNode('src/index.ts')).toBe(true);
+          expect(graph.hasNode('src/utils.ts')).toBe(true);
+
+          const indexNode = graph.getNodeAttributes('src/index.ts');
+          expect(indexNode.type).toBe('file');
+          expect(indexNode.name).toBe('index.ts');
+          expect(indexNode.filePath).toBe('src/index.ts');
+        });
+
+        it('should identify function declarations', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/functions.ts',
+              content: `export function add(a: number, b: number): number {
+      return a + b;
+    }
+
+    export function multiply(x: number, y: number): number {
+      return x * y;
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph.hasNode('src/functions.ts#add')).toBe(true);
+          expect(graph.hasNode('src/functions.ts#multiply')).toBe(true);
+
+          const addNode = graph.getNodeAttributes('src/functions.ts#add');
+          expect(addNode.type).toBe('function');
+          expect(addNode.name).toBe('add');
+          expect(addNode.filePath).toBe('src/functions.ts');
+          expect(addNode.startLine).toBeGreaterThan(0);
+        });
+
+        it('should identify arrow function declarations', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/arrows.ts',
+              content: `export const greet = (name: string): string => {
+      return \`Hello, \${name}!\`;
+    };
+
+    const calculate = (x: number, y: number): number => x + y;`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph.hasNode('src/arrows.ts#greet')).toBe(true);
+          expect(graph.hasNode('src/arrows.ts#calculate')).toBe(true);
+
+          const greetNode = graph.getNodeAttributes('src/arrows.ts#greet');
+          expect(greetNode.type).toBe('arrow_function');
+          expect(greetNode.name).toBe('greet');
+        });
+
+        it('should identify class declarations', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/classes.ts',
+              content: `export class Calculator {
+      private value: number = 0;
+      
+      add(n: number): this {
+        this.value += n;
+        return this;
+      }
+    }
+
+    class Logger {
+      log(message: string): void {
+        console.log(message);
+      }
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph.hasNode('src/classes.ts#Calculator')).toBe(true);
+          expect(graph.hasNode('src/classes.ts#Logger')).toBe(true);
+
+          const calculatorNode = graph.getNodeAttributes('src/classes.ts#Calculator');
+          expect(calculatorNode.type).toBe('class');
+          expect(calculatorNode.name).toBe('Calculator');
+          expect(calculatorNode.codeSnippet).toContain('export class Calculator');
+        });
+
+        it('should identify interface declarations', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/interfaces.ts',
+              content: `export interface User {
+      id: number;
+      name: string;
+      email: string;
+    }
+
+    interface Config {
+      debug: boolean;
+      version: string;
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph.hasNode('src/interfaces.ts#User')).toBe(true);
+          expect(graph.hasNode('src/interfaces.ts#Config')).toBe(true);
+
+          const userNode = graph.getNodeAttributes('src/interfaces.ts#User');
+          expect(userNode.type).toBe('interface');
+          expect(userNode.name).toBe('User');
+        });
+
+        it('should identify type alias declarations', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/types.ts',
+              content: `export type Status = 'active' | 'inactive' | 'pending';
+
+    type Handler = (event: Event) => void;
+
+    export type UserRole = 'admin' | 'user' | 'guest';`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph.hasNode('src/types.ts#Status')).toBe(true);
+          expect(graph.hasNode('src/types.ts#Handler')).toBe(true);
+          expect(graph.hasNode('src/types.ts#UserRole')).toBe(true);
+
+          const statusNode = graph.getNodeAttributes('src/types.ts#Status');
+          expect(statusNode.type).toBe('type');
+          expect(statusNode.name).toBe('Status');
+        });
+
+        it('should identify import statements and create edges', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/index.ts',
+              content: `import { Calculator } from './calculator.js';
+    import { Logger } from './utils/logger.js';
+
+    export { Calculator, Logger };`
+            },
+            {
+              path: 'src/calculator.ts',
+              content: `export class Calculator {
+      add(a: number, b: number): number {
+        return a + b;
+      }
+    }`
+            },
+            {
+              path: 'src/utils/logger.ts',
+              content: `export class Logger {
+      log(message: string): void {
+        console.log(message);
+      }
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          // Check if import edges exist
+          expect(graph.hasEdge('src/index.ts', 'src/calculator.ts')).toBe(true);
+          expect(graph.hasEdge('src/index.ts', 'src/utils/logger.ts')).toBe(true);
+        });
+
+        it('should create edges from files to their symbols', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/example.ts',
+              content: `export class Example {
+      method(): void {}
+    }
+
+    export function helper(): string {
+      return 'help';
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          // Check if contains edges exist
+          expect(graph.hasEdge('src/example.ts', 'src/example.ts#Example')).toBe(true);
+          expect(graph.hasEdge('src/example.ts', 'src/example.ts#helper')).toBe(true);
+        });
+
+        it('should handle files with no symbols gracefully', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'README.md',
+              content: '# Project\n\nThis is a readme file.'
+            },
+            {
+              path: 'src/empty.ts',
+              content: '// This file is empty\n'
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          // Should still create file nodes
+          expect(graph.hasNode('README.md')).toBe(true);
+          expect(graph.hasNode('src/empty.ts')).toBe(true);
+
+          const readmeNode = graph.getNodeAttributes('README.md');
+          expect(readmeNode.type).toBe('file');
+        });
+
+        it('should handle malformed or unparseable files gracefully', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/valid.ts',
+              content: 'export const valid = true;'
+            },
+            {
+              path: 'src/invalid.ts',
+              content: 'this is not valid typescript syntax {'
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          // Should still create file nodes for both
+          expect(graph.hasNode('src/valid.ts')).toBe(true);
+          expect(graph.hasNode('src/invalid.ts')).toBe(true);
+        });
+
+        it('should set correct line numbers for symbols', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/multiline.ts',
+              content: `// Line 1
+    // Line 2
+    export class FirstClass {
+      // Line 4
+      method(): void {}
+    }
+
+    // Line 8
+    export function secondFunction(): string {
+      return 'hello';
+    }
+
+    // Line 13
+    export interface ThirdInterface {
+      prop: string;
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          const firstClass = graph.getNodeAttributes('src/multiline.ts#FirstClass');
+          const secondFunction = graph.getNodeAttributes('src/multiline.ts#secondFunction');
+          const thirdInterface = graph.getNodeAttributes('src/multiline.ts#ThirdInterface');
+
+          expect(firstClass.startLine).toBe(3);
+          expect(secondFunction.startLine).toBe(9);
+          expect(thirdInterface.startLine).toBe(14);
+
+          expect(firstClass.endLine).toBeGreaterThan(firstClass.startLine);
+          expect(secondFunction.endLine).toBeGreaterThan(secondFunction.startLine);
+          expect(thirdInterface.endLine).toBeGreaterThan(thirdInterface.startLine);
+        });
+
+        it('should include code snippets for symbols', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/snippets.ts',
+              content: `export class Calculator {
+      private value: number = 0;
+      
+      add(n: number): this {
+        this.value += n;
+        return this;
+      }
+    }
+
+    export function multiply(a: number, b: number): number {
+      return a * b;
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          const calculatorNode = graph.getNodeAttributes('src/snippets.ts#Calculator');
+          const multiplyNode = graph.getNodeAttributes('src/snippets.ts#multiply');
+
+          expect(calculatorNode.codeSnippet).toContain('export class Calculator');
+          expect(multiplyNode.codeSnippet).toContain('export function multiply(a: number, b: number): number');
+        });
+
+        it('should handle complex import patterns', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/imports.ts',
+              content: `import { Calculator } from './math/calculator.js';
+    import * as utils from './utils.js';
+    import type { Config } from './config.js';
+    import Logger, { LogLevel } from './logger.js';`
+            },
+            {
+              path: 'src/math/calculator.ts',
+              content: 'export class Calculator {}'
+            },
+            {
+              path: 'src/utils.ts',
+              content: 'export const helper = () => {};'
+            },
+            {
+              path: 'src/config.ts',
+              content: 'export interface Config {}'
+            },
+            {
+              path: 'src/logger.ts',
+              content: 'export default class Logger {}'
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          // Check import edges
+          expect(graph.hasEdge('src/imports.ts', 'src/math/calculator.ts')).toBe(true);
+          expect(graph.hasEdge('src/imports.ts', 'src/utils.ts')).toBe(true);
+          expect(graph.hasEdge('src/imports.ts', 'src/config.ts')).toBe(true);
+          expect(graph.hasEdge('src/imports.ts', 'src/logger.ts')).toBe(true);
+        });
+
+        it('should handle nested class and function definitions', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/nested.ts',
+              content: `export class OuterClass {
+      private inner = class InnerClass {
+        method(): void {}
+      };
+      
+      outerMethod(): void {
+        function nestedFunction(): string {
+          return 'nested';
+        }
+        nestedFunction();
+      }
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          // Should identify the outer class
+          expect(graph.hasNode('src/nested.ts#OuterClass')).toBe(true);
+          
+          const outerClass = graph.getNodeAttributes('src/nested.ts#OuterClass');
+          expect(outerClass.type).toBe('class');
+          expect(outerClass.name).toBe('OuterClass');
+        });
+      });
+
+      describe('Graph Structure', () => {
+        it('should create a directed graph', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/test.ts',
+              content: 'export const test = true;'
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph.type).toBe('directed');
+          expect(graph.multi).toBe(true);
+          expect(graph.allowSelfLoops).toBe(false);
+        });
+
+        it('should not create duplicate nodes for the same symbol', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/duplicate.ts',
+              content: `export class Calculator {
+      add(a: number, b: number): number {
+        return a + b;
+      }
+    }
+
+    // This should not create a duplicate
+    export class Calculator {
+      multiply(a: number, b: number): number {
+        return a * b;
+      }
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          // Should only have one Calculator node (first one wins)
+          const calculatorNodes = graph.filterNodes((nodeId) => 
+            nodeId.includes('#Calculator')
+          );
+          expect(calculatorNodes.length).toBe(1);
+        });
+
+        it('should handle circular imports gracefully', async () => {
+          const files: FileContent[] = [
+            {
+              path: 'src/a.ts',
+              content: `import { B } from './b.js';
+    export class A {
+      b: B;
+    }`
+            },
+            {
+              path: 'src/b.ts',
+              content: `import { A } from './a.js';
+    export class B {
+      a: A;
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph.hasEdge('src/a.ts', 'src/b.ts')).toBe(true);
+          expect(graph.hasEdge('src/b.ts', 'src/a.ts')).toBe(true);
+          expect(graph.hasNode('src/a.ts#A')).toBe(true);
+          expect(graph.hasNode('src/b.ts#B')).toBe(true);
+        });
+      });
+
+      describe('Integration with Fixtures', () => {
+        it('should analyze sample-project fixture correctly', async () => {
+          const fixture = await loadFixture('sample-project');
+          await createProjectFromFixture(tempDir, fixture);
+
+          const files: FileContent[] = [];
+          for (const file of fixture.files) {
+            if (file.path.endsWith('.ts')) {
+              files.push({
+                path: file.path,
+                content: file.content
+              });
+            }
+          }
+
+          const graph = await analyzer(files);
+
+          expect(graph.order).toBe(fixture.expected_nodes!);
+          
+          // Check for specific symbols from the fixture
+          expect(graph.hasNode('src/calculator.ts#Calculator')).toBe(true);
+          expect(graph.hasNode('src/utils/logger.ts#Logger')).toBe(true);
+          expect(graph.hasNode('src/types.ts#Config')).toBe(true);
+        });
+
+        it('should analyze complex-project fixture correctly', async () => {
+          const fixture = await loadFixture('complex-project');
+          await createProjectFromFixture(tempDir, fixture);
+
+          const files: FileContent[] = [];
+          for (const file of fixture.files) {
+            if (file.path.endsWith('.ts') && !file.path.includes('test')) {
+              files.push({
+                path: file.path,
+                content: file.content
+              });
+            }
+          }
+
+          const graph = await analyzer(files);
+
+          // Check for key classes and interfaces
+          expect(graph.hasNode('src/database/index.ts#Database')).toBe(true);
+          expect(graph.hasNode('src/api/server.ts#ApiServer')).toBe(true);
+          expect(graph.hasNode('src/services/user.ts#UserService')).toBe(true);
+          
+          // Check for import relationships
+          expect(graph.hasEdge('src/api/server.ts', 'src/database/index.ts')).toBe(true);
+          expect(graph.hasEdge('src/api/server.ts', 'src/services/user.ts')).toBe(true);
+        });
+
+        it('should handle minimal-project fixture', async () => {
+          const fixture = await loadFixture('minimal-project');
+          await createProjectFromFixture(tempDir, fixture);
+
+          const files: FileContent[] = [
+            {
+              path: 'src/main.ts',
+              content: fixture.files[0]!.content
+            }
+          ];
+
+          const graph = await analyzer(files);
+
+          expect(graph.hasNode('src/main.ts')).toBe(true);
+          expect(graph.hasNode('src/main.ts#hello')).toBe(true);
+          expect(graph.hasNode('src/main.ts#greet')).toBe(true);
+
+          const helloNode = graph.getNodeAttributes('src/main.ts#hello');
+          const greetNode = graph.getNodeAttributes('src/main.ts#greet');
+
+          expect(helloNode.type).toBe('function');
+          expect(greetNode.type).toBe('arrow_function');
+        });
+      });
+    });
+  test/unit/composer.test.ts: >-
+    import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+
+    import { createMapGenerator } from '../../src/composer.js';
+
+    import { createDefaultDiscoverer } from '../../src/pipeline/discover.js';
+
+    import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
+
+    import { createPageRanker } from '../../src/pipeline/rank.js';
+
+    import { createMarkdownRenderer } from '../../src/pipeline/render.js';
+
+    import type { FileDiscoverer, Analyzer, Ranker, Renderer, FileContent } from
+    '../../src/types.js';
+
+    import {
+      createTempDir,
+      cleanupTempDir,
+      createTestFiles,
+      assertFileExists,
+      readFile,
+      isValidMarkdown
+    } from '../test.util.js';
+
+    import path from 'node:path';
+
+
+    describe('Composer', () => {
+      let tempDir: string;
+
+      beforeEach(async () => {
+        tempDir = await createTempDir();
+      });
+
+      afterEach(async () => {
+        await cleanupTempDir(tempDir);
+      });
+
+      describe('createMapGenerator()', () => {
+        it('should return a function when given valid components', () => {
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          expect(typeof generator).toBe('function');
+        });
+
+        it('should require all four components', () => {
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker()
+            // Missing render
+          } as any)).toThrow();
+
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            // Missing rank
+            render: createMarkdownRenderer()
+          } as any)).toThrow();
+
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            // Missing analyze
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          } as any)).toThrow();
+
+          expect(() => createMapGenerator({
+            // Missing discover
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          } as any)).toThrow();
+        });
+
+        it('should execute the full pipeline with default components', async () => {
+          const files = {
+            'src/index.ts': `export class Example {
+      method(): string {
+        return 'hello';
+      }
+    }`
+          };
+          await createTestFiles(tempDir, files);
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'output.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          await assertFileExists(outputPath);
+          const content = await readFile(outputPath);
+          expect(isValidMarkdown(content)).toBe(true);
+          expect(content).toContain('Example');
+        });
+
+        it('should pass options through the pipeline correctly', async () => {
+          const files = {
+            'src/index.ts': 'export const ts = true;',
+            'src/index.js': 'export const js = true;',
+            'src/test.spec.ts': 'test code'
+          };
+          await createTestFiles(tempDir, files);
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'filtered.md');
+          await generator({
+            root: tempDir,
+            output: outputPath,
+            include: ['**/*.ts'],
+            ignore: ['**/*.spec.ts']
+          });
+
+          const content = await readFile(outputPath);
+          expect(content).toContain('src/index.ts');
+          expect(content).not.toContain('src/index.js');
+          expect(content).not.toContain('src/test.spec.ts');
+        });
+
+        it('should pass renderer options correctly', async () => {
+          const files = {
+            'src/index.ts': `export class Test {
+      method(): void {}
+    }`
+          };
+          await createTestFiles(tempDir, files);
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'custom.md');
+          await generator({
+            root: tempDir,
+            output: outputPath,
+            rendererOptions: {
+              customHeader: '# Custom Project',
+              includeMermaidGraph: false,
+              includeSymbolDetails: false
+            }
+          });
+
+          const content = await readFile(outputPath);
+          expect(content).toStartWith('# Custom Project');
+          expect(content).not.toContain('```mermaid');
+          expect(content).not.toContain('## 📂 File & Symbol Breakdown');
+        });
+
+        it('should create output directory if it does not exist', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'nested', 'deep', 'output.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          await assertFileExists(outputPath);
+        });
+
+        it('should handle empty projects gracefully', async () => {
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'empty.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          const content = await readFile(outputPath);
+          expect(isValidMarkdown(content)).toBe(true);
+          expect(content).toContain('This repository contains 0 nodes (0 files)');
+        });
+      });
+
+      describe('Custom Components', () => {
+        it('should work with custom discoverer', async () => {
+          const files = {
+            'src/index.ts': 'export const ts = true;',
+            'src/index.js': 'export const js = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          // Custom discoverer that only finds .js files
+          const customDiscoverer: FileDiscoverer = async (options) => {
+            const defaultDiscoverer = createDefaultDiscoverer();
+            const allFiles = await defaultDiscoverer(options);
+            return allFiles.filter(file => file.path.endsWith('.js'));
+          };
+
+          const generator = createMapGenerator({
+            discover: customDiscoverer,
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'js-only.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          const content = await readFile(outputPath);
+          expect(content).toContain('src/index.js');
+          expect(content).not.toContain('src/index.ts');
+        });
+
+        it('should work with custom analyzer', async () => {
+          const files = {
+            'src/index.ts': `export class Example {
+      method(): string {
+        return 'hello';
+      }
+    }`
+          };
+          await createTestFiles(tempDir, files);
+
+          // Custom analyzer that adds extra metadata
+          const customAnalyzer: Analyzer = async (files) => {
+            const defaultAnalyzer = createTreeSitterAnalyzer();
+            const graph = await defaultAnalyzer(files);
+            
+            // Add custom metadata to all nodes
+            graph.forEachNode(nodeId => {
+              (graph as any).setNodeAttribute(nodeId, 'customMetadata', 'processed by custom analyzer');
+            });
+            
+            return graph;
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: customAnalyzer,
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'custom-analyzed.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          await assertFileExists(outputPath);
+        });
+
+        it('should work with custom ranker', async () => {
+          const files = {
+            'src/a.ts': 'export const a = true;',
+            'src/b.ts': 'export const b = true;',
+            'src/c.ts': 'export const c = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          // Custom ranker that assigns alphabetical ranks
+          const customRanker: Ranker = async (graph, _files) => {
+            const ranks = new Map<string, number>();
+            const fileNodes = graph.filterNodes(nodeId => 
+              graph.getNodeAttribute(nodeId, 'type') === 'file'
+            );
+            
+            fileNodes.sort().forEach((nodeId, index) => {
+              ranks.set(nodeId, 1 - (index / fileNodes.length));
+            });
+            
+            // Set rank 0 for non-file nodes
+            graph.forEachNode(nodeId => {
+              if (!ranks.has(nodeId)) {
+                ranks.set(nodeId, 0);
+              }
+            });
+            
+            return { graph, ranks };
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: customRanker,
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'custom-ranked.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          const content = await readFile(outputPath);
+          // src/a.ts should be ranked highest (alphabetically first)
+          const aIndex = content.indexOf('src/a.ts');
+          const bIndex = content.indexOf('src/b.ts');
+          expect(aIndex).toBeLessThan(bIndex);
+        });
+
+        it('should work with custom renderer', async () => {
+          const files = {
+            'src/index.ts': `export class Example {
+      method(): string {
+        return 'hello';
+      }
+    }`
+          };
+          await createTestFiles(tempDir, files);
+
+          // Custom renderer that adds extra sections
+          const customRenderer: Renderer = (rankedGraph, options) => {
+            const defaultRenderer = createMarkdownRenderer();
+            const baseMarkdown = defaultRenderer(rankedGraph, options);
+            
+            return `${baseMarkdown}\n\n## Custom Section\n\nThis was added by a custom renderer.\n\n### Statistics\n- Total nodes: ${rankedGraph.graph.order}\n- Total edges: ${rankedGraph.graph.size}`;
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: customRenderer
+          });
+
+          const outputPath = path.join(tempDir, 'custom-rendered.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          const content = await readFile(outputPath);
+          expect(content).toContain('## Custom Section');
+          expect(content).toContain('This was added by a custom renderer');
+          expect(content).toContain('### Statistics');
+          expect(content).toContain('Total nodes:');
+          expect(content).toContain('Total edges:');
+        });
+
+        it('should work with all custom components', async () => {
+          const files = {
+            'custom.special': 'special file content',
+            'src/index.ts': 'export const normal = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          // Custom discoverer for .special files
+          const customDiscoverer: FileDiscoverer = async (options) => {
+            const defaultDiscoverer = createDefaultDiscoverer();
+            // The original logic had a bug that duplicated files. We just need to
+            // ensure all files are discovered for the test.
+            return defaultDiscoverer(options);
+          };
+
+          // Custom analyzer that handles .special files
+          const customAnalyzer: Analyzer = async (files) => {
+            const defaultAnalyzer = createTreeSitterAnalyzer();
+            const graph = await defaultAnalyzer(files.filter(f => !f.path.endsWith('.special')));
+            
+            // Add special file nodes
+            files.filter(f => f.path.endsWith('.special')).forEach(file => {
+              graph.addNode(file.path, {
+                id: file.path,
+                type: 'special' as any,
+                name: path.basename(file.path),
+                filePath: file.path,
+                startLine: 1,
+                endLine: 1
+              });
+            });
+            
+            return graph;
+          };
+
+          // Custom ranker that gives special files high rank
+          const customRanker: Ranker = async (graph, _files) => {
+            const ranks = new Map<string, number>();
+            
+            graph.forEachNode(nodeId => {
+              const nodeType = graph.getNodeAttribute(nodeId, 'type') as string;
+              if (nodeType === 'special') {
+                ranks.set(nodeId, 1.0);
+              } else {
+                ranks.set(nodeId, 0.5);
+              }
+            });
+            
+            return { graph, ranks };
+          };
+
+          // Custom renderer that handles special files
+          const customRenderer: Renderer = (rankedGraph, options) => {
+            const specialNodes = rankedGraph.graph.filterNodes(nodeId =>
+              (rankedGraph.graph.getNodeAttribute(nodeId, 'type') as string) === 'special'
+            );
+            
+            let markdown = '# Custom Project with Special Files\n\n';
+            
+            if (specialNodes.length > 0) {
+              markdown += '## Special Files\n\n';
+              specialNodes.forEach(nodeId => {
+                const node = rankedGraph.graph.getNodeAttributes(nodeId);
+                markdown += `- **${node.name}** (rank: ${rankedGraph.ranks.get(nodeId)?.toFixed(2)})\n`;
+              });
+              markdown += '\n';
+            }
+            
+            const defaultRenderer = createMarkdownRenderer();
+            const baseMarkdown = defaultRenderer(rankedGraph, options);
+            
+            return markdown + baseMarkdown.split('\n').slice(2).join('\n'); // Remove default header
+          };
+
+          const generator = createMapGenerator({
+            discover: customDiscoverer,
+            analyze: customAnalyzer,
+            rank: customRanker,
+            render: customRenderer
+          });
+
+          const outputPath = path.join(tempDir, 'all-custom.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          const content = await readFile(outputPath);
+          expect(content).toContain('# Custom Project with Special Files');
+          expect(content).toContain('## Special Files');
+          expect(content).toContain('custom.special');
+        });
+      });
+
+      describe('Error Handling', () => {
+        it('should handle discoverer errors gracefully', async () => {
+          const errorDiscoverer: FileDiscoverer = async () => {
+            throw new Error('Discoverer failed');
+          };
+
+          const generator = createMapGenerator({
+            discover: errorDiscoverer,
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'error.md');
+          
+          await expect(generator({
+            root: tempDir,
+            output: outputPath
+          })).rejects.toThrow('Discoverer failed');
+        });
+
+        it('should handle analyzer errors gracefully', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const errorAnalyzer: Analyzer = async () => {
+            throw new Error('Analyzer failed');
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: errorAnalyzer,
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'error.md');
+          
+          await expect(generator({
+            root: tempDir,
+            output: outputPath
+          })).rejects.toThrow('Analyzer failed');
+        });
+
+        it('should handle ranker errors gracefully', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const errorRanker: Ranker = async () => {
+            throw new Error('Ranker failed');
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: errorRanker,
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'error.md');
+          
+          await expect(generator({
+            root: tempDir,
+            output: outputPath
+          })).rejects.toThrow('Ranker failed');
+        });
+
+        it('should handle renderer errors gracefully', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const errorRenderer: Renderer = () => {
+            throw new Error('Renderer failed');
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: errorRenderer
+          });
+
+          const outputPath = path.join(tempDir, 'error.md');
+          
+          await expect(generator({
+            root: tempDir,
+            output: outputPath
+          })).rejects.toThrow('Renderer failed');
+        });
+
+        it('should handle file write errors gracefully', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          // Try to write to an invalid path
+          const invalidOutputPath = '/root/cannot-write.md';
+          
+          await expect(generator({
+            root: tempDir,
+            output: invalidOutputPath
+          })).rejects.toThrow();
+        });
+      });
+
+      describe('Component Interface Validation', () => {
+        it('should validate discoverer interface', () => {
+          const invalidDiscoverer = 'not a function';
+          
+          expect(() => createMapGenerator({
+            discover: invalidDiscoverer as any,
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          })).toThrow();
+        });
+
+        it('should validate analyzer interface', () => {
+          const invalidAnalyzer = 'not a function';
+          
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: invalidAnalyzer as any,
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          })).toThrow();
+        });
+
+        it('should validate ranker interface', () => {
+          const invalidRanker = 'not a function';
+          
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: invalidRanker as any,
+            render: createMarkdownRenderer()
+          })).toThrow();
+        });
+
+        it('should validate renderer interface', () => {
+          const invalidRenderer = 'not a function';
+          
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: invalidRenderer as any
+          })).toThrow();
+        });
+      });
+
+      describe('Pipeline Data Flow', () => {
+        it('should pass files from discoverer to analyzer', async () => {
+          const files = {
+            'src/a.ts': 'export const a = true;',
+            'src/b.ts': 'export const b = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          let discoveredFiles: readonly FileContent[] = [];
+          let analyzedFiles: readonly FileContent[] = [];
+
+          const trackingDiscoverer: FileDiscoverer = async (options) => {
+            const defaultDiscoverer = createDefaultDiscoverer();
+            discoveredFiles = await defaultDiscoverer(options);
+            return discoveredFiles;
+          };
+
+          const trackingAnalyzer: Analyzer = async (files) => {
+            analyzedFiles = files;
+            const defaultAnalyzer = createTreeSitterAnalyzer();
+            return await defaultAnalyzer(files);
+          };
+
+          const generator = createMapGenerator({
+            discover: trackingDiscoverer,
+            analyze: trackingAnalyzer,
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'tracking.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          expect(discoveredFiles.length).toBe(2);
+          expect(analyzedFiles.length).toBe(2);
+          expect(analyzedFiles).toEqual(discoveredFiles);
+        });
+
+        it('should pass graph from analyzer to ranker', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          let analyzedGraph: any;
+          let rankedGraph: any;
+
+          const trackingAnalyzer: Analyzer = async (files) => {
+            const defaultAnalyzer = createTreeSitterAnalyzer();
+            analyzedGraph = await defaultAnalyzer(files);
+            return analyzedGraph;
+          };
+
+          const trackingRanker: Ranker = async (graph, files) => {
+            rankedGraph = graph;
+            const defaultRanker = createPageRanker();
+            return await defaultRanker(graph, files);
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: trackingAnalyzer,
+            rank: trackingRanker,
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'tracking.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          expect(rankedGraph).toBe(analyzedGraph);
+        });
+
+        it('should pass ranked graph from ranker to renderer', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          let rankerOutput: any;
+          let rendererInput: any;
+
+          const trackingRanker: Ranker = async (graph, files) => {
+            const defaultRanker = createPageRanker();
+            rankerOutput = await defaultRanker(graph, files);
+            return rankerOutput;
+          };
+
+          const trackingRenderer: Renderer = (rankedGraph, options) => {
+            rendererInput = rankedGraph;
+            const defaultRenderer = createMarkdownRenderer();
+            return defaultRenderer(rankedGraph, options);
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: trackingRanker,
+            render: trackingRenderer
+          });
+
+          const outputPath = path.join(tempDir, 'tracking.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          expect(rendererInput).toBe(rankerOutput);
+        });
+      });
+    });
+  test/unit/rank.test.ts: >-
+    import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+
+    import { createPageRanker, createGitRanker } from
+    '../../src/pipeline/rank.js';
+
+    import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
+
+    import type { FileContent, CodeGraph } from '../../src/types.js';
+
+    import Graph from 'graphology';
+
+    import {
+      createTempDir,
+      cleanupTempDir,
+      createTestFiles,
+      loadFixture,
+      createProjectFromFixture
+    } from '../test.util.js';
+
+    import fs from 'node:fs/promises';
+
+    import path from 'node:path';
+
+    import { execSync } from 'node:child_process';
+
+
+    describe('Graph Ranking', () => {
+      let tempDir: string;
+
+      beforeEach(async () => {
+        tempDir = await createTempDir();
+      });
+
+      afterEach(async () => {
+        await cleanupTempDir(tempDir);
+      });
+
+      describe('createPageRanker()', () => {
+        let pageRanker: ReturnType<typeof createPageRanker>;
+
+        beforeEach(() => {
+          pageRanker = createPageRanker();
+        });
+
+        it('should return a Ranker function', () => {
+          expect(typeof pageRanker).toBe('function');
+        });
+
+        it('should handle empty graphs gracefully', async () => {
+          const emptyGraph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          const result = await pageRanker(emptyGraph, []);
+
+          expect(result.graph).toBe(emptyGraph);
+          expect(result.ranks.size).toBe(0);
+        });
+
+        it('should assign ranks to all nodes in the graph', async () => {
+          const graph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          // Create a simple graph with nodes and edges
+          graph.addNode('file1', {
+            id: 'file1',
+            type: 'file',
+            name: 'file1.ts',
+            filePath: 'file1.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('file2', {
+            id: 'file2',
+            type: 'file',
+            name: 'file2.ts',
+            filePath: 'file2.ts',
+            startLine: 1,
+            endLine: 15
+          });
+
+          graph.addNode('symbol1', {
+            id: 'symbol1',
+            type: 'function',
+            name: 'func1',
+            filePath: 'file1.ts',
+            startLine: 2,
+            endLine: 5
+          });
+
+          graph.addDirectedEdge('file1', 'file2', { type: 'imports' });
+          graph.addDirectedEdge('file1', 'symbol1', { type: 'contains' });
+
+          const result = await pageRanker(graph, []);
+
+          expect(result.ranks.size).toBe(3);
+          expect(result.ranks.has('file1')).toBe(true);
+          expect(result.ranks.has('file2')).toBe(true);
+          expect(result.ranks.has('symbol1')).toBe(true);
+
+          // All ranks should be positive numbers
+          for (const rank of result.ranks.values()) {
+            expect(rank).toBeGreaterThan(0);
+          }
+        });
+
+        it('should assign higher ranks to more connected nodes', async () => {
+          const graph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          // Create a hub node that many others connect to
+          graph.addNode('hub', {
+            id: 'hub',
+            type: 'file',
+            name: 'hub.ts',
+            filePath: 'hub.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          // Create several nodes that import from the hub
+          for (let i = 1; i <= 5; i++) {
+            const nodeId = `node${i}`;
+            graph.addNode(nodeId, {
+              id: nodeId,
+              type: 'file',
+              name: `${nodeId}.ts`,
+              filePath: `${nodeId}.ts`,
+              startLine: 1,
+              endLine: 10
+            });
+            graph.addDirectedEdge(nodeId, 'hub', { type: 'imports' });
+          }
+
+          // Create an isolated node
+          graph.addNode('isolated', {
+            id: 'isolated',
+            type: 'file',
+            name: 'isolated.ts',
+            filePath: 'isolated.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          const result = await pageRanker(graph, []);
+
+          const hubRank = result.ranks.get('hub')!;
+          const isolatedRank = result.ranks.get('isolated')!;
+
+          // Hub should have higher rank than isolated node
+          expect(hubRank).toBeGreaterThan(isolatedRank);
+        });
+
+        it('should return RankedCodeGraph with correct structure', async () => {
+          const graph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('test', {
+            id: 'test',
+            type: 'file',
+            name: 'test.ts',
+            filePath: 'test.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          const result = await pageRanker(graph, []);
+
+          expect(result).toHaveProperty('graph');
+          expect(result).toHaveProperty('ranks');
+          expect(result.graph).toBe(graph);
+          expect(result.ranks).toBeInstanceOf(Map);
+        });
+
+        it('should work with complex graph structures', async () => {
+          const analyzer = createTreeSitterAnalyzer();
+          const files: FileContent[] = [
+            {
+              path: 'src/index.ts',
+              content: `import { Calculator } from './calculator.js';
+    import { Logger } from './logger.js';
+
+
+    export { Calculator, Logger };`
+            },
+            {
+              path: 'src/calculator.ts',
+              content: `import { Logger } from './logger.js';
+
+    export class Calculator {
+      private logger: Logger;
+      
+      constructor() {
+        this.logger = new Logger();
+      }
+      
+      add(a: number, b: number): number {
+        return a + b;
+      }
+    }`
+            },
+            {
+              path: 'src/logger.ts',
+              content: `export class Logger {
+      log(message: string): void {
+        console.log(message);
+      }
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+          const result = await pageRanker(graph, files);
+
+          expect(result.ranks.size).toBeGreaterThan(0);
+          
+          // Logger should have high rank as it's imported by multiple files
+          const loggerRank = result.ranks.get('src/logger.ts');
+          expect(loggerRank).toBeGreaterThan(0);
+        });
+      });
+
+      describe('createGitRanker()', () => {
+        let gitRanker: ReturnType<typeof createGitRanker>;
+
+        beforeEach(() => {
+          gitRanker = createGitRanker();
+        });
+
+        it('should return a Ranker function', () => {
+          expect(typeof gitRanker).toBe('function');
+        });
+
+        it('should handle empty graphs gracefully', async () => {
+          const emptyGraph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          const result = await gitRanker(emptyGraph, []);
+
+          expect(result.graph).toBe(emptyGraph);
+          expect(result.ranks.size).toBe(0);
+        });
+
+        it('should assign zero ranks when git is not available', async () => {
+          const graph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('file1', {
+            id: 'file1',
+            type: 'file',
+            name: 'file1.ts',
+            filePath: 'file1.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('symbol1', {
+            id: 'symbol1',
+            type: 'function',
+            name: 'func1',
+            filePath: 'file1.ts',
+            startLine: 2,
+            endLine: 5
+          });
+
+          // Change to a directory without git
+          const originalCwd = process.cwd();
+          process.chdir(tempDir);
+
+          try {
+            const result = await gitRanker(graph, []);
+
+            expect(result.ranks.size).toBe(2);
+            expect(result.ranks.get('file1')).toBe(0);
+            expect(result.ranks.get('symbol1')).toBe(0);
+          } finally {
+            process.chdir(originalCwd);
+          }
+        });
+
+        it('should only rank file nodes with git strategy', async () => {
+          const graph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('file1', {
+            id: 'file1',
+            type: 'file',
+            name: 'file1.ts',
+            filePath: 'file1.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('symbol1', {
+            id: 'symbol1',
+            type: 'function',
+            name: 'func1',
+            filePath: 'file1.ts',
+            startLine: 2,
+            endLine: 5
+          });
+
+          const result = await gitRanker(graph, []);
+
+          // Symbol nodes should get rank 0 with git strategy
+          expect(result.ranks.get('symbol1')).toBe(0);
+        });
+
+        it('should respect maxCommits option', () => {
+          const customGitRanker = createGitRanker({ maxCommits: 100 });
+          expect(typeof customGitRanker).toBe('function');
+        });
+
+        it('should normalize ranks between 0 and 1', async () => {
+          // Create a mock git repository for testing
+          await fs.mkdir(path.join(tempDir, '.git'), { recursive: true });
+          await createTestFiles(tempDir, {
+            'file1.ts': 'content1',
+            'file2.ts': 'content2'
+          });
+
+          const graph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('file1.ts', {
+            id: 'file1.ts',
+            type: 'file',
+            name: 'file1.ts',
+            filePath: 'file1.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('file2.ts', {
+            id: 'file2.ts',
+            type: 'file',
+            name: 'file2.ts',
+            filePath: 'file2.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          const originalCwd = process.cwd();
+          process.chdir(tempDir);
+
+          try {
+            // Initialize git repo and create some commits
+            execSync('git init', { stdio: 'ignore' });
+            execSync('git config user.email "test@example.com"', { stdio: 'ignore' });
+            execSync('git config user.name "Test User"', { stdio: 'ignore' });
+            execSync('git add .', { stdio: 'ignore' });
+            execSync('git commit -m "Initial commit"', { stdio: 'ignore' });
+
+            // Modify file1 more frequently
+            await fs.writeFile(path.join(tempDir, 'file1.ts'), 'modified content1');
+            execSync('git add file1.ts', { stdio: 'ignore' });
+            execSync('git commit -m "Update file1"', { stdio: 'ignore' });
+
+            await fs.writeFile(path.join(tempDir, 'file1.ts'), 'modified content1 again');
+            execSync('git add file1.ts', { stdio: 'ignore' });
+            execSync('git commit -m "Update file1 again"', { stdio: 'ignore' });
+
+            const result = await gitRanker(graph, []);
+
+            // All ranks should be between 0 and 1
+            for (const rank of result.ranks.values()) {
+              expect(rank).toBeGreaterThanOrEqual(0);
+              expect(rank).toBeLessThanOrEqual(1);
+            }
+
+            // file1.ts should have higher rank than file2.ts
+            const file1Rank = result.ranks.get('file1.ts')!;
+            const file2Rank = result.ranks.get('file2.ts')!;
+            expect(file1Rank).toBeGreaterThan(file2Rank);
+
+          } catch (error) {
+            // Skip test if git is not available
+            console.warn('Git not available, skipping git ranking test');
+          } finally {
+            process.chdir(originalCwd);
+          }
+        });
+      });
+
+      describe('Ranking Comparison', () => {
+        it('should produce different rankings for PageRank vs Git strategies', async () => {
+          const analyzer = createTreeSitterAnalyzer();
+          const files: FileContent[] = [
+            {
+              path: 'src/index.ts',
+              content: `import { Utils } from './utils.js';
+    export { Utils };`
+            },
+            {
+              path: 'src/utils.ts',
+              content: `export class Utils {
+      static helper(): string {
+        return 'help';
+      }
+    }`
+            },
+            {
+              path: 'src/standalone.ts',
+              content: `export const standalone = true;`
+            }
+          ];
+
+          const graph = await analyzer(files);
+          
+          const pageRanker = createPageRanker();
+          const gitRanker = createGitRanker();
+
+          const pageRankResult = await pageRanker(graph, files);
+          const gitRankResult = await gitRanker(graph, files);
+
+          // Results should have same structure but potentially different ranks
+          expect(pageRankResult.ranks.size).toBe(gitRankResult.ranks.size);
+          
+          // In PageRank, utils.ts should have high rank due to being imported
+          const pageRankUtilsRank = pageRankResult.ranks.get('src/utils.ts')!;
+          expect(pageRankUtilsRank).toBeGreaterThan(0);
+        });
+
+        it('should handle graphs with no edges', async () => {
+          const graph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          // Add isolated nodes
+          graph.addNode('file1', {
+            id: 'file1',
+            type: 'file',
+            name: 'file1.ts',
+            filePath: 'file1.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('file2', {
+            id: 'file2',
+            type: 'file',
+            name: 'file2.ts',
+            filePath: 'file2.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          const pageRanker = createPageRanker();
+          const result = await pageRanker(graph, []);
+
+          expect(result.ranks.size).toBe(2);
+          
+          // All nodes should have equal rank in a graph with no edges
+          const ranks = Array.from(result.ranks.values());
+          expect(ranks[0]).toBeDefined();
+          expect(ranks[1]).toBeDefined();
+          expect(ranks[0]!).toBeCloseTo(ranks[1]!, 5);
+        });
+      });
+
+      describe('Integration with Fixtures', () => {
+        it('should rank sample-project fixture correctly', async () => {
+          const fixture = await loadFixture('sample-project');
+          await createProjectFromFixture(tempDir, fixture);
+
+          const analyzer = createTreeSitterAnalyzer();
+          const files: FileContent[] = [];
+          
+          for (const file of fixture.files) {
+            if (file.path.endsWith('.ts')) {
+              files.push({
+                path: file.path,
+                content: file.content
+              });
+            }
+          }
+
+          const graph = await analyzer(files);
+          const pageRanker = createPageRanker();
+          const result = await pageRanker(graph, files);
+
+          expect(result.ranks.size).toBeGreaterThan(0);
+          
+          // Files that are imported more should have higher ranks
+          const loggerRank = result.ranks.get('src/utils/logger.ts');
+          const typesRank = result.ranks.get('src/types.ts');
+          
+          expect(loggerRank).toBeGreaterThan(0);
+          expect(typesRank).toBeGreaterThan(0);
+        });
+
+        it('should rank complex-project fixture correctly', async () => {
+          const fixture = await loadFixture('complex-project');
+          await createProjectFromFixture(tempDir, fixture);
+
+          const analyzer = createTreeSitterAnalyzer();
+          const files: FileContent[] = [];
+          
+          for (const file of fixture.files) {
+            if (file.path.endsWith('.ts') && !file.path.includes('test')) {
+              files.push({
+                path: file.path,
+                content: file.content
+              });
+            }
+          }
+
+          const graph = await analyzer(files);
+          const pageRanker = createPageRanker();
+          const result = await pageRanker(graph, files);
+
+          // Database and types should have high ranks as they're widely imported
+          const databaseRank = result.ranks.get('src/database/index.ts');
+          const typesRank = result.ranks.get('src/types/index.ts');
+          
+          expect(databaseRank).toBeGreaterThan(0);
+          expect(typesRank).toBeGreaterThan(0);
+        });
+
+        it('should handle minimal-project fixture', async () => {
+          const fixture = await loadFixture('minimal-project');
+          await createProjectFromFixture(tempDir, fixture);
+
+          const analyzer = createTreeSitterAnalyzer();
+          const files: FileContent[] = [
+            {
+              path: 'src/main.ts',
+              content: fixture.files[0]!.content
+            }
+          ];
+
+          const graph = await analyzer(files);
+          const pageRanker = createPageRanker();
+          const result = await pageRanker(graph, files);
+
+          expect(result.ranks.size).toBe(fixture.expected_nodes!);
+          
+          // All nodes should have positive ranks
+          for (const rank of result.ranks.values()) {
+            expect(rank).toBeGreaterThan(0);
+          }
+        });
+      });
+
+      describe('Edge Cases', () => {
+        it('should handle self-referential imports', async () => {
+          const graph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('file1', {
+            id: 'file1',
+            type: 'file',
+            name: 'file1.ts',
+            filePath: 'file1.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          // Note: self-loops are disabled in our graph configuration
+          // This tests that the ranker handles this gracefully
+
+          const pageRanker = createPageRanker();
+          const result = await pageRanker(graph, []);
+
+          expect(result.ranks.size).toBe(1);
+          expect(result.ranks.get('file1')).toBeGreaterThan(0);
+        });
+
+        it('should handle very large graphs efficiently', async () => {
+          const graph: CodeGraph = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          // Create a large graph with many nodes
+          const nodeCount = 1000;
+          for (let i = 0; i < nodeCount; i++) {
+            graph.addNode(`node${i}`, {
+              id: `node${i}`,
+              type: 'file',
+              name: `file${i}.ts`,
+              filePath: `file${i}.ts`,
+              startLine: 1,
+              endLine: 10
+            });
+          }
+
+          // Add some edges
+          for (let i = 0; i < nodeCount - 1; i++) {
+            graph.addDirectedEdge(`node${i}`, `node${i + 1}`, { type: 'imports' });
+          }
+
+          const pageRanker = createPageRanker();
+          const startTime = Date.now();
+          const result = await pageRanker(graph, []);
+          const endTime = Date.now();
+
+          expect(result.ranks.size).toBe(nodeCount);
+          expect(endTime - startTime).toBeLessThan(5000); // Should complete within 5 seconds
+        });
+      });
+    });
+  test/unit/render.test.ts: >-
+    import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+
+    import { createMarkdownRenderer } from '../../src/pipeline/render.js';
+
+    import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
+
+    import { createPageRanker } from '../../src/pipeline/rank.js';
+
+    import type { CodeNode, FileContent, RankedCodeGraph, RendererOptions } from
+    '../../src/types.js';
+
+    import Graph from 'graphology';
+
+    import {
+      createTempDir,
+      cleanupTempDir,
+      isValidMarkdown,
+      containsValidMermaid,
+      extractFilePathsFromMarkdown,
+      loadFixture,
+      createProjectFromFixture
+    } from '../test.util.js';
+
+
+    describe('Markdown Rendering', () => {
+      let tempDir: string;
+      let renderer: ReturnType<typeof createMarkdownRenderer>;
+
+      beforeEach(async () => {
+        tempDir = await createTempDir();
+        renderer = createMarkdownRenderer();
+      });
+
+      afterEach(async () => {
+        await cleanupTempDir(tempDir);
+      });
+
+      describe('createMarkdownRenderer()', () => {
+        it('should return a Renderer function', () => {
+          expect(typeof renderer).toBe('function');
+        });
+
+        it('should generate valid markdown from empty graph', () => {
+          const emptyGraph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph: emptyGraph,
+            ranks: new Map()
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(isValidMarkdown(markdown)).toBe(true);
+          expect(markdown).toContain('# RepoGraph');
+          expect(markdown).toContain('This repository contains 0 nodes (0 files)');
+        });
+
+        it('should include project overview section', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/index.ts', {
+            id: 'src/index.ts',
+            type: 'file',
+            name: 'index.ts',
+            filePath: 'src/index.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([['src/index.ts', 0.5]])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain('## 🚀 Project Overview');
+          expect(markdown).toContain('This repository contains 1 nodes (1 files)');
+          expect(markdown).toContain('_Generated by RepoGraph on');
+        });
+
+        it('should include Mermaid graph by default', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/a.ts', {
+            id: 'src/a.ts',
+            type: 'file',
+            name: 'a.ts',
+            filePath: 'src/a.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('src/b.ts', {
+            id: 'src/b.ts',
+            type: 'file',
+            name: 'b.ts',
+            filePath: 'src/b.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([
+              ['src/a.ts', 0.3],
+              ['src/b.ts', 0.7]
+            ])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain('### Module Dependency Graph');
+          expect(containsValidMermaid(markdown)).toBe(true);
+          expect(markdown).toContain('src/a.ts["a.ts"] --> src/b.ts["b.ts"]');
+        });
+
+        it('should exclude Mermaid graph when option is false', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/index.ts', {
+            id: 'src/index.ts',
+            type: 'file',
+            name: 'index.ts',
+            filePath: 'src/index.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([['src/index.ts', 0.5]])
+          };
+
+          const options: RendererOptions = {
+            includeMermaidGraph: false
+          };
+
+          const markdown = renderer(rankedGraph, options);
+
+          expect(markdown).not.toContain('### Module Dependency Graph');
+          expect(markdown).not.toContain('```mermaid');
+        });
+
+        it('should include top 10 most important files', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          const ranks = new Map<string, number>();
+
+          // Create 15 files with different ranks
+          for (let i = 1; i <= 15; i++) {
+            const nodeId = `src/file${i}.ts`;
+            graph.addNode(nodeId, {
+              id: nodeId,
+              type: 'file',
+              name: `file${i}.ts`,
+              filePath: nodeId,
+              startLine: 1,
+              endLine: 10
+            });
+            ranks.set(nodeId, i / 15); // Higher numbers get higher ranks
+          }
+
+          const rankedGraph: RankedCodeGraph = { graph: graph, ranks };
+          const markdown = renderer(rankedGraph);
+
+          const topFilesSection = markdown.split('## 📂 File & Symbol Breakdown')[0]!;
+
+          expect(topFilesSection).toContain('### Top 10 Most Important Files');
+          expect(topFilesSection).toContain('| Rank | File | Description |');
+          
+          // Should contain the top 10 files (file15 to file6)
+          expect(topFilesSection).toContain('`src/file15.ts`');
+          expect(topFilesSection).toContain('`src/file6.ts`');
+          
+          // Should not contain the lower ranked files
+          expect(topFilesSection).not.toContain('`src/file1.ts`');
+          expect(topFilesSection).not.toContain('`src/file5.ts`');
+        });
+
+        it('should include symbol details by default', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/test.ts', {
+            id: 'src/test.ts',
+            type: 'file',
+            name: 'test.ts',
+            filePath: 'src/test.ts',
+            startLine: 1,
+            endLine: 20
+          });
+
+          graph.addNode('src/test.ts#TestClass', {
+            id: 'src/test.ts#TestClass',
+            type: 'class',
+            name: 'TestClass',
+            filePath: 'src/test.ts',
+            startLine: 5,
+            endLine: 15,
+            codeSnippet: 'export class TestClass {'
+          });
+
+          graph.addNode('src/test.ts#testFunction', {
+            id: 'src/test.ts#testFunction',
+            type: 'function',
+            name: 'testFunction',
+            filePath: 'src/test.ts',
+            startLine: 17,
+            endLine: 19,
+            codeSnippet: 'export function testFunction(): void'
+          });
+
+          graph.addDirectedEdge('src/test.ts', 'src/test.ts#TestClass', { type: 'contains' });
+          graph.addDirectedEdge('src/test.ts', 'src/test.ts#testFunction', { type: 'contains' });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([
+              ['src/test.ts', 0.8],
+              ['src/test.ts#TestClass', 0.5],
+              ['src/test.ts#testFunction', 0.3]
+            ])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain('## 📂 File & Symbol Breakdown');
+          expect(markdown).toContain('### [`src/test.ts`](./src/test.ts)');
+          expect(markdown).toContain('**`class TestClass`** - _L5_');
+          expect(markdown).toContain('**`function testFunction`** - _L17_');
+          expect(markdown).toContain('export class TestClass {');
+          expect(markdown).toContain('export function testFunction(): void');
+        });
+
+        it('should exclude symbol details when option is false', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/test.ts', {
+            id: 'src/test.ts',
+            type: 'file',
+            name: 'test.ts',
+            filePath: 'src/test.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([['src/test.ts', 0.5]])
+          };
+
+          const options: RendererOptions = {
+            includeSymbolDetails: false
+          };
+
+          const markdown = renderer(rankedGraph, options);
+
+          expect(markdown).not.toContain('## 📂 File & Symbol Breakdown');
+        });
+
+        it('should include custom header when provided', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map()
+          };
+
+          const customHeader = '# My Custom Project\n\nThis is a custom description.';
+          const options: RendererOptions = {
+            customHeader
+          };
+
+          const markdown = renderer(rankedGraph, options);
+
+          expect(markdown).toStartWith(customHeader);
+          expect(markdown).not.toContain('# RepoGraph');
+        });
+
+        it('should handle files with no symbols', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('README.md', {
+            id: 'README.md',
+            type: 'file',
+            name: 'README.md',
+            filePath: 'README.md',
+            startLine: 1,
+            endLine: 5
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([['README.md', 0.5]])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain('### [`README.md`](./README.md)');
+          expect(markdown).toContain('_No symbols identified in this file._');
+        });
+
+        it('should sort symbols by line number', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/test.ts', {
+            id: 'src/test.ts',
+            type: 'file',
+            name: 'test.ts',
+            filePath: 'src/test.ts',
+            startLine: 1,
+            endLine: 30
+          });
+
+          // Add symbols in non-sequential order
+          graph.addNode('src/test.ts#lastFunction', {
+            id: 'src/test.ts#lastFunction',
+            type: 'function',
+            name: 'lastFunction',
+            filePath: 'src/test.ts',
+            startLine: 25,
+            endLine: 28
+          });
+
+          graph.addNode('src/test.ts#firstFunction', {
+            id: 'src/test.ts#firstFunction',
+            type: 'function',
+            name: 'firstFunction',
+            filePath: 'src/test.ts',
+            startLine: 5,
+            endLine: 10
+          });
+
+          graph.addNode('src/test.ts#middleClass', {
+            id: 'src/test.ts#middleClass',
+            type: 'class',
+            name: 'middleClass',
+            filePath: 'src/test.ts',
+            startLine: 15,
+            endLine: 20
+          });
+
+          graph.addDirectedEdge('src/test.ts', 'src/test.ts#lastFunction', { type: 'contains' });
+          graph.addDirectedEdge('src/test.ts', 'src/test.ts#firstFunction', { type: 'contains' });
+          graph.addDirectedEdge('src/test.ts', 'src/test.ts#middleClass', { type: 'contains' });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([
+              ['src/test.ts', 0.8],
+              ['src/test.ts#lastFunction', 0.3],
+              ['src/test.ts#firstFunction', 0.5],
+              ['src/test.ts#middleClass', 0.4]
+            ])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          // Check that symbols appear in line number order
+          const firstFunctionIndex = markdown.indexOf('firstFunction');
+          const middleClassIndex = markdown.indexOf('middleClass');
+          const lastFunctionIndex = markdown.indexOf('lastFunction');
+
+          expect(firstFunctionIndex).toBeLessThan(middleClassIndex);
+          expect(middleClassIndex).toBeLessThan(lastFunctionIndex);
+        });
+
+        it('should sort files by rank (highest first)', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          const files = [
+            { id: 'src/low.ts', rank: 0.2 },
+            { id: 'src/high.ts', rank: 0.8 },
+            { id: 'src/medium.ts', rank: 0.5 }
+          ];
+
+          const ranks = new Map<string, number>();
+
+          for (const file of files) {
+            graph.addNode(file.id, {
+              id: file.id,
+              type: 'file',
+              name: file.id.split('/').pop()!,
+              filePath: file.id,
+              startLine: 1,
+              endLine: 10
+            });
+            ranks.set(file.id, file.rank);
+          }
+
+          const rankedGraph: RankedCodeGraph = { graph: graph, ranks };
+          const markdown = renderer(rankedGraph);
+
+          // Check order in the file breakdown section
+          const highIndex = markdown.indexOf('[`src/high.ts`]');
+          const mediumIndex = markdown.indexOf('[`src/medium.ts`]');
+          const lowIndex = markdown.indexOf('[`src/low.ts`]');
+
+          expect(highIndex).toBeLessThan(mediumIndex);
+          expect(mediumIndex).toBeLessThan(lowIndex);
+        });
+
+        it('should handle symbols without code snippets', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/test.ts', {
+            id: 'src/test.ts',
+            type: 'file',
+            name: 'test.ts',
+            filePath: 'src/test.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('src/test.ts#noSnippet', {
+            id: 'src/test.ts#noSnippet',
+            type: 'function',
+            name: 'noSnippet',
+            filePath: 'src/test.ts',
+            startLine: 5,
+            endLine: 8
+            // No codeSnippet property
+          });
+
+          graph.addDirectedEdge('src/test.ts', 'src/test.ts#noSnippet', { type: 'contains' });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([
+              ['src/test.ts', 0.5],
+              ['src/test.ts#noSnippet', 0.3]
+            ])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain('**`function noSnippet`** - _L5_');
+          // Should not include empty code block
+          expect(markdown).not.toContain('```typescript\n  \n  ```');
+        });
+
+        it('should generate proper markdown links for files', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/nested/deep/file.ts', {
+            id: 'src/nested/deep/file.ts',
+            type: 'file',
+            name: 'file.ts',
+            filePath: 'src/nested/deep/file.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([['src/nested/deep/file.ts', 0.5]])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain('### [`src/nested/deep/file.ts`](./src/nested/deep/file.ts)');
+        });
+      });
+
+      describe('Mermaid Graph Generation', () => {
+        it('should only include file nodes in Mermaid graph', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/a.ts', {
+            id: 'src/a.ts',
+            type: 'file',
+            name: 'a.ts',
+            filePath: 'src/a.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('src/a.ts#Class', {
+            id: 'src/a.ts#Class',
+            type: 'class',
+            name: 'Class',
+            filePath: 'src/a.ts',
+            startLine: 2,
+            endLine: 8
+          });
+
+          graph.addNode('src/b.ts', {
+            id: 'src/b.ts',
+            type: 'file',
+            name: 'b.ts',
+            filePath: 'src/b.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+          graph.addDirectedEdge('src/a.ts', 'src/a.ts#Class', { type: 'contains' });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([
+              ['src/a.ts', 0.5],
+              ['src/a.ts#Class', 0.3],
+              ['src/b.ts', 0.7]
+            ])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain('src/a.ts["a.ts"] --> src/b.ts["b.ts"]');
+          expect(markdown).not.toContain('src/a.ts#Class');
+        });
+
+        it('should handle graphs with no file-to-file edges', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/isolated.ts', {
+            id: 'src/isolated.ts',
+            type: 'file',
+            name: 'isolated.ts',
+            filePath: 'src/isolated.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([['src/isolated.ts', 0.5]])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain('```mermaid');
+          expect(markdown).toContain('graph TD');
+          expect(markdown).toContain('```');
+        });
+
+        it('should deduplicate edges in Mermaid graph', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/a.ts', {
+            id: 'src/a.ts',
+            type: 'file',
+            name: 'a.ts',
+            filePath: 'src/a.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('src/b.ts', {
+            id: 'src/b.ts',
+            type: 'file',
+            name: 'b.ts',
+            filePath: 'src/b.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          // Add multiple edges between the same files (multi-graph)
+          graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+          graph.addDirectedEdge('src/a.ts', 'src/b.ts', { type: 'imports' });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([
+              ['src/a.ts', 0.5],
+              ['src/b.ts', 0.7]
+            ])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          // Should only appear once in the Mermaid graph
+          const edgePattern = /src\/a\.ts\["a\.ts"\] --> src\/b\.ts\["b\.ts"\]/g;
+          const matches = markdown.match(edgePattern);
+          expect(matches).toHaveLength(1);
+        });
+      });
+
+      describe('Integration with Real Analysis', () => {
+        it('should render analyzed TypeScript code correctly', async () => {
+          const analyzer = createTreeSitterAnalyzer();
+          const ranker = createPageRanker();
+
+          const files: FileContent[] = [
+            {
+              path: 'src/index.ts',
+              content: `import { Calculator } from './calculator.js';
+
+    export { Calculator };
+
+
+    export function main(): void {
+      const calc = new Calculator();
+      console.log(calc.add(1, 2));
+    }`
+            },
+            {
+              path: 'src/calculator.ts',
+              content: `export class Calculator {
+      add(a: number, b: number): number {
+        return a + b;
+      }
+      
+      subtract = (a: number, b: number): number => {
+        return a - b;
+      };
+    }`
+            }
+          ];
+
+          const graph = await analyzer(files);
+          const rankedGraph = await ranker(graph, files);
+          const markdown = renderer(rankedGraph);
+
+          expect(isValidMarkdown(markdown)).toBe(true);
+          expect(markdown).toContain('Calculator');
+          expect(markdown).toContain('**`class Calculator`**');
+          expect(markdown).toContain('**`function main`**');
+          expect(markdown).toContain('**`arrow_function subtract`**');
+          expect(containsValidMermaid(markdown)).toBe(true);
+        });
+      });
+
+      describe('Integration with Fixtures', () => {
+        it('should render sample-project fixture correctly', async () => {
+          const fixture = await loadFixture('sample-project');
+          await createProjectFromFixture(tempDir, fixture);
+
+          const analyzer = createTreeSitterAnalyzer();
+          const ranker = createPageRanker();
+
+          const files: FileContent[] = [];
+          for (const file of fixture.files) {
+            if (file.path.endsWith('.ts')) {
+              files.push({
+                path: file.path,
+                content: file.content
+              });
+            }
+          }
+
+          const graph = await analyzer(files);
+          const rankedGraph = await ranker(graph, files);
+          const markdown = renderer(rankedGraph);
+
+          expect(isValidMarkdown(markdown)).toBe(true);
+          expect(markdown).toContain('Calculator');
+          expect(markdown).toContain('Logger');
+          expect(markdown).toContain('Config');
+          
+          const filePaths = extractFilePathsFromMarkdown(markdown);
+          expect(filePaths.length).toBeGreaterThan(0);
+          expect(filePaths).toContain('src/calculator.ts');
+          expect(filePaths).toContain('src/utils/logger.ts');
+        });
+
+        it('should render complex-project fixture correctly', async () => {
+          const fixture = await loadFixture('complex-project');
+          await createProjectFromFixture(tempDir, fixture);
+
+          const analyzer = createTreeSitterAnalyzer();
+          const ranker = createPageRanker();
+
+          const files: FileContent[] = [];
+          for (const file of fixture.files) {
+            if (file.path.endsWith('.ts') && !file.path.includes('test')) {
+              files.push({
+                path: file.path,
+                content: file.content
+              });
+            }
+          }
+
+          const graph = await analyzer(files);
+          const rankedGraph = await ranker(graph, files);
+          const markdown = renderer(rankedGraph);
+
+          expect(isValidMarkdown(markdown)).toBe(true);
+          expect(markdown).toContain('Database');
+          expect(markdown).toContain('ApiServer');
+          expect(markdown).toContain('UserService');
+          expect(containsValidMermaid(markdown)).toBe(true);
+        });
+
+        it('should handle all renderer options with fixtures', async () => {
+          const fixture = await loadFixture('minimal-project');
+          await createProjectFromFixture(tempDir, fixture);
+
+          const analyzer = createTreeSitterAnalyzer();
+          const ranker = createPageRanker();
+
+          const files: FileContent[] = [
+            {
+              path: 'src/main.ts',
+              content: fixture.files[0]!.content
+            }
+          ];
+
+          const graph = await analyzer(files);
+          const rankedGraph = await ranker(graph, files);
+
+          const options: RendererOptions = {
+            customHeader: '# My Minimal Project\n\nCustom description here.',
+            includeMermaidGraph: false,
+            includeSymbolDetails: false
+          };
+
+          const markdown = renderer(rankedGraph, options);
+
+          expect(markdown).toStartWith('# My Minimal Project');
+          expect(markdown).not.toContain('```mermaid');
+          expect(markdown).not.toContain('## 📂 File & Symbol Breakdown');
+          expect(markdown).toContain('### Top 10 Most Important Files');
+        });
+      });
+
+      describe('Edge Cases', () => {
+        it('should handle very long file paths', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          const longPath = 'src/very/deeply/nested/directory/structure/with/many/levels/file.ts';
+          graph.addNode(longPath, {
+            id: longPath,
+            type: 'file',
+            name: 'file.ts',
+            filePath: longPath,
+            startLine: 1,
+            endLine: 10
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([[longPath, 0.5]])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain(`[\`${longPath}\`](./${longPath})`);
+        });
+
+        it('should handle special characters in file names', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          const specialPath = 'src/file-with-dashes_and_underscores.spec.ts';
+          graph.addNode(specialPath, {
+            id: specialPath,
+            type: 'file',
+            name: 'file-with-dashes_and_underscores.spec.ts',
+            filePath: specialPath,
+            startLine: 1,
+            endLine: 10
+          });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([[specialPath, 0.5]])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain(`\`${specialPath}\``);
+        });
+
+        it('should handle empty code snippets gracefully', () => {
+          const graph: Graph<CodeNode> = new Graph({
+            multi: true,
+            allowSelfLoops: false,
+            type: 'directed',
+          });
+
+          graph.addNode('src/test.ts', {
+            id: 'src/test.ts',
+            type: 'file',
+            name: 'test.ts',
+            filePath: 'src/test.ts',
+            startLine: 1,
+            endLine: 10
+          });
+
+          graph.addNode('src/test.ts#empty', {
+            id: 'src/test.ts#empty',
+            type: 'function',
+            name: 'empty',
+            filePath: 'src/test.ts',
+            startLine: 5,
+            endLine: 6,
+            codeSnippet: ''
+          });
+
+          graph.addDirectedEdge('src/test.ts', 'src/test.ts#empty', { type: 'contains' });
+
+          const rankedGraph: RankedCodeGraph = {
+            graph,
+            ranks: new Map([
+              ['src/test.ts', 0.5],
+              ['src/test.ts#empty', 0.3]
+            ])
+          };
+
+          const markdown = renderer(rankedGraph);
+
+          expect(markdown).toContain('**`function empty`** - _L5_');
+          expect(markdown).not.toContain('```typescript\n  \n  ```');
+        });
+      });
+    });
+approved: true

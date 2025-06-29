@@ -50,12 +50,14 @@ export type CodeEdge = {
   readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
 };
 
-/** The complete, raw model of the repository's structure using graphology. Immutable. */
-export type CodeGraph = Readonly<Graph<CodeNode>>;
+/** The complete, raw model of the repository's structure. Immutable. */
+export type CodeGraph = {
+  readonly nodes: ReadonlyMap<string, CodeNode>;
+  readonly edges: readonly CodeEdge[];
+};
 
 /** A CodeGraph with an added 'rank' score for each node. Immutable. */
-export type RankedCodeGraph = {
-  readonly graph: CodeGraph;
+export type RankedCodeGraph = CodeGraph & {
   readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
 };
 
@@ -84,7 +86,7 @@ export type RepoGraphOptions = {
   /** Disables the use of .gitignore. @default false */
   readonly noGitignore?: boolean;
   /** The ranking strategy to use. @default 'pagerank' */
-  readonly rankingStrategy?: 'pagerank' | 'git-changes' | 'alphabetical';
+  readonly rankingStrategy?: 'pagerank' | 'git-changes';
   /** Configuration for the final Markdown output. */
   readonly rendererOptions?: RendererOptions;
 };
@@ -103,7 +105,7 @@ export type FileDiscoverer = (config: {
 export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
 
 /** Ranks the nodes in a graph. */
-export type Ranker = (graph: CodeGraph, files: readonly FileContent[]) => Promise<RankedCodeGraph>;
+export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
 
 /** Renders a ranked graph into a string format. */
 export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions) => string;

@@ -45,7 +45,7 @@ export const createMapGenerator = (pipeline: {
     const graph = await pipeline.analyze(files);
 
     // 3. Rank
-    const rankedGraph = await pipeline.rank(graph, files);
+    const rankedGraph = await pipeline.rank(graph);
 
     // 4. Render
     const markdown = pipeline.render(rankedGraph, rendererOptions);
