@@ -298,9 +298,11 @@ describe('Markdown Rendering', () => {
 
       it('should respect topFileCount option', () => {
         const markdown = renderer(rankedGraph, { topFileCount: 1 });
-        expect(markdown).toContain('### Top 1 Most Important Files');
-        expect(markdown).toContain('`src/main.ts`');
-        expect(markdown).not.toContain('`src/utils.ts`');
+        const topFilesSection = markdown.split('## 📂 File & Symbol Breakdown')[0]!;
+
+        expect(topFilesSection).toContain('### Top 1 Most Important Files');
+        expect(topFilesSection).toContain('`src/main.ts`');
+        expect(topFilesSection).not.toContain('`src/utils.ts`');
       });
 
       it('should use custom file section separator', () => {
@@ -322,7 +324,10 @@ describe('Markdown Rendering', () => {
       });
       
       it('should not include code snippets when symbolDetailOptions.includeCodeSnippet is false', () => {
-        const markdown = renderer(rankedGraph, { symbolDetailOptions: { includeCodeSnippet: false } });
+        const markdown = renderer(rankedGraph, {
+          symbolDetailOptions: { includeCodeSnippet: false },
+          includeMermaidGraph: false,
+        });
         expect(markdown).not.toContain('```');
         expect(markdown).not.toContain('function main() {}');
         expect(markdown).toContain('**`function main`**');

@@ -29,6 +29,9 @@ export const TS_QUERY = `
 
 (method_definition) @method.definition
 (public_field_definition) @field.definition
+
+(call_expression
+  function: (identifier) @function.call)
 `;
 
 /**
