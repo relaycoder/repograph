@@ -63,12 +63,34 @@ export type RankedCodeGraph = CodeGraph & {
 
 /** Configuration for the final Markdown output. */
 export type RendererOptions = {
+  /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */
+  readonly customHeader?: string;
+  /** Include the default `RepoGraph` header. @default true */
+  readonly includeHeader?: boolean;
+  /** Include the project overview section. @default true */
+  readonly includeOverview?: boolean;
   /** Include a Mermaid.js dependency graph. @default true */
   readonly includeMermaidGraph?: boolean;
+  /** Include the list of top-ranked files. @default true */
+  readonly includeFileList?: boolean;
+  /** Number of files to show in the top list. @default 10 */
+  readonly topFileCount?: number;
   /** Include detailed breakdowns for each symbol. @default true */
   readonly includeSymbolDetails?: boolean;
-  /** Custom text to appear at the top of the Markdown file. */
-  readonly customHeader?: string;
+  /** String to use as a separator between file sections. @default '---' */
+  readonly fileSectionSeparator?: string;
+
+  /** Options for how individual symbols are rendered */
+  readonly symbolDetailOptions?: {
+    /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */
+    readonly includeRelations?: boolean;
+    /** Include the starting line number. @default true */
+    readonly includeLineNumber?: boolean;
+    /** Include the code snippet for the symbol. @default true */
+    readonly includeCodeSnippet?: boolean;
+    /** Max number of relations to show per type (e.g., 'calls'). @default 3 */
+    readonly maxRelationsToShow?: number;
+  };
 };
 
 /** Configuration options for the main `generateMap` function. */

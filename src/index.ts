@@ -60,6 +60,19 @@ Options:
   --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
   --no-gitignore           Do not respect .gitignore files.
   --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
+
+Output Formatting:
+  --no-header              Do not include the main "RepoGraph" header.
+  --no-overview            Do not include the project overview section.
+  --no-mermaid             Do not include the Mermaid dependency graph.
+  --no-file-list           Do not include the list of top-ranked files.
+  --no-symbol-details      Do not include the detailed file and symbol breakdown.
+  --top-file-count <num>   Set the number of files in the top list. (default: 10)
+  --file-section-separator <str> Custom separator for file sections. (default: "---")
+  --no-symbol-relations    Hide symbol relationship details (e.g., calls, implements).
+  --no-symbol-line-numbers Hide line numbers for symbols.
+  --no-symbol-snippets     Hide code snippets for symbols.
+  --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
     `);
     process.exit(0);
   }
@@ -82,6 +95,23 @@ Options:
   } = {};
   const includePatterns: string[] = [];
   const ignorePatterns: string[] = [];
+  // We need a mutable version of rendererOptions to build from CLI args
+  const rendererOptions: {
+    customHeader?: string;
+    includeHeader?: boolean;
+    includeOverview?: boolean;
+    includeMermaidGraph?: boolean;
+    includeFileList?: boolean;
+    topFileCount?: number;
+    includeSymbolDetails?: boolean;
+    fileSectionSeparator?: string;
+    symbolDetailOptions?: {
+      includeRelations?: boolean;
+      includeLineNumber?: boolean;
+      includeCodeSnippet?: boolean;
+      maxRelationsToShow?: number;
+    };
+  } = {};
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -104,6 +134,40 @@ Options:
       case '--ranking-strategy':
         options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
         break;
+      // --- Renderer Options ---
+      case '--no-header':
+        rendererOptions.includeHeader = false;
+        break;
+      case '--no-overview':
+        rendererOptions.includeOverview = false;
+        break;
+      case '--no-mermaid':
+        rendererOptions.includeMermaidGraph = false;
+        break;
+      case '--no-file-list':
+        rendererOptions.includeFileList = false;
+        break;
+      case '--no-symbol-details':
+        rendererOptions.includeSymbolDetails = false;
+        break;
+      case '--top-file-count':
+        rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
+        break;
+      case '--file-section-separator':
+        rendererOptions.fileSectionSeparator = args[++i];
+        break;
+      case '--no-symbol-relations':
+        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
+        break;
+      case '--no-symbol-line-numbers':
+        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
+        break;
+      case '--no-symbol-snippets':
+        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
+        break;
+      case '--max-relations-to-show':
+        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
+        break;
       default:
         if (!arg.startsWith('-')) {
           options.root = arg;
@@ -117,6 +181,9 @@ Options:
   }
   if (ignorePatterns.length > 0) {
     options.ignore = ignorePatterns;
+  }
+  if (Object.keys(rendererOptions).length > 0) {
+    options.rendererOptions = rendererOptions;
   }
 
   executeGenerateMap(options)
