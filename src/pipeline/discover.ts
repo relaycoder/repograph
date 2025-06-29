@@ -46,7 +46,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     const relativePaths = await globby(patterns, {
       cwd: root,
       gitignore: false, // We handle gitignore manually with the `ignore` package
-      ignore: [...(ignore || []), '**/node_modules/**'],
+      ignore: [...(ignore || []), '**/node_modules/**', '**/.git/**', '.gitignore'],
       dot: true,
       absolute: false,
     });

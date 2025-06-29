@@ -1,5 +1,6 @@
 import pagerank from 'graphology-pagerank';
 import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
+import Graph from 'graphology';
 import { execSync } from 'node:child_process';
 
 /**
@@ -13,7 +14,21 @@ export const createPageRanker = (): Ranker => {
     if (graph.order === 0) {
       return { graph, ranks: new Map() };
     }
-    const ranksData = pagerank(graph);
+
+    // Pagerank doesn't work on multi-graphs, so we need a simplified representation.
+    let graphForRank: CodeGraph = graph;
+    if (graph.multi) {
+      const simpleGraph = new Graph({ type: 'directed' });
+      graph.forEachNode((node, attrs) => simpleGraph.addNode(node, attrs));
+      graph.forEachEdge((_edge, _attrs, source, target) => {
+        if (!simpleGraph.hasEdge(source, target)) {
+          simpleGraph.addDirectedEdge(source, target);
+        }
+      });
+      graphForRank = simpleGraph;
+    }
+
+    const ranksData = pagerank(graphForRank);
     const ranks = new Map<string, number>();
     for (const node in ranksData) {
       ranks.set(node, ranksData[node] ?? 0);

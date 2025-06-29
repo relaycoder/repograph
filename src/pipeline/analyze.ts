@@ -12,6 +12,7 @@ const getLineFromIndex = (content: string, index: number): number => {
   return content.substring(0, index).split('\n').length;
 };
 
+
 /**
  * Creates the default Tree-sitter based analyzer. It parses files to find
  * symbols (nodes) and their relationships (edges), constructing a CodeGraph.
@@ -29,7 +30,7 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
     const graph: Graph<CodeNode> = new Graph({
       allowSelfLoops: false,
       type: 'directed',
-      multi: false,
+      multi: true,
     });
 
     // Phase 1: Add all files as nodes
@@ -63,7 +64,16 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
         if (type === 'import' && subtype === 'source') {
           const sourcePath = getNodeText(node, file.content).replace(/['"`]/g, '');
           const fromFileId = file.path;
-          const toFileId = path.join(path.dirname(fromFileId), sourcePath).replace(/\.(ts|js)x?$/, '') + '.ts'; // Simplistic resolution
+          let toFileId = path.normalize(path.join(path.dirname(fromFileId), sourcePath));
+          
+          if (/\.(js|jsx|mjs)$/.test(toFileId)) {
+            const tsVariant = toFileId.replace(/\.(js|jsx|mjs)$/, '.ts');
+            if (graph.hasNode(tsVariant)) toFileId = tsVariant;
+          }
+          // Handle extensionless imports
+          if (!path.extname(toFileId) && graph.hasNode(`${toFileId}.ts`)) {
+            toFileId = `${toFileId}.ts`;
+          }
            
           if (graph.hasNode(toFileId)) {
             if (!graph.hasEdge(fromFileId, toFileId)) {
@@ -87,16 +97,19 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
         const symbolType = definitionMap[type!];
         if (!symbolType) continue;
 
-        // For exports, the actual declaration is nested.
-        const declarationNode = node.type === 'export_statement' ? node.namedChildren[0] : node;
-        if (!declarationNode) continue;
+        let declarationNode = node;
+        // For non-arrow functions, the captured node might be an export statement,
+        // so we need to get the actual declaration.
+        if (symbolType !== 'arrow_function' && declarationNode.type === 'export_statement') {
+          declarationNode = declarationNode.namedChildren[0] ?? declarationNode;
+        }
 
-        const nameNode = declarationNode.childForFieldName('name') ?? declarationNode.firstNamedChild?.childForFieldName('name');
+        const nameNode = declarationNode.childForFieldName('name');
 
         if (nameNode) {
           const symbolName = nameNode.text;
           const symbolId = `${file.path}#${symbolName}`;
-          if (!graph.hasNode(symbolId)) {
+          if (symbolName && !graph.hasNode(symbolId)) {
             graph.addNode(symbolId, {
               id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
               startLine: getLineFromIndex(file.content, node.startIndex),
@@ -109,5 +122,6 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
       }
     }
     return graph;
+
   };
 };

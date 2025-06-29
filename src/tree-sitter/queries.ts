@@ -13,8 +13,8 @@ export const TS_QUERY = `
 (function_declaration) @function.definition
 (export_statement declaration: (function_declaration)) @function.definition
 
-(lexical_declaration (variable_declarator value: (arrow_function))) @function.arrow.definition
-(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
+(variable_declarator value: (arrow_function)) @function.arrow.definition
+(public_field_definition value: (arrow_function)) @function.arrow.definition
 
 (interface_declaration) @interface.definition
 (export_statement declaration: (interface_declaration)) @interface.definition
