@@ -1,4 +1,4 @@
-import type { Renderer, RankedCodeGraph, RendererOptions } from '../types.js';
+import type { Renderer, RankedCodeGraph, RendererOptions, CodeEdge, CodeNode } from '../types.js';
 
 const generateMermaidGraph = (rankedGraph: RankedCodeGraph): string => {
   const fileNodes = [...rankedGraph.nodes.values()].filter(node => node.type === 'file');
@@ -26,6 +26,25 @@ const generateMermaidGraph = (rankedGraph: RankedCodeGraph): string => {
 };
 
 const getRank = (id: string, ranks: ReadonlyMap<string, number>): number => ranks.get(id) || 0;
+
+const buildRelationString = (
+  label: string,
+  edges: readonly CodeEdge[],
+  allNodes: ReadonlyMap<string, CodeNode>,
+  limit?: number
+): string | null => {
+  const names = edges.map(e => `\`${allNodes.get(e.toId)?.name ?? 'unknown'}\``);
+  if (names.length === 0) return null;
+  
+  let displayNames = names;
+  let suffix = '';
+  if (limit && names.length > limit) {
+      displayNames = names.slice(0, limit);
+      suffix = '...';
+  }
+  
+  return `${label} ${displayNames.join(', ')}${suffix}`;
+};
 
 /**
  * Creates the default Markdown renderer. It generates a summary, an optional
@@ -74,20 +93,19 @@ export const createMarkdownRenderer = (): Renderer => {
 
         if (symbolNodes.length > 0) {
           for (const symbol of symbolNodes) {
-            const outgoingEdges = rankedGraph.edges.filter(e => e.fromId === symbol.id);
+            const outgoingEdges = rankedGraph.edges.filter(e => e.fromId === symbol.id);            
             let relations = '';
             if (outgoingEdges.length > 0) {
-              const relationParts: string[] = [];
-              const inherits = outgoingEdges.filter(e => e.type === 'inherits').map(e => `\`${rankedGraph.nodes.get(e.toId)?.name}\``).join(', ');
-              const implementsList = outgoingEdges.filter(e => e.type === 'implements').map(e => `\`${rankedGraph.nodes.get(e.toId)?.name}\``).join(', ');
-              const calls = outgoingEdges.filter(e => e.type === 'calls').map(e => `\`${rankedGraph.nodes.get(e.toId)?.name}\``);
+              const edgeGroups = outgoingEdges.reduce((acc, edge) => {
+                (acc[edge.type] = acc[edge.type] || []).push(edge);
+                return acc;
+              }, {} as Record<CodeEdge['type'], CodeEdge[]>);
               
-              if (inherits) relationParts.push(`inherits ${inherits}`);
-              if (implementsList) relationParts.push(`implements ${implementsList}`);
-              if (calls.length > 0) {
-                const displayCalls = calls.slice(0, 3).join(', ');
-                relationParts.push(`calls ${displayCalls}${calls.length > 3 ? '...' : ''}`);
-              }
+              const relationParts = [
+                buildRelationString('inherits', edgeGroups.inherits || [], nodes),
+                buildRelationString('implements', edgeGroups.implements || [], nodes),
+                buildRelationString('calls', edgeGroups.calls || [], nodes, 3),
+              ].filter((s): s is string => s !== null);
               if(relationParts.length > 0) relations = ` (${relationParts.join('; ')})`;
             }
             md += `- **\`${symbol.type} ${symbol.name}\`**${relations} - _L${symbol.startLine}_\n`;

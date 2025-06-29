@@ -56,36 +56,48 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
 
     // Log unsupported files for debugging
     if (unsupportedFiles.length > 0) {
-      console.log(`Skipping ${unsupportedFiles.length} unsupported files:`, 
-        unsupportedFiles.map(f => f.path).slice(0, 5).join(', ') + 
+      console.log(`Skipping ${unsupportedFiles.length} unsupported files:`,
+        unsupportedFiles.map(f => f.path).slice(0, 5).join(', ') +
         (unsupportedFiles.length > 5 ? '...' : ''));
     }
-
-    // Phase 3: Process definitions for all language groups
-    for (const [languageName, languageFiles] of filesByLanguage) {
+    
+    const withLanguageProcessor = async (
+      languageGroup: [string, FileContent[]],
+      callback: (
+        parser: import('web-tree-sitter').Parser,
+        query: import('web-tree-sitter').Query,
+        languageFiles: FileContent[],
+        languageConfig: import('../tree-sitter/language-config.js').LanguageConfig
+      ) => Promise<void>
+    ) => {
+      const [languageName, languageFiles] = languageGroup;
       const languageConfig = getLanguageConfigForFile(languageFiles[0]!.path);
-      if (!languageConfig) continue;
-
+      if (!languageConfig) return;
+    
       try {
         const parser = await createParserForLanguage(languageConfig);
-        await processDefinitionsForLanguage({ nodes, edges }, languageFiles, parser, languageConfig);
+        if (!parser.language) {
+          console.warn(`No language available for parser in ${languageConfig.name}. Skipping.`);
+          return;
+        }
+        const query = new (await import('web-tree-sitter')).Query(parser.language, languageConfig.query);
+        await callback(parser, query, languageFiles, languageConfig);
       } catch (error) {
         console.warn(`Failed to process ${languageName} files:`, error);
       }
+    };
+
+    // Phase 3: Process definitions for all language groups
+    for (const langGroup of filesByLanguage) {
+      await withLanguageProcessor(langGroup, (parser, query, langFiles, langConfig) =>
+        processDefinitionsForLanguage({ nodes, edges }, langFiles, parser, query, langConfig));
     }
 
     // Phase 4: Process relationships for all language groups
     const resolver = new SymbolResolver(nodes, edges);
-    for (const [languageName, languageFiles] of filesByLanguage) {
-        const languageConfig = getLanguageConfigForFile(languageFiles[0]!.path);
-        if (!languageConfig) continue;
-
-        try {
-          const parser = await createParserForLanguage(languageConfig);
-          await processRelationshipsForLanguage({ nodes, edges }, languageFiles, parser, languageConfig, resolver);
-        } catch (error) {
-          console.warn(`Failed to process relationships for ${languageName} files:`, error);
-        }
+    for (const langGroup of filesByLanguage) {
+      await withLanguageProcessor(langGroup, (parser, query, langFiles, langConfig) =>
+        processRelationshipsForLanguage({ nodes, edges }, langFiles, parser, query, langConfig, resolver));
     }
 
     return { nodes: Object.freeze(nodes), edges: Object.freeze(edges) };
@@ -99,14 +111,9 @@ async function processDefinitionsForLanguage(
   graph: { nodes: Map<string, CodeNode>, edges: CodeEdge[] },
   files: FileContent[],
   parser: import('web-tree-sitter').Parser,
+  query: import('web-tree-sitter').Query,
   languageConfig: import('../tree-sitter/language-config.js').LanguageConfig
 ): Promise<void> {
-  if (!parser.language) {
-    console.warn(`No language available for parser in ${languageConfig.name}. Skipping file processing.`);
-    return;
-  }
-  const query = new (await import('web-tree-sitter')).Query(parser.language, languageConfig.query);
-  
   for (const file of files) {
     const tree = parser.parse(file.content);
     if (!tree) continue;
@@ -120,12 +127,12 @@ async function processDefinitionsForLanguage(
     if (languageConfig.name === 'typescript' || languageConfig.name === 'java' || languageConfig.name === 'csharp') {
       const seenClassNodes = new Set<number>();
       const classNames = new Map<string, number>();
-      
+
       for (const { name, node } of captures) {
         const parts = name.split('.');
         const type = parts.slice(0, -1).join('.');
         const subtype = parts[parts.length - 1];
-        
+
         if (subtype === 'definition' && type === 'class') {
           let classNode = node;
           if (classNode.type === 'export_statement') {
@@ -136,7 +143,7 @@ async function processDefinitionsForLanguage(
               continue;
             }
             seenClassNodes.add(classNode.startIndex);
-            
+
             const nameNode = classNode.childForFieldName('name');
             if (nameNode) {
               const className = nameNode.text;
@@ -184,15 +191,10 @@ async function processRelationshipsForLanguage(
   graph: { nodes: Map<string, CodeNode>, edges: CodeEdge[] },
   files: FileContent[],
   parser: import('web-tree-sitter').Parser,
+  query: import('web-tree-sitter').Query,
   languageConfig: import('../tree-sitter/language-config.js').LanguageConfig,
   resolver: SymbolResolver
 ): Promise<void> {
-  if (!parser.language) {
-    console.warn(`No language available for parser in ${languageConfig.name}. Skipping relationship processing.`);
-    return;
-  }
-  const query = new (await import('web-tree-sitter')).Query(parser.language, languageConfig.query);
-  
   for (const file of files) {
     const tree = parser.parse(file.content);
     if (!tree) {
@@ -215,10 +217,10 @@ async function processRelationshipsForLanguage(
           allFilePaths
         );
         if (importedFilePath && graph.nodes.has(importedFilePath)) {
-            const edge: CodeEdge = { fromId: file.path, toId: importedFilePath, type: 'imports' };
-            if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
-                graph.edges.push(edge);
-            }
+          const edge: CodeEdge = { fromId: file.path, toId: importedFilePath, type: 'imports' };
+          if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
+            graph.edges.push(edge);
+          }
         }
         continue;
       }
@@ -236,7 +238,7 @@ async function processRelationshipsForLanguage(
         const edge: CodeEdge = { fromId, toId: toNode.id, type: edgeType };
 
         if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
-            graph.edges.push(edge);
+          graph.edges.push(edge);
         }
       }
     }
@@ -305,25 +307,25 @@ function getSymbolTypeFromCapture(
 ): CodeNodeType | null {
   // Base mapping that works for most languages
   const baseMap: Record<string, CodeNodeType> = {
-    class: 'class',
-    function: 'function',
-    'function.arrow': 'arrow_function',
-    interface: 'interface',
-    type: 'type',
-    method: 'method',
-    field: 'field',
-    struct: 'struct',
-    enum: 'enum',
-    namespace: 'namespace',
-    trait: 'trait',
-    impl: 'impl',
-    constructor: 'constructor',
-    property: 'property',
-    variable: 'variable',
-    constant: 'constant',
-    static: 'static',
-    union: 'union',
-    template: 'template',
+    class: 'class' as const,
+    function: 'function' as const,
+    'function.arrow': 'arrow_function' as const,
+    interface: 'interface' as const,
+    type: 'type' as const,
+    method: 'method' as const,
+    field: 'field' as const,
+    struct: 'struct' as const,
+    enum: 'enum' as const,
+    namespace: 'namespace' as const,
+    trait: 'trait' as const,
+    impl: 'impl' as const,
+    constructor: 'constructor' as const,
+    property: 'property' as const,
+    variable: 'variable' as const,
+    constant: 'constant' as const,
+    static: 'static' as const,
+    union: 'union' as const,
+    template: 'template' as const,
   };
 
   // Try the full capture name first, then the type part
@@ -350,7 +352,7 @@ async function processSymbol(
       return;
     }
   }
-  
+
   // Skip variable declarations that are actually arrow functions (TypeScript specific)
   if (languageConfig.name === 'typescript' && symbolType === 'variable' && node.type === 'variable_declarator') {
     const valueNode = node.childForFieldName('value');
@@ -361,7 +363,7 @@ async function processSymbol(
 
   let declarationNode = node;
   let nameNode: import('web-tree-sitter').Node | null = null;
-  
+
   // Handle different node structures based on symbol type and language
   if (languageConfig.name === 'typescript' && (symbolType === 'method' || symbolType === 'field')) {
     // TypeScript-specific method/field handling
@@ -377,7 +379,7 @@ async function processSymbol(
     if (declarationNode.type === 'export_statement') {
       declarationNode = declarationNode.namedChildren[0] ?? declarationNode;
     }
-    
+
     // Handle language-specific name extraction
     if (languageConfig.name === 'go') {
       nameNode = getGoSymbolName(declarationNode);
@@ -391,10 +393,10 @@ async function processSymbol(
   if (nameNode) {
     const symbolName = nameNode.text;
     const symbolId = `${file.path}#${symbolName}`;
-    
+
     if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
       processedSymbols.add(symbolId);
-      
+
       // Track processed class nodes
       if (symbolType === 'class') {
         let classNode = declarationNode;
@@ -405,11 +407,11 @@ async function processSymbol(
           processedClassNodes.add(classNode.startIndex);
         }
       }
-      
+
       nodes.set(symbolId, {
-        id: symbolId, 
-        type: symbolType, 
-        name: symbolName, 
+        id: symbolId,
+        type: symbolType,
+        name: symbolName,
         filePath: file.path,
         startLine: getLineFromIndex(file.content, node.startIndex),
         endLine: getLineFromIndex(file.content, node.endIndex),
@@ -441,7 +443,7 @@ function processTypeScriptMethodOrField(
       const classNameNode = classParent.childForFieldName('name');
       if (classNameNode) {
         const className = classNameNode.text;
-        
+
         if (processedClassNodes.has(classParent.startIndex) && !duplicateClassNames.has(className)) {
           const nameNode = node.childForFieldName('name');
           if (nameNode) {
@@ -500,7 +502,7 @@ function getGoSymbolName(
       return typeSpec.childForFieldName('name');
     }
   }
-  
+
   // For Go const_declaration, the name is in const_spec child
   if (declarationNode.type === 'const_declaration') {
     const constSpec = declarationNode.namedChild(0);
@@ -508,7 +510,7 @@ function getGoSymbolName(
       return constSpec.childForFieldName('name');
     }
   }
-  
+
   // For Go var_declaration, the name is in var_spec child
   if (declarationNode.type === 'var_declaration') {
     const varSpec = declarationNode.namedChild(0);
@@ -516,7 +518,7 @@ function getGoSymbolName(
       return varSpec.childForFieldName('name');
     }
   }
-  
+
   // For other Go nodes, try the standard approach
   return declarationNode.childForFieldName('name');
 }
@@ -534,7 +536,7 @@ function getCSymbolName(
       return lastChild;
     }
   }
-  
+
   // For function_definition, the name is in the declarator
   if (declarationNode.type === 'function_definition') {
     const declarator = declarationNode.childForFieldName('declarator');
@@ -545,7 +547,7 @@ function getCSymbolName(
       }
     }
   }
-  
+
   // For struct/union/enum, try the standard approach
   return declarationNode.childForFieldName('name');
 }
@@ -557,7 +559,7 @@ class SymbolResolver {
   constructor(
     private nodes: ReadonlyMap<string, CodeNode>,
     private edges: readonly CodeEdge[],
-  ) {}
+  ) { }
 
   /**
    * Resolves a symbol name to a CodeNode.
@@ -580,7 +582,7 @@ class SymbolResolver {
     const importedFiles = this.edges
       .filter(e => e.fromId === contextFile && e.type === 'imports')
       .map(e => e.toId);
-    
+
     for (const file of importedFiles) {
       const importedId = `${file}#${symbolName}`;
       if (this.nodes.has(importedId)) {
@@ -611,26 +613,26 @@ class SymbolResolver {
  * @returns The unique ID of the enclosing symbol, or the file path as a fallback.
  */
 function findEnclosingSymbolId(
-    startNode: import('web-tree-sitter').Node,
-    file: FileContent,
-    nodes: ReadonlyMap<string, CodeNode>
+  startNode: import('web-tree-sitter').Node,
+  file: FileContent,
+  nodes: ReadonlyMap<string, CodeNode>
 ): string | null {
-    let current: import('web-tree-sitter').Node | null = startNode.parent;
-    while(current) {
-        // This is a simplified check. A full implementation would be more robust.
-        const nameNode = current.childForFieldName('name');
-        if (nameNode) {
-            let symbolName = nameNode.text;
-            if (current.type === 'method_definition' || (current.type === 'public_field_definition' && !current.text.includes('=>'))) {
-                const classNode = current.parent?.parent; // class_body -> class_declaration
-                if (classNode?.type === 'class_declaration') {
-                    symbolName = `${classNode.childForFieldName('name')?.text}.${symbolName}`;
-                }
-            }
-            const symbolId = `${file.path}#${symbolName}`;
-            if (nodes.has(symbolId)) return symbolId;
+  let current: import('web-tree-sitter').Node | null = startNode.parent;
+  while (current) {
+    // This is a simplified check. A full implementation would be more robust.
+    const nameNode = current.childForFieldName('name');
+    if (nameNode) {
+      let symbolName = nameNode.text;
+      if (current.type === 'method_definition' || (current.type === 'public_field_definition' && !current.text.includes('=>'))) {
+        const classNode = current.parent?.parent; // class_body -> class_declaration
+        if (classNode?.type === 'class_declaration') {
+          symbolName = `${classNode.childForFieldName('name')?.text}.${symbolName}`;
         }
-        current = current.parent;
+      }
+      const symbolId = `${file.path}#${symbolName}`;
+      if (nodes.has(symbolId)) return symbolId;
     }
-    return file.path; // Fallback to file node
+    current = current.parent;
+  }
+  return file.path; // Fallback to file node
 }
