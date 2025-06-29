@@ -20,18 +20,16 @@ export const getParser = async (): Promise<Parser.Parser> => {
   await Parser.Parser.init();
   const newParser = new Parser.Parser();
 
-  const wasmDir = path.join(getDirname(), '..', '..', 'wasm');
-  
   try {
     const TSLang = await Parser.Language.load(
-      path.join(wasmDir, 'tree-sitter-typescript.wasm')
+      path.resolve(getDirname(), '..', '..', 'node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm')
     );
     newParser.setLanguage(TSLang);
     parser = newParser;
     return parser;
   } catch (error) {
     console.error("Failed to load Tree-sitter WASM files.", error);
-    console.error(`Please ensure 'tree-sitter-typescript.wasm' is located in a 'wasm' directory at the project root.`);
+    console.error("Please ensure 'tree-sitter-typescript' is installed in node_modules.");
     throw new Error("Could not initialize parser.");
   }
 };

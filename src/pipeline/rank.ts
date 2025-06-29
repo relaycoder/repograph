@@ -1,4 +1,4 @@
-import { pagerank } from 'graphology-pagerank';
+import pagerank from 'graphology-pagerank';
 import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
 import { execSync } from 'node:child_process';
 

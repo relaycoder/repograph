@@ -1,0 +1,812 @@
+uuid: b0999516-7d68-45bd-85c1-9602e3b2e3c0
+projectId: repograph
+createdAt: '2025-06-29T01:29:27.044Z'
+gitCommitMsg: >-
+  fix(tests): resolve widespread test failures
+
+  This commit addresses a large number of test failures across the suite by
+  fixing several underlying issues:
+
+  - **deps**: Corrected the `graphology-pagerank` import to use the default
+  export, resolving multiple test suite crashes. - **build**: Modified the
+  Tree-sitter language loader to resolve WASM files from `node_modules`
+  directly, removing the dependency on a fragile `setup:wasm` build script. -
+  **pipeline**: Enhanced the file discoverer to handle non-existent root paths,
+  filter binary files more reliably, and correctly ignore the `.gitignore` file
+  itself from results. - **cli**: Implemented the command-line interface in
+  `src/index.ts` to make the E2E tests runnable and pass. - **api**: Added
+  validation for the `rankingStrategy` option in the high-level `generateMap`
+  function to provide clear errors.
+
+  These changes collectively restore the integrity of the test suite and fix
+  core functionality bugs.
+promptSummary: >-
+  Fix a large number of failing tests reported by `bun test` by analyzing the
+  error logs and applying corrections across multiple files, including fixing
+  module imports, file paths, discovery logic, and implementing a missing CLI.
+reasoning:
+  - >-
+    Based on the test failures, there are several issues to address across the
+    codebase. The primary problems are a faulty module import for
+    `graphology-pagerank`, an incorrect path for Tree-sitter's WASM files,
+    several logic errors in the file discovery process, and a missing
+    command-line interface implementation, which is causing all end-to-end tests
+    to fail.
+  - 'Here is my step-by-step plan to fix these issues:'
+  - >-
+    1.  **Fix `pagerank` Import**: The `graphology-pagerank` library uses a
+    default export, but the code attempts a named import. I will correct the
+    import statement in `src/pipeline/rank.ts` and update the corresponding type
+    definition in `src/types/graphology-pagerank.d.ts`. This should resolve the
+    `SyntaxError: Export named 'pagerank' not found` errors that are causing
+    crashes in multiple test suites.
+  - >-
+    2.  **Correct Tree-sitter WASM Path**: The tests fail to find the
+    Tree-sitter WASM file because they rely on a `setup:wasm` script that isn't
+    run before testing. I will modify `src/tree-sitter/languages.ts` to load the
+    WASM file directly from `node_modules`. This is more robust and removes the
+    need for a manual setup step. I will also clean up the related,
+    now-unnecessary, scripts and configuration in `package.json`.
+  - '3.  **Improve File Discovery Logic**: The `discoverer` has several bugs:'
+  - >-
+    *   It doesn't reject when given a non-existent root directory. I will add a
+    check to ensure the root directory exists.
+  - >-
+    *   It incorrectly includes the `.gitignore` file in its results. I will add
+    `.gitignore` to the list of patterns to be ignored by `globby`.
+  - >-
+    *   It fails to filter out binary files. I will add a heuristic to detect
+    and skip binary files.
+  - >-
+    4.  **Implement CLI Entrypoint**: All end-to-end tests are failing because
+    `src/index.ts` is being executed as a script but contains no CLI logic. I
+    will add a complete CLI implementation to `src/index.ts`. This will parse
+    command-line arguments, handle flags like `--help` and `--version`, and call
+    the `generateMap` function with the correct options. This is the most
+    significant change and is essential for fixing the `e2e` tests.
+  - >-
+    5.  **Validate Ranking Strategy**: The `high-level` API does not correctly
+    validate the `rankingStrategy` option. I will add this validation to
+    `src/high-level.ts` to ensure it throws an error for invalid strategies, as
+    expected by the tests.
+  - I'll now apply these fixes.
+  - '### 1. Fix `pagerank` module import'
+  - >-
+    I'll start by fixing the `pagerank` import, which is causing crashes in many
+    test suites. It should be a default import.
+  - '### 2. Fix Tree-sitter WASM path and update `package.json`'
+  - >-
+    Next, I'll make the Tree-sitter analyzer more robust by loading the WASM
+    file directly from `node_modules` and removing the now-redundant
+    `setup:wasm` script.
+  - '### 3. Fix file discovery logic'
+  - >-
+    I'll correct the file discovery logic to handle edge cases like non-existent
+    directories, the `.gitignore` file itself, and binary files.
+  - '### 4. Fix `high-level` API and implement CLI'
+  - >-
+    I'll add the missing validation to `generateMap` and then implement the full
+    CLI in `src/index.ts` to get the E2E tests passing.
+operations:
+  - type: write
+    path: src/types/graphology-pagerank.d.ts
+    content: |-
+      --- src/types/graphology-pagerank.d.ts
+      +++ src/types/graphology-pagerank.d.ts
+      @@ -1,9 +1,9 @@
+       declare module 'graphology-pagerank' {
+         import type Graph from 'graphology';
+       
+      -  export function pagerank<T = any>(graph: Graph<T>, options?: {
+      +  export default function pagerank<T = any>(graph: Graph<T>, options?: {
+           alpha?: number;
+           tolerance?: number;
+           maxIterations?: number;
+           getEdgeWeight?: (edge: string) => number;
+         }): Record<string, number>;
+       }
+    patchStrategy: new-unified
+  - type: write
+    path: src/pipeline/rank.ts
+    content: |-
+      --- src/pipeline/rank.ts
+      +++ src/pipeline/rank.ts
+      @@ -1,4 +1,4 @@
+      -import { pagerank } from 'graphology-pagerank';
+      +import pagerank from 'graphology-pagerank';
+       import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
+       import { execSync } from 'node:child_process';
+    patchStrategy: new-unified
+  - type: write
+    path: src/tree-sitter/languages.ts
+    content: >-
+      --- src/tree-sitter/languages.ts
+
+      +++ src/tree-sitter/languages.ts
+
+      @@ -15,17 +15,15 @@
+         await Parser.Parser.init();
+         const newParser = new Parser.Parser();
+       
+      -  const wasmDir = path.join(getDirname(), '..', '..', 'wasm');
+
+      -  
+         try {
+           const TSLang = await Parser.Language.load(
+      -      path.join(wasmDir, 'tree-sitter-typescript.wasm')
+
+      +      path.resolve(getDirname(), '..', '..',
+      'node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm')
+           );
+           newParser.setLanguage(TSLang);
+           parser = newParser;
+           return parser;
+         } catch (error) {
+           console.error("Failed to load Tree-sitter WASM files.", error);
+      -    console.error(`Please ensure 'tree-sitter-typescript.wasm' is located
+      in a 'wasm' directory at the project root.`);
+
+      +    console.error("Please ensure 'tree-sitter-typescript' is installed in
+      node_modules.");
+           throw new Error("Could not initialize parser.");
+         }
+       };
+    patchStrategy: new-unified
+  - type: write
+    path: package.json
+    content: |-
+      <<<<<<< SEARCH
+          "dist",
+          "wasm"
+        ],
+        "scripts": {
+          "clean": "rimraf dist wasm",
+          "setup:wasm": "mkdir -p wasm && cp node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm wasm/ && cp node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm/",
+          "build": "npm run clean && tsc -p tsconfig.build.json && npm run setup:wasm",
+          "prepublishOnly": "npm run build",
+      =======
+          "dist"
+        ],
+        "scripts": {
+          "clean": "rimraf dist",
+          "build": "npm run clean && tsc -p tsconfig.build.json",
+          "prepublishOnly": "npm run build",
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+  - type: write
+    path: src/pipeline/discover.ts
+    content: >-
+      --- src/pipeline/discover.ts
+
+      +++ src/pipeline/discover.ts
+
+      @@ -16,6 +16,15 @@
+        */
+       export const createDefaultDiscoverer = (): FileDiscoverer => {
+         return async ({ root, include, ignore, noGitignore = false }) => {
+      +    try {
+
+      +      const stats = await fs.stat(root);
+
+      +      if (!stats.isDirectory()) {
+
+      +        throw new Error(`Root path is not a directory: ${root}`);
+
+      +      }
+
+      +    } catch (e) {
+
+      +      if (e.code === 'ENOENT') throw new Error(`Root directory does not
+      exist: ${root}`);
+
+      +      throw e;
+
+      +    }
+           const patterns = include && include.length > 0 ? [...include] : ['**/*'];
+           
+           const ignoreFilter = Ignore();
+      @@ -29,7 +38,7 @@
+           const relativePaths = await globby(patterns, {
+             cwd: root,
+             gitignore: false, // We handle gitignore manually with the `ignore` package
+      -      ignore: [...(ignore || []), '**/node_modules/**'],
+
+      +      ignore: [...(ignore || []), '**/node_modules/**', '.gitignore'],
+             dot: true,
+             absolute: false,
+           });
+      @@ -39,9 +48,11 @@
+           const fileContents = await Promise.all(
+             filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
+               try {
+                 const absolutePath = path.join(root, relativePath);
+      -          const content = await fs.readFile(absolutePath, 'utf-8');
+
+      +          const buffer = await fs.readFile(absolutePath);
+
+      +          // A simple heuristic to filter out binary files is checking
+      for a null byte.
+
+      +          if (buffer.includes(0)) return null;
+
+      +          const content = buffer.toString('utf-8');
+                 return { path: relativePath, content };
+               } catch {
+                 // Ignore files that can't be read (e.g., binary files, permission errors)
+    patchStrategy: new-unified
+  - type: write
+    path: src/high-level.ts
+    content: >-
+      --- src/high-level.ts
+
+      +++ src/high-level.ts
+
+      @@ -18,12 +18,15 @@
+           case 'git-changes':
+             ranker = createGitRanker();
+             break;
+      +    case 'alphabetical':
+
+      +      // This is a valid option in types, but not implemented.
+
+      +      throw new Error("The 'alphabetical' ranking strategy is not yet
+      implemented.");
+           case 'pagerank':
+           default:
+      +      if (rankingStrategy !== 'pagerank') {
+
+      +        throw new Error(`Invalid ranking strategy: '${rankingStrategy}'.
+      Available options are 'pagerank', 'git-changes'.`);
+
+      +      }
+             ranker = createPageRanker();
+             break;
+         }
+       
+         const generator = createMapGenerator({
+    patchStrategy: new-unified
+  - type: write
+    path: src/index.ts
+    content: >-
+      --- src/index.ts
+
+      +++ src/index.ts
+
+      @@ -1,3 +1,5 @@
+
+      +#!/usr/bin/env bun
+
+      +
+       // High-Level API for simple use cases
+       export { generateMap } from './high-level.js';
+       
+      @@ -23,3 +25,88 @@
+         Ranker,
+         Renderer,
+       } from './types.js';
+      +
+
+      +// This section runs only when the script is executed directly from the
+      CLI
+
+      +import { fileURLToPath } from 'node:url';
+
+      +import path from 'node:path';
+
+      +
+
+      +const isRunningDirectly = () => {
+
+      +  if (typeof process.argv[1] === 'undefined') return false;
+
+      +  const runningFile = path.resolve(process.argv[1]);
+
+      +  const currentFile = fileURLToPath(import.meta.url);
+
+      +  return runningFile === currentFile;
+
+      +};
+
+      +
+
+      +if (isRunningDirectly()) {
+
+      +  const args = process.argv.slice(2);
+
+      +
+
+      +  if (args.includes('--help') || args.includes('-h')) {
+
+      +    console.log(`
+
+      +Usage: repograph [root] [options]
+
+      +
+
+      +Arguments:
+
+      +  root                     The root directory of the repository to
+      analyze. Defaults to the current working directory.
+
+      +
+
+      +Options:
+
+      +  -h, --help               Display this help message.
+
+      +  -v, --version            Display the version number.
+
+      +  --output <path>          Path to the output Markdown file. (default:
+      "repograph.md")
+
+      +  --include <pattern>      Glob pattern for files to include. Can be
+      specified multiple times.
+
+      +  --ignore <pattern>       Glob pattern for files to ignore. Can be
+      specified multiple times.
+
+      +  --no-gitignore           Do not respect .gitignore files.
+
+      +  --ranking-strategy <name> The ranking strategy to use. (default:
+      "pagerank", options: "pagerank", "git-changes")
+
+      +    `);
+
+      +    process.exit(0);
+
+      +  }
+
+      +
+
+      +  if (args.includes('--version') || args.includes('-v')) {
+
+      +    // In a real app, you'd get this from package.json
+
+      +    console.log('0.1.0');
+
+      +    process.exit(0);
+
+      +  }
+
+      +
+
+      +  const options: RepoGraphOptions = {};
+
+      +  const includePatterns: string[] = [];
+
+      +  const ignorePatterns: string[] = [];
+
+      +
+
+      +  for (let i = 0; i < args.length; i++) {
+
+      +    const arg = args[i];
+
+      +    switch (arg) {
+
+      +      case '--output':
+
+      +        options.output = args[++i];
+
+      +        break;
+
+      +      case '--include':
+
+      +        includePatterns.push(args[++i] as string);
+
+      +        break;
+
+      +      case '--ignore':
+
+      +        ignorePatterns.push(args[++i] as string);
+
+      +        break;
+
+      +      case '--no-gitignore':
+
+      +        options.noGitignore = true;
+
+      +        break;
+
+      +      case '--ranking-strategy':
+
+      +        options.rankingStrategy = args[++i] as any;
+
+      +        break;
+
+      +      default:
+
+      +        if (!arg.startsWith('-')) {
+
+      +          options.root = arg;
+
+      +        }
+
+      +        break;
+
+      +    }
+
+      +  }
+
+      +
+
+      +  if (includePatterns.length > 0) {
+
+      +    options.include = includePatterns;
+
+      +  }
+
+      +  if (ignorePatterns.length > 0) {
+
+      +    options.ignore = ignorePatterns;
+
+      +  }
+
+      +
+
+      +  generateMap(options)
+
+      +    .then(() => {
+
+      +      console.log(`✅ RepoGraph map generated successfully at
+      ${path.resolve(options.root || process.cwd(), options.output ||
+      'repograph.md')}`);
+
+      +    })
+
+      +    .catch((error) => {
+
+      +      console.error(`❌ Error generating RepoGraph map:
+      ${error.message}`);
+
+      +      process.exit(1);
+
+      +    });
+
+      +}
+    patchStrategy: new-unified
+snapshot:
+  src/types/graphology-pagerank.d.ts: |
+    declare module 'graphology-pagerank' {
+      import type Graph from 'graphology';
+
+      export function pagerank<T = any>(graph: Graph<T>, options?: {
+        alpha?: number;
+        tolerance?: number;
+        maxIterations?: number;
+        getEdgeWeight?: (edge: string) => number;
+      }): Record<string, number>;
+    }
+  src/pipeline/rank.ts: >-
+    import { pagerank } from 'graphology-pagerank';
+
+    import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
+
+    import { execSync } from 'node:child_process';
+
+
+    /**
+     * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily
+     * referenced by other important nodes will receive a higher rank.
+     * @returns A Ranker function.
+     */
+    export const createPageRanker = (): Ranker => {
+      return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+        // PageRank can only be computed on graphs with nodes.
+        if (graph.order === 0) {
+          return { graph, ranks: new Map() };
+        }
+        const ranksData = pagerank(graph);
+        const ranks = new Map<string, number>();
+        for (const node in ranksData) {
+          ranks.set(node, ranksData[node] ?? 0);
+        }
+        return { graph, ranks };
+      };
+    };
+
+
+    /**
+     * Creates a ranker based on Git commit history. Files changed more frequently
+     * are considered more important. Requires Git to be installed.
+     * @returns A Ranker function.
+     */
+    export const createGitRanker = (options: { maxCommits?: number } = {}):
+    Ranker => {
+      return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+        const { maxCommits = 500 } = options;
+        const ranks = new Map<string, number>();
+        
+        try {
+          const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
+          const output = execSync(command, { encoding: 'utf-8' });
+          const files = output.split('\n').filter(Boolean);
+
+          const changeCounts: Record<string, number> = {};
+          for (const file of files) {
+            changeCounts[file] = (changeCounts[file] || 0) + 1;
+          }
+          
+          const maxChanges = Math.max(...Object.values(changeCounts), 1);
+          
+          graph.forEachNode((nodeId, attributes) => {
+            // We only rank file nodes with this strategy
+            if (attributes.type === 'file') {
+              const count = changeCounts[attributes.filePath] || 0;
+              ranks.set(nodeId, count / maxChanges); // Normalize score
+            } else {
+              ranks.set(nodeId, 0);
+            }
+          });
+
+        } catch (e) {
+          console.warn('Git command failed. Could not generate git-based ranks. Is git installed?');
+          graph.forEachNode((nodeId) => ranks.set(nodeId, 0));
+        }
+        
+        return { graph, ranks };
+      };
+    };
+  src/tree-sitter/languages.ts: |-
+    import * as Parser from 'web-tree-sitter';
+    import path from 'node:path';
+    import { fileURLToPath } from 'node:url';
+
+    // Helper to get the correct path in different environments
+    const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
+
+    let parser: Parser.Parser | null = null;
+
+    /**
+     * Initializes the Tree-sitter parser and loads necessary language grammars.
+     * This function is idempotent.
+     * @returns A fully initialized Tree-sitter parser instance.
+     */
+    export const getParser = async (): Promise<Parser.Parser> => {
+      if (parser) {
+        return parser;
+      }
+
+      await Parser.Parser.init();
+      const newParser = new Parser.Parser();
+
+      const wasmDir = path.join(getDirname(), '..', '..', 'wasm');
+      
+      try {
+        const TSLang = await Parser.Language.load(
+          path.join(wasmDir, 'tree-sitter-typescript.wasm')
+        );
+        newParser.setLanguage(TSLang);
+        parser = newParser;
+        return parser;
+      } catch (error) {
+        console.error("Failed to load Tree-sitter WASM files.", error);
+        console.error(`Please ensure 'tree-sitter-typescript.wasm' is located in a 'wasm' directory at the project root.`);
+        throw new Error("Could not initialize parser.");
+      }
+    };
+  package.json: |
+    {
+      "name": "repograph",
+      "version": "0.1.0",
+      "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
+      "type": "module",
+      "main": "./dist/index.js",
+      "module": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "exports": {
+        ".": {
+          "import": "./dist/index.js",
+          "types": "./dist/index.d.ts"
+        }
+      },
+      "files": [
+        "dist",
+        "wasm"
+      ],
+      "scripts": {
+        "clean": "rimraf dist wasm",
+        "setup:wasm": "mkdir -p wasm && cp node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm wasm/ && cp node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm/",
+        "build": "npm run clean && tsc -p tsconfig.build.json && npm run setup:wasm",
+        "prepublishOnly": "npm run build",
+        "dev": "tsc -w",
+        "test": "bun run test/run-tests.ts",
+        "test:unit": "bun run test/run-tests.ts unit",
+        "test:integration": "bun run test/run-tests.ts integration",
+        "test:e2e": "bun run test/run-tests.ts e2e",
+        "test:watch": "bun test --watch test/**/*.test.ts",
+        "test:coverage": "bun test --coverage test/**/*.test.ts",
+        "test:basic": "bun test test-basic.js",
+        "lint": "eslint . --ext .ts",
+        "format": "prettier --write \"src/**/*.ts\""
+      },
+      "dependencies": {
+        "@types/js-yaml": "^4.0.9",
+        "globby": "^14.1.0",
+        "graphology": "^0.26.0",
+        "graphology-pagerank": "^1.1.0",
+        "ignore": "^7.0.5",
+        "js-yaml": "^4.1.0",
+        "web-tree-sitter": "^0.25.6"
+      },
+      "devDependencies": {
+        "@types/node": "^20.12.12",
+        "bun-types": "^1.1.12",
+        "eslint": "^8.57.0",
+        "prettier": "^3.2.5",
+        "rimraf": "^5.0.7",
+        "tree-sitter-javascript": "^0.23.1",
+        "tree-sitter-typescript": "^0.23.2",
+        "typescript": "^5.4.5"
+      },
+      "keywords": [
+        "codemap",
+        "graph",
+        "visualization",
+        "code-analysis",
+        "tree-sitter",
+        "repo-analysis",
+        "ai-context",
+        "bun",
+        "functional-programming"
+      ],
+      "author": "Your Name <you@example.com>",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/your-username/repograph.git"
+      },
+      "homepage": "https://github.com/your-username/repograph#readme",
+      "bugs": {
+        "url": "https://github.com/your-username/repograph/issues"
+      },
+      "engines": {
+        "node": ">=18.0.0",
+        "bun": ">=1.0.0"
+      }
+    }
+  src/pipeline/discover.ts: |-
+    import { globby } from 'globby';
+    import path from 'node:path';
+    import fs from 'node:fs/promises';
+    import Ignore from 'ignore';
+    import type { FileContent, FileDiscoverer } from '../types.js';
+
+    const readGitignore = async (root: string): Promise<string> => {
+      try {
+        return await fs.readFile(path.join(root, '.gitignore'), 'utf-8');
+      } catch {
+        return '';
+      }
+    };
+
+    /**
+     * Creates the default file discoverer. It uses globby to find all files,
+     * respecting .gitignore patterns and custom include/exclude rules.
+     * @returns A FileDiscoverer function.
+     */
+    export const createDefaultDiscoverer = (): FileDiscoverer => {
+      return async ({ root, include, ignore, noGitignore = false }) => {
+        const patterns = include && include.length > 0 ? [...include] : ['**/*'];
+        
+        const ignoreFilter = Ignore();
+        if (!noGitignore) {
+          const gitignoreContent = await readGitignore(root);
+          ignoreFilter.add(gitignoreContent);
+        }
+        if (ignore) {
+          ignoreFilter.add(ignore.join('\n'));
+        }
+
+        const relativePaths = await globby(patterns, {
+          cwd: root,
+          gitignore: false, // We handle gitignore manually with the `ignore` package
+          ignore: [...(ignore || []), '**/node_modules/**'],
+          dot: true,
+          absolute: false,
+        });
+
+        const filteredPaths = relativePaths.filter(p => !ignoreFilter.ignores(p));
+
+        const fileContents = await Promise.all(
+          filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
+            try {
+              const absolutePath = path.join(root, relativePath);
+              const content = await fs.readFile(absolutePath, 'utf-8');
+              return { path: relativePath, content };
+            } catch {
+              // Ignore files that can't be read (e.g., binary files, permission errors)
+              return null;
+            }
+          })
+        );
+
+        return fileContents.filter((c): c is FileContent => c !== null);
+      };
+    };
+  src/high-level.ts: >-
+    import { createMapGenerator } from './composer.js';
+
+    import { createDefaultDiscoverer } from './pipeline/discover.js';
+
+    import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+
+    import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+
+    import { createMarkdownRenderer } from './pipeline/render.js';
+
+    import type { RepoGraphOptions, Ranker } from './types.js';
+
+    import path from 'node:path';
+
+
+    /**
+     * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+     * default pipeline based on a configuration object to generate a codemap.
+     *
+     * @param options The configuration object for generating the map.
+     */
+    export const generateMap = async (options: RepoGraphOptions = {}):
+    Promise<void> => {
+      const {
+        root = process.cwd(),
+        output = './repograph.md',
+        rankingStrategy = 'pagerank',
+      } = options;
+
+      let ranker: Ranker;
+      switch (rankingStrategy) {
+        case 'git-changes':
+          ranker = createGitRanker();
+          break;
+        case 'pagerank':
+        default:
+          ranker = createPageRanker();
+          break;
+      }
+
+      const generator = createMapGenerator({
+        discover: createDefaultDiscoverer(),
+        analyze: createTreeSitterAnalyzer(),
+        rank: ranker,
+        render: createMarkdownRenderer(),
+      });
+
+      await generator({
+        root: path.resolve(root),
+        output: output,
+        include: options.include,
+        ignore: options.ignore,
+        noGitignore: options.noGitignore,
+        rendererOptions: options.rendererOptions,
+      });
+    };
+  src/index.ts: |-
+    // High-Level API for simple use cases
+    export { generateMap } from './high-level.js';
+
+    // Low-Level API for composition and advanced use cases
+    export { createMapGenerator } from './composer.js';
+
+    // Default pipeline component factories
+    export { createDefaultDiscoverer } from './pipeline/discover.js';
+    export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+    export { createPageRanker, createGitRanker } from './pipeline/rank.js';
+    export { createMarkdownRenderer } from './pipeline/render.js';
+
+    // Core types for building custom components
+    export type {
+      FileContent,
+      CodeNode,
+      CodeNodeType,
+      CodeEdge,
+      CodeGraph,
+      RankedCodeGraph,
+      RepoGraphOptions,
+      RendererOptions,
+      FileDiscoverer,
+      Analyzer,
+      Ranker,
+      Renderer,
+    } from './types.js';
+approved: true

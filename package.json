@@ -13,13 +13,11 @@
     }
   },
   "files": [
-    "dist",
-    "wasm"
+    "dist"
   ],
   "scripts": {
-    "clean": "rimraf dist wasm",
-    "setup:wasm": "mkdir -p wasm && cp node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm wasm/ && cp node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm/",
-    "build": "npm run clean && tsc -p tsconfig.build.json && npm run setup:wasm",
+    "clean": "rimraf dist",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
     "prepublishOnly": "npm run build",
     "dev": "tsc -w",
     "test": "bun run test/run-tests.ts",

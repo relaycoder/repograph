@@ -19,6 +19,19 @@ const readGitignore = async (root: string): Promise<string> => {
  */
 export const createDefaultDiscoverer = (): FileDiscoverer => {
   return async ({ root, include, ignore, noGitignore = false }) => {
+    try {
+      const stats = await fs.stat(root);
+      if (!stats.isDirectory()) {
+        throw new Error(`Root path is not a directory: ${root}`);
+      }
+    } catch (e) {
+      // Type guard to check for Node.js file system error
+      if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
+        throw new Error(`Root directory does not exist: ${root}`);
+      } else {
+        throw e;
+      }
+    }
     const patterns = include && include.length > 0 ? [...include] : ['**/*'];
     
     const ignoreFilter = Ignore();
@@ -33,7 +46,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     const relativePaths = await globby(patterns, {
       cwd: root,
       gitignore: false, // We handle gitignore manually with the `ignore` package
-      ignore: [...(ignore || []), '**/node_modules/**'],
+      ignore: [...(ignore || []), '**/node_modules/**', '.gitignore'],
       dot: true,
       absolute: false,
     });
@@ -44,7 +57,10 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
         try {
           const absolutePath = path.join(root, relativePath);
-          const content = await fs.readFile(absolutePath, 'utf-8');
+          const buffer = await fs.readFile(absolutePath);
+          // A simple heuristic to filter out binary files is checking for a null byte.
+          if (buffer.includes(0)) return null;
+          const content = buffer.toString('utf-8');
           return { path: relativePath, content };
         } catch {
           // Ignore files that can't be read (e.g., binary files, permission errors)

@@ -1,0 +1,358 @@
+uuid: 44e0586e-82d2-4303-aa9a-b2861c8286a6
+projectId: repograph
+createdAt: '2025-06-29T01:31:23.057Z'
+gitCommitMsg: >-
+  fix(ts): resolve compiler errors from strict checks
+
+  This commit fixes several TypeScript errors that arose from strict compiler
+  options.
+
+  - **src/index.ts**: - Imported `generateMap` and `RepoGraphOptions` with
+  aliases to resolve `Cannot find name` errors in the CLI logic. - Added a
+  `!arg` check in the argument parsing loop to satisfy
+  `noUncheckedIndexedAccess`. - Typed the `catch` parameter as `unknown` and
+  added a type guard to fix the implicit `any` error.
+
+  - **src/pipeline/discover.ts**: - Added a type guard to the `catch` block to
+  safely access the `code` property on the unknown error object, resolving a
+  `TS18046` error.
+promptSummary: >-
+  Fix TypeScript compilation errors reported by tsc. The errors are related to
+  missing imports, unchecked indexed access, implicit 'any' types, and unsafe
+  property access on 'unknown' error types.
+reasoning:
+  - >-
+    I understand. I've received TypeScript compiler errors indicating several
+    issues with my previous changes. The primary problems are related to type
+    safety due to strict compiler options like `noUncheckedIndexedAccess` and
+    `noImplicitAny`, as well as incorrect handling of imported/exported members
+    within the same file.
+  - 'Here is my plan to fix these errors:'
+  - '1.  **Fix `src/index.ts`**: This file has the most errors.'
+  - >-
+    *   To resolve `Cannot find name 'RepoGraphOptions'` and `Cannot find name
+    'generateMap'`, I will explicitly import these from their respective
+    modules. To avoid naming conflicts with the re-exports in the same file, I
+    will use import aliases (e.g., `import { generateMap as executeGenerateMap
+    }...`).
+  - >-
+    *   To fix the `'arg' is possibly 'undefined'` error, which is caused by the
+    `"noUncheckedIndexedAccess": true` compiler option, I will add a truthiness
+    check for the `arg` variable inside the argument parsing loop.
+  - >-
+    *   To address the implicit `any` type on the `catch` block's error
+    parameter, I will explicitly type it as `unknown` and use an `instanceof
+    Error` check for safe access to the `message` property.
+  - >-
+    *   I will also clean up the help message formatting slightly for
+    consistency.
+  - '2.  **Fix `src/pipeline/discover.ts`**:'
+  - >-
+    *   To fix the `'e' is of type 'unknown'` error when checking `e.code`, I
+    will add a type guard to safely narrow the type of the caught error object
+    before attempting to access its properties.
+  - I will now apply these corrections.
+  - First, I'll fix all the errors in `src/index.ts`.
+  - Next, I'll fix the type error in `src/pipeline/discover.ts`.
+operations:
+  - type: write
+    path: src/index.ts
+    content: >-
+      --- src/index.ts
+
+      +++ src/index.ts
+
+      @@ -1,6 +1,9 @@
+       #!/usr/bin/env bun
+       
+       // High-Level API for simple use cases
+      +import { generateMap as executeGenerateMap } from './high-level.js';
+
+      +import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
+
+      +
+       export { generateMap } from './high-level.js';
+       
+       // Low-Level API for composition and advanced use cases
+      @@ -37,7 +40,7 @@
+         if (args.includes('--help') || args.includes('-h')) {
+           console.log(`
+       Usage: repograph [root] [options]
+      -
+
+      + 
+       Arguments:
+         root                     The root directory of the repository to analyze. Defaults to the current working directory.
+       
+      @@ -55,12 +58,15 @@
+           process.exit(0);
+         }
+       
+      -  const options: RepoGraphOptions = {};
+
+      +  const options: IRepoGraphOptions = {};
+         const includePatterns: string[] = [];
+         const ignorePatterns: string[] = [];
+       
+         for (let i = 0; i < args.length; i++) {
+           const arg = args[i];
+      +    if (!arg) {
+
+      +      continue;
+
+      +    }
+           switch (arg) {
+             case '--output':
+               options.output = args[++i];
+      @@ -95,12 +101,17 @@
+           options.ignore = ignorePatterns;
+         }
+       
+      -  generateMap(options)
+
+      +  executeGenerateMap(options)
+           .then(() => {
+             console.log(`✅ RepoGraph map generated successfully at ${path.resolve(options.root || process.cwd(), options.output || 'repograph.md')}`);
+           })
+      -    .catch((error) => {
+
+      -      console.error(`❌ Error generating RepoGraph map:
+      ${error.message}`);
+
+      +    .catch((error: unknown) => {
+
+      +      if (error instanceof Error) {
+
+      +        console.error(`❌ Error generating RepoGraph map:
+      ${error.message}`);
+
+      +      } else {
+
+      +        console.error('❌ An unknown error occurred while generating the
+      RepoGraph map.');
+
+      +      }
+             process.exit(1);
+           });
+       }
+    patchStrategy: new-unified
+  - type: write
+    path: src/pipeline/discover.ts
+    content: >-
+      --- src/pipeline/discover.ts
+
+      +++ src/pipeline/discover.ts
+
+      @@ -25,8 +25,12 @@
+               throw new Error(`Root path is not a directory: ${root}`);
+             }
+           } catch (e) {
+      -      if (e.code === 'ENOENT') throw new Error(`Root directory does not
+      exist: ${root}`);
+
+      -      throw e;
+
+      +      // Type guard to check for Node.js file system error
+
+      +      if (e && typeof e === 'object' && 'code' in e && e.code ===
+      'ENOENT') {
+
+      +        throw new Error(`Root directory does not exist: ${root}`);
+
+      +      } else {
+
+      +        throw e;
+
+      +      }
+           }
+           const patterns = include && include.length > 0 ? [...include] : ['**/*'];
+    patchStrategy: new-unified
+snapshot:
+  src/index.ts: |-
+    #!/usr/bin/env bun
+
+    // High-Level API for simple use cases
+    export { generateMap } from './high-level.js';
+
+    // Low-Level API for composition and advanced use cases
+    export { createMapGenerator } from './composer.js';
+
+    // Default pipeline component factories
+    export { createDefaultDiscoverer } from './pipeline/discover.js';
+    export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+    export { createPageRanker, createGitRanker } from './pipeline/rank.js';
+    export { createMarkdownRenderer } from './pipeline/render.js';
+
+    // Core types for building custom components
+    export type {
+      FileContent,
+      CodeNode,
+      CodeNodeType,
+      CodeEdge,
+      CodeGraph,
+      RankedCodeGraph,
+      RepoGraphOptions,
+      RendererOptions,
+      FileDiscoverer,
+      Analyzer,
+      Ranker,
+      Renderer,
+    } from './types.js';
+
+    // This section runs only when the script is executed directly from the CLI
+    import { fileURLToPath } from 'node:url';
+    import path from 'node:path';
+
+    const isRunningDirectly = () => {
+      if (typeof process.argv[1] === 'undefined') return false;
+      const runningFile = path.resolve(process.argv[1]);
+      const currentFile = fileURLToPath(import.meta.url);
+      return runningFile === currentFile;
+    };
+
+    if (isRunningDirectly()) {
+      const args = process.argv.slice(2);
+
+      if (args.includes('--help') || args.includes('-h')) {
+        console.log(`
+    Usage: repograph [root] [options]
+
+    Arguments:
+      root                     The root directory of the repository to analyze. Defaults to the current working directory.
+
+    Options:
+      -h, --help               Display this help message.
+      -v, --version            Display the version number.
+      --output <path>          Path to the output Markdown file. (default: "repograph.md")
+      --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
+      --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
+      --no-gitignore           Do not respect .gitignore files.
+      --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
+        `);
+        process.exit(0);
+      }
+
+      if (args.includes('--version') || args.includes('-v')) {
+        // In a real app, you'd get this from package.json
+        console.log('0.1.0');
+        process.exit(0);
+      }
+
+      const options: RepoGraphOptions = {};
+      const includePatterns: string[] = [];
+      const ignorePatterns: string[] = [];
+
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        switch (arg) {
+          case '--output':
+            options.output = args[++i];
+            break;
+          case '--include':
+            includePatterns.push(args[++i] as string);
+            break;
+          case '--ignore':
+            ignorePatterns.push(args[++i] as string);
+            break;
+          case '--no-gitignore':
+            options.noGitignore = true;
+            break;
+          case '--ranking-strategy':
+            options.rankingStrategy = args[++i] as any;
+            break;
+          default:
+            if (!arg.startsWith('-')) {
+              options.root = arg;
+            }
+            break;
+        }
+      }
+
+      if (includePatterns.length > 0) {
+        options.include = includePatterns;
+      }
+      if (ignorePatterns.length > 0) {
+        options.ignore = ignorePatterns;
+      }
+
+      generateMap(options)
+        .then(() => {
+          console.log(`✅ RepoGraph map generated successfully at ${path.resolve(options.root || process.cwd(), options.output || 'repograph.md')}`);
+        })
+        .catch((error) => {
+          console.error(`❌ Error generating RepoGraph map: ${error.message}`);
+          process.exit(1);
+        });
+    }
+  src/pipeline/discover.ts: |-
+    import { globby } from 'globby';
+    import path from 'node:path';
+    import fs from 'node:fs/promises';
+    import Ignore from 'ignore';
+    import type { FileContent, FileDiscoverer } from '../types.js';
+
+    const readGitignore = async (root: string): Promise<string> => {
+      try {
+        return await fs.readFile(path.join(root, '.gitignore'), 'utf-8');
+      } catch {
+        return '';
+      }
+    };
+
+    /**
+     * Creates the default file discoverer. It uses globby to find all files,
+     * respecting .gitignore patterns and custom include/exclude rules.
+     * @returns A FileDiscoverer function.
+     */
+    export const createDefaultDiscoverer = (): FileDiscoverer => {
+      return async ({ root, include, ignore, noGitignore = false }) => {
+        try {
+          const stats = await fs.stat(root);
+          if (!stats.isDirectory()) {
+            throw new Error(`Root path is not a directory: ${root}`);
+          }
+        } catch (e) {
+          if (e.code === 'ENOENT') throw new Error(`Root directory does not exist: ${root}`);
+          throw e;
+        }
+        const patterns = include && include.length > 0 ? [...include] : ['**/*'];
+        
+        const ignoreFilter = Ignore();
+        if (!noGitignore) {
+          const gitignoreContent = await readGitignore(root);
+          ignoreFilter.add(gitignoreContent);
+        }
+        if (ignore) {
+          ignoreFilter.add(ignore.join('\n'));
+        }
+
+        const relativePaths = await globby(patterns, {
+          cwd: root,
+          gitignore: false, // We handle gitignore manually with the `ignore` package
+          ignore: [...(ignore || []), '**/node_modules/**', '.gitignore'],
+          dot: true,
+          absolute: false,
+        });
+
+        const filteredPaths = relativePaths.filter(p => !ignoreFilter.ignores(p));
+
+        const fileContents = await Promise.all(
+          filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
+            try {
+              const absolutePath = path.join(root, relativePath);
+              const buffer = await fs.readFile(absolutePath);
+              // A simple heuristic to filter out binary files is checking for a null byte.
+              if (buffer.includes(0)) return null;
+              const content = buffer.toString('utf-8');
+              return { path: relativePath, content };
+            } catch {
+              // Ignore files that can't be read (e.g., binary files, permission errors)
+              return null;
+            }
+          })
+        );
+
+        return fileContents.filter((c): c is FileContent => c !== null);
+      };
+    };
+approved: true

@@ -24,8 +24,14 @@ export const generateMap = async (options: RepoGraphOptions = {}): Promise<void>
     case 'git-changes':
       ranker = createGitRanker();
       break;
+    case 'alphabetical':
+      // This is a valid option in types, but not implemented.
+      throw new Error("The 'alphabetical' ranking strategy is not yet implemented.");
     case 'pagerank':
     default:
+      if (rankingStrategy !== 'pagerank') {
+        throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+      }
       ranker = createPageRanker();
       break;
   }
