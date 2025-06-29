@@ -9,7 +9,28 @@ export type FileContent = {
 };
 
 /** The type of a symbol identified in the code. */
-export type CodeNodeType = 'file' | 'class' | 'function' | 'interface' | 'import' | 'variable' | 'type' | 'arrow_function' | 'method' | 'field';
+export type CodeNodeType =
+  | 'file'
+  | 'class'
+  | 'function'
+  | 'interface'
+  | 'import'
+  | 'variable'
+  | 'type'
+  | 'arrow_function'
+  | 'method'
+  | 'field'
+  | 'struct'
+  | 'enum'
+  | 'namespace'
+  | 'trait'
+  | 'impl'
+  | 'constructor'
+  | 'property'
+  | 'constant'
+  | 'static'
+  | 'union'
+  | 'template';
 
 /** Represents a single, identifiable symbol (or a file) in the code. Immutable. */
 export type CodeNode = {

@@ -1,7 +1,11 @@
+import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config.js';
+
 /**
  * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
  * This query is designed to find definitions of classes, functions, interfaces,
  * and import statements to build the code graph.
+ * 
+ * @deprecated Use getQueryForLanguage() instead
  */
 export const TS_QUERY = `
 (import_statement
@@ -26,3 +30,30 @@ export const TS_QUERY = `
 (method_definition) @method.definition
 (public_field_definition) @field.definition
 `;
+
+/**
+ * Get the Tree-sitter query for a specific language configuration.
+ * @param config The language configuration
+ * @returns The query string for the language
+ */
+export function getQueryForLanguage(config: LanguageConfig): string {
+  return config.query.trim();
+}
+
+/**
+ * Get the Tree-sitter query for a file based on its extension.
+ * @param filePath The file path
+ * @returns The query string for the file's language, or null if not supported
+ */
+export function getQueryForFile(filePath: string): string | null {
+  const config = getLanguageConfigForFile(filePath);
+  return config ? getQueryForLanguage(config) : null;
+}
+
+/**
+ * Get all supported language configurations.
+ * @returns Array of all language configurations
+ */
+export function getAllLanguageConfigs(): LanguageConfig[] {
+  return [...LANGUAGE_CONFIGS];
+}

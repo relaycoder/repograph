@@ -48,7 +48,7 @@ if (isRunningDirectly()) {
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
 Usage: repograph [root] [options]
- 
+
 Arguments:
   root                     The root directory of the repository to analyze. Defaults to the current working directory.
 
