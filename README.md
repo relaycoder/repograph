@@ -1,248 +1,305 @@
-Of course. Here is a comprehensive `README.md` that explains the project's purpose, features, and provides detailed examples for both high-level and low-level programmatic API usage.
+<div align="center">
 
-```typescript // README.md
-# RepoGraph 🗺️
+<!-- TODO: Add a cool logo here -->
+<!-- <img src="path/to/your/logo.svg" alt="RepoGraph Logo" width="150"/> -->
 
-**Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.**
+# RepoGraph
 
-RepoGraph is a static analysis tool that scans your repository, builds a complete graph of its structure, and generates a detailed Markdown report. It helps you understand complex codebases, onboard new developers faster, and provide better context for AI tools.
+### Your Codebase, Visualized & Understood.
 
--   **Deep Semantic Analysis:** Understands classes, functions, interfaces, and the relationships between them (imports, inheritance, implementation, calls).
--   **Multi-Language Support:** Powered by Tree-sitter, RepoGraph supports TypeScript, JavaScript, Python, Java, Go, Rust, and more.
--   **Intelligent Ranking:** Uses algorithms like PageRank and Git history analysis to identify the most critical files and symbols in your codebase.
--   **Composable API:** Built with a functional pipeline (`discover` -> `analyze` -> `rank` -> `render`), allowing you to programmatically customize any part of the process.
--   **Zero Configuration:** Works out of the box with sensible defaults, but is fully configurable when you need it.
+**Generate rich, semantic, and interactive codemaps to navigate, analyze, and master any repository.**
 
----
+[![NPM Version](https://img.shields.io/npm/v/repograph?style=for-the-badge&color=CB3837)](https://www.npmjs.com/package/repograph)
+[![License](https://img.shields.io/npm/l/repograph?style=for-the-badge&color=blue)](./LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/your-username/repograph/ci.yml?branch=main&style=for-the-badge)](https://github.com/your-username/repograph/actions)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](http://makeapullrequest.com)
 
-## Example Output
-
-Here's a condensed look at what RepoGraph produces. The full report provides a dependency graph, a ranked list of important files, and a detailed breakdown of every file and its symbols.
-
-> ### `src/pipeline/analyze.ts`
->
-> -   **`function getNodeText`** (calls `slice`) - _L7_
->     ```typescript
->     export const getNodeText = (node: import('web-tree-sitter').Node, content: string): string => {
->     ```
-> -   **`function createTreeSitterAnalyzer`** (calls `createParserForLanguage`, `processDefinitionsForLanguage`, `processRelationshipsForLanguage`) - _L20_
->     ```typescript
->     export const createTreeSitterAnalyzer = (): Analyzer => {
->     ```
-> -   **`class SymbolResolver`** - _L540_
->     ```typescript
->     class SymbolResolver {
->     ```
-> -   **`method resolve`** (inherits `Map`) - _L551_
->     ```typescript
->     resolve(
->     ```
+</div>
 
 ---
 
-## Getting Started
+Ever felt lost in a new codebase? Struggled to see the big picture or find the most critical files? RepoGraph is your solution. It's a powerful command-line tool and library that analyzes your code, builds a dependency graph, ranks key files and symbols, and generates a beautiful, detailed Markdown report.
 
-### Installation
+Whether you're onboarding new engineers, planning a large-scale refactor, or even providing context to an AI, RepoGraph gives you the map you need to navigate with confidence.
 
-```bash
-npm install -g repograph
+## ✨ Key Features & Benefits
+
+| Feature | Benefit |
+| :--- | :--- |
+| **🧠 Multi-Language Semantic Analysis** | Uses **Tree-sitter** to parse your code with deep understanding, identifying not just files, but classes, functions, methods, and their relationships. |
+| **⭐ Intelligent Ranking Algorithms** | Go beyond file names. Rank code by importance using **PageRank** (centrality) or **Git Hot-Spots** (change frequency) to immediately find what matters. |
+| **🎨 Rich Markdown Reports** | Generates a comprehensive `repograph.md` file with a project overview, dependency graphs, ranked file lists, and detailed symbol breakdowns. |
+| **📊 Automatic Mermaid.js Graphs** | Visualize your module dependencies with an automatically generated, easy-to-read Mermaid diagram right in your report. |
+| **🧩 Composable Pipeline API** | A fully functional, composable API allows you to replace or extend any part of the pipeline: **Discover → Analyze → Rank → Render**. |
+| **⚙️ Highly Configurable CLI** | Fine-tune your analysis and output with a rich set of command-line flags to include/ignore files, customize the report, and more. |
+
+## 🚀 Why Use RepoGraph?
+
+-   **Accelerate Onboarding:** Give new developers a guided tour of the codebase, highlighting the most important entry points and modules.
+-   **Master Code Navigation:** Understand how components are interconnected, making it easier to trace logic and predict the impact of changes.
+-   **Prioritize Refactoring:** Identify highly-central but frequently changed files—prime candidates for refactoring and stabilization.
+-   **Enhance AI Context:** Feed a structured, ranked, and semantically-rich overview of your codebase to LLMs for vastly improved code generation, analysis, and Q&A.
+-   **Streamline Architectural Reviews:** Get a high-level, data-driven view of your system's architecture to facilitate design discussions.
+
+## 📸 Gallery: Example Output
+
+Imagine running `repograph` on a small project. Here's a glimpse of the beautiful and insightful Markdown file it produces.
+
+---
+
+# RepoGraph
+
+_Generated by RepoGraph on 2023-10-27T10:30:00.000Z_
+
+## 🚀 Project Overview
+
+This repository contains 25 nodes (5 files).
+
+### Module Dependency Graph
+
+```mermaid
+graph TD
+    src/index.ts["index.ts"] --> src/composer.ts["composer.ts"]
+    src/index.ts["index.ts"] --> src/high-level.ts["high-level.ts"]
+    src/high-level.ts["high-level.ts"] --> src/composer.ts["composer.ts"]
+    src/composer.ts["composer.ts"] --> src/pipeline/discover.ts["discover.ts"]
+    src/composer.ts["composer.ts"] --> src/pipeline/analyze.ts["analyze.ts"]
+    src/composer.ts["composer.ts"] --> src/pipeline/rank.ts["rank.ts"]
+    src/composer.ts["composer.ts"] --> src/pipeline/render.ts["render.ts"]
 ```
 
-### CLI Usage
+### Top 5 Most Important Files
 
-The easiest way to use RepoGraph is via the command line. Navigate to the root of a project and run:
+| Rank | File | Description |
+| :--- | :--- | :--- |
+| 1 | `src/pipeline/analyze.ts` | Key module in the architecture. |
+| 2 | `src/index.ts` | Key module in the architecture. |
+| 3 | `src/composer.ts` | Key module in the architecture. |
+| 4 | `src/types.ts` | Key module in the architecture. |
+| 5 | `src/pipeline/render.ts` | Key module in the architecture. |
+
+---
+
+## 📂 File & Symbol Breakdown
+
+### [`src/pipeline/analyze.ts`](./src/pipeline/analyze.ts)
+
+- **`function createTreeSitterAnalyzer`** - _L257_
+  ```typescript
+  export const createTreeSitterAnalyzer = (): Analyzer => {
+  ```
+- **`function processFileDefinitions`** - _L291_
+  ```typescript
+  function processFileDefinitions(
+  ```
+- **`function findEnclosingSymbolId`** (calls `parent`) - _L461_
+  ```typescript
+  function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: ReadonlyMap<string, CodeNode>): string | null {
+  ```
+
+---
+
+## 📦 Installation
+
+Install RepoGraph globally to use it as a CLI tool from anywhere on your system.
 
 ```bash
+# Using npm
+npm install -g repograph
+
+# Using yarn
+yarn global add repograph
+
+# Using pnpm
+pnpm add -g repograph
+```
+
+## 🛠️ Usage
+
+### Command-Line Interface (CLI)
+
+The CLI is the quickest way to get a codemap. Simply navigate to your project's root directory and run the command.
+
+**Basic Usage**
+
+```bash
+# Analyze the current directory and create repograph.md
 repograph
 ```
 
-This will analyze the repository in the current directory and generate a `repograph.md` file.
-
-#### **Arguments & Options**
-
-```
-Usage: repograph [root] [options]
-
-Arguments:
-  root                     The root directory of the repository to analyze. Defaults to the current working directory.
-
-Options:
-  -h, --help               Display this help message.
-  -v, --version            Display the version number.
-  --output <path>          Path to the output Markdown file. (default: "repograph.md")
-  --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
-  --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
-  --no-gitignore           Do not respect .gitignore files.
-  --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
-```
-
-**Example with options:**
+**Advanced Usage**
 
 ```bash
-# Analyze a different directory and output to a specific file
-repograph ../my-other-project --output ./docs/map.md
-
-# Include only .ts and .tsx files, ignoring tests
-repograph --include "**/*.ts" --include "**/*.tsx" --ignore "**/*.test.ts"
+# Analyze a specific project, use the git-changes ranker, and customize the output
+repograph ./my-cool-project \
+  --output docs/CodeMap.md \
+  --ranking-strategy git-changes \
+  --ignore "**/__tests__/**" \
+  --no-mermaid
 ```
 
----
+#### All CLI Options
 
-## Programmatic Usage
+| Argument | Alias | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `root` | | The root directory of the repository to analyze. | `.` |
+| `--output <path>` | | Path to the output Markdown file. | `repograph.md` |
+| `--include <pattern>` | | Glob pattern for files to include. Can be specified multiple times. | `**/*` |
+| `--ignore <pattern>` | | Glob pattern for files to ignore. Can be specified multiple times. | |
+| `--no-gitignore` | | Do not respect `.gitignore` files. | `false` |
+| `--ranking-strategy <name>` | | Ranking strategy: `pagerank` or `git-changes`. | `pagerank` |
+| `--log-level <level>` | | Logging level: `silent`, `error`, `warn`, `info`, `debug`. | `info` |
+| `--help` | `-h` | Display the help message. | |
+| `--version` | `-v` | Display the version number. | |
+| **Output Formatting** | | | |
+| `--no-header` | | Do not include the main "RepoGraph" header. | `false` |
+| `--no-overview` | | Do not include the project overview section. | `false` |
+| `--no-mermaid` | | Do not include the Mermaid dependency graph. | `false` |
+| `--no-file-list` | | Do not include the list of top-ranked files. | `false` |
+| `--no-symbol-details` | | Do not include the detailed file and symbol breakdown. | `false` |
+| `--top-file-count <num>` | | Number of files in the top list. | `10` |
+| `--file-section-separator <str>`| | Custom separator for file sections. | `---` |
+| `--no-symbol-relations` | | Hide symbol relationship details (e.g., `calls`). | `false` |
+| `--no-symbol-line-numbers` | | Hide line numbers for symbols. | `false` |
+| `--no-symbol-snippets` | | Hide code snippets for symbols. | `false` |
+| `--max-relations-to-show <num>`| | Max number of 'calls' relations to show per symbol. | `3` |
 
-For advanced use cases and integration with other tools, you can use RepoGraph's programmatic APIs.
+### 📚 Programmatic API
 
-### High-Level API
+For ultimate flexibility, use the RepoGraph programmatic API. Integrate it into your own tools, build custom pipelines, and invent new ways to analyze code.
 
-The `generateMap` function is the simplest way to use RepoGraph in a script. It mirrors the CLI's functionality.
+#### High-Level API (`generateMap`)
 
-```javascript
-// my-script.js
+The easiest way to get started. It uses the default, battle-tested pipeline.
+
+```typescript
+// my-script.ts
 import { generateMap } from 'repograph';
+import path from 'node:path';
 
-async function run() {
-  await generateMap({
-    root: './path/to/your/project',
-    output: './project-map.md',
-    rankingStrategy: 'git-changes',
-    ignore: ['**/dist/**', '**/node_modules/**'],
-    rendererOptions: {
-      customHeader: '# My Project Analysis',
-      includeMermaidGraph: false,
+await generateMap({
+  root: path.resolve('./path/to/your/project'),
+  output: 'my-custom-report.md',
+  rankingStrategy: 'git-changes',
+  rendererOptions: {
+    includeMermaidGraph: false,
+    topFileCount: 20,
+    symbolDetailOptions: {
+      includeCodeSnippet: false,
     },
-  });
+  },
+});
 
-  console.log('✅ RepoGraph map generated!');
-}
-
-run();
+console.log('✅ Report generated!');
 ```
 
-### Low-Level Composable API
+#### Low-Level API (`createMapGenerator`)
 
-The true power of RepoGraph lies in its composable pipeline. You can replace any stage of the process with your own custom implementation. This is perfect for when you need a different output format (like JSON), a unique ranking algorithm, or a special way of discovering files.
+Unleash the full power of RepoGraph's composable architecture. Swap out any part of the pipeline with your own implementation.
 
-The pipeline consists of four stages:
-1.  **`discover`**: Finds files and reads their content.
-2.  **`analyze`**: Parses files to build a graph of nodes (symbols) and edges (relationships).
-3.  **`rank`**: Assigns an importance score to each node in the graph.
-4.  **`render`**: Converts the final ranked graph into a string output (e.g., Markdown).
+In this example, we'll create a custom ranker that scores files based on their line count.
 
-The `createMapGenerator` function assembles these components into a complete generator function.
-
-#### **Example: Creating a Custom Ranker**
-
-Let's create a "hybrid" ranker that combines the default `pagerank` score with the `git-changes` score, giving more weight to PageRank. We'll then plug this custom ranker into the pipeline.
-
-```javascript
-// generate-custom-map.js
-import { createMapGenerator } from 'repograph';
+```typescript
+// my-advanced-script.ts
 import {
+  createMapGenerator,
   createDefaultDiscoverer,
   createTreeSitterAnalyzer,
-  createPageRanker,
-  createGitRanker,
   createMarkdownRenderer,
 } from 'repograph';
+import type { Ranker, CodeGraph, RankedCodeGraph } from 'repograph';
 
-/**
- * @typedef {import('repograph').Ranker} Ranker
- * @typedef {import('repograph').CodeGraph} CodeGraph
- * @typedef {import('repograph').RankedCodeGraph} RankedCodeGraph
- */
-
-/**
- * Creates a custom ranker that combines PageRank (70%) and Git history (30%).
- * @returns {Ranker}
- */
-const createHybridRanker = () => {
-  return async (graph) => {
-    // Instantiate the default rankers to get their results.
-    const pageRanker = createPageRanker();
-    const gitRanker = createGitRanker();
-
-    const { ranks: pageRanks } = await pageRanker(graph);
-    const { ranks: gitRanks } = await gitRanker(graph);
-
-    const hybridRanks = new Map();
-
-    // Combine the scores for each node.
-    for (const nodeId of graph.nodes.keys()) {
-      const prScore = pageRanks.get(nodeId) || 0;
-      const gitScore = gitRanks.get(nodeId) || 0;
-      const combinedScore = 0.7 * prScore + 0.3 * gitScore;
-      hybridRanks.set(nodeId, combinedScore);
+// 1. Define our custom ranker
+const createLineCountRanker = (): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    const ranks = new Map<string, number>();
+    for (const [id, node] of graph.nodes) {
+      // We only rank file nodes with this strategy
+      if (node.type === 'file') {
+        const lineCount = node.endLine - node.startLine;
+        ranks.set(id, lineCount); // Simple score: more lines = higher rank
+      } else {
+        ranks.set(id, 0);
+      }
     }
-
-    return { ...graph, ranks: hybridRanks };
+    // Normalize ranks between 0 and 1
+    const maxRank = Math.max(...ranks.values(), 1);
+    for (const [id, rank] of ranks.entries()) {
+        ranks.set(id, rank / maxRank);
+    }
+    return { ...graph, ranks };
   };
 };
 
-// Assemble the pipeline using our custom ranker.
+// 2. Compose the pipeline with our custom ranker
 const myCustomGenerator = createMapGenerator({
   discover: createDefaultDiscoverer(),
   analyze: createTreeSitterAnalyzer(),
-  rank: createHybridRanker(), // Plug in our custom component!
+  rank: createLineCountRanker(), // <-- Use our custom ranker here!
   render: createMarkdownRenderer(),
 });
 
-// Run the generator.
-async function run() {
-  console.log('🚀 Generating map with custom hybrid ranker...');
-  await myCustomGenerator({
-    root: process.cwd(),
-    output: 'repograph-custom.md',
-    rendererOptions: {
-      customHeader: '# RepoGraph Analysis (Hybrid Ranking)',
-    },
-  });
-  console.log('✅ Custom map generated successfully!');
-}
+// 3. Run the generator
+await myCustomGenerator({
+  root: './path/to/your/project',
+  output: 'line-count-report.md',
+});
 
-run();
+console.log('✅ Custom report generated!');
 ```
 
----
+## 🔬 The RepoGraph Pipeline
 
-## Supported Languages
+RepoGraph processes your code in four distinct, composable stages:
 
-RepoGraph uses Tree-sitter parsers to support a wide range of languages. The core analysis for imports, functions, classes, and relationships is tuned for:
+1.  **`🔍 Discover`**
+    -   Scans the filesystem using glob patterns.
+    -   Respects `.gitignore` and custom ignore rules.
+    -   Reads all matching files into memory.
 
--   TypeScript / JavaScript
+2.  **`🧠 Analyze`**
+    -   Groups files by language and parses them using **Tree-sitter**.
+    -   Executes language-specific queries to find symbol definitions (classes, functions, etc.) and relationships (imports, calls, inheritance).
+    -   Builds the core `CodeGraph` of nodes and edges.
+
+3.  **`⭐ Rank`**
+    -   Takes the `CodeGraph` as input.
+    -   Applies a ranking algorithm (like PageRank) to assign a score to every node in the graph.
+    -   Produces a `RankedCodeGraph`.
+
+4.  **`🎨 Render`**
+    -   Receives the `RankedCodeGraph` and rendering options.
+    -   Generates the final, human-readable Markdown output, including the summary, Mermaid graph, and detailed breakdowns.
+
+## 🌐 Supported Languages
+
+Thanks to Tree-sitter, RepoGraph has robust support for a wide array of popular languages:
+
+-   TypeScript
+-   JavaScript
 -   Python
 -   Java
 -   Go
 -   Rust
--   C / C++
+-   C
+-   C++
 -   C#
--   Ruby
--   PHP
 
-Support for other languages can be added by extending the Tree-sitter queries.
+*Support for more languages is on the roadmap!*
 
-## How It Works
+## 🙌 Contributing
 
-1.  **Discover**: `globby` is used to find all relevant source code files, respecting `.gitignore` and custom include/exclude patterns.
-2.  **Analyze**: Each file is parsed into an Abstract Syntax Tree (AST) using **Tree-sitter**. We run queries against the AST to identify symbol definitions (classes, functions, etc.) and their relationships (imports, inheritance, calls), building a `CodeGraph`.
-3.  **Rank**: The `CodeGraph` is processed by a ranking algorithm. The default, **PageRank**, treats symbols as a network where references are links, identifying centrally important code.
-4.  **Render**: The final ranked graph is transformed into a human-readable Markdown document.
+Contributions are welcome! Whether you're fixing a bug, adding a feature, or improving documentation, your help is appreciated.
 
-## Contributing
+1.  Fork the repository.
+2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3.  Make your changes.
+4.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+5.  Push to the branch (`git push origin feature/AmazingFeature`).
+6.  Open a Pull Request.
 
-Contributions are welcome! Whether it's improving language support, adding a new ranking strategy, or fixing a bug, please feel free to open an issue or submit a pull request.
+The project uses `bun` for development, `eslint` for linting, and `prettier` for formatting. Please ensure your contributions adhere to the existing code style.
 
-## License
+## 📜 License
 
-This project is licensed under the **MIT License**.
-```
-
-I have created this new `README.md` file with the content you requested. It is comprehensive, covers all the key aspects of the project, and provides detailed examples for the low-level programmatic API, which was the main focus of your request.
-
-```yaml
-projectId: repograph
-uuid: 18b704c3-5688-4c31-9a7c-a49626352936
-changeSummary:
-  - new: README.md
-promptSummary: "Create a comprehensive README.md file with detailed explanations and examples, especially for the low-level programmatic API."
-gitCommitMsg: "docs: Create comprehensive README with API usage"
-```
+This project is licensed under the **MIT License**. See the [LICENSE](./LICENSE) file for details.
