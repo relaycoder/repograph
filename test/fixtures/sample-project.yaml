@@ -1,0 +1,146 @@
+name: "Sample TypeScript Project"
+description: "A sample project for testing RepoGraph functionality"
+files:
+  - path: "src/index.ts"
+    content: |
+      export { Calculator } from './calculator.js';
+      export { Logger } from './utils/logger.js';
+      export * from './types.js';
+  
+  - path: "src/calculator.ts"
+    content: |
+      import { Logger } from './utils/logger.js';
+      import { Config } from './types.js';
+
+      export class Calculator {
+        private logger: Logger;
+        private config: Config;
+        
+        constructor(config: Config) {
+          this.logger = new Logger();
+          this.config = config;
+        }
+        
+        add(a: number, b: number): number {
+          this.logger.log('Adding numbers');
+          return a + b;
+        }
+        
+        multiply = (a: number, b: number): number => {
+          this.logger.log('Multiplying numbers');
+          return a * b;
+        };
+        
+        divide(a: number, b: number): number {
+          if (b === 0) {
+            this.logger.warn('Division by zero');
+            throw new Error('Division by zero');
+          }
+          return a / b;
+        }
+      }
+  
+  - path: "src/utils/logger.ts"
+    content: |
+      export interface LogLevel {
+        level: 'info' | 'warn' | 'error';
+      }
+
+      export type LogMessage = string;
+
+      export class Logger {
+        private prefix: string;
+        
+        constructor(prefix = 'LOG') {
+          this.prefix = prefix;
+        }
+        
+        log(message: LogMessage): void {
+          console.log(`[${this.prefix}] ${message}`);
+        }
+        
+        warn(message: LogMessage): void {
+          console.warn(`[${this.prefix}] WARNING: ${message}`);
+        }
+        
+        error(message: LogMessage): void {
+          console.error(`[${this.prefix}] ERROR: ${message}`);
+        }
+      }
+
+      export const createLogger = (prefix?: string): Logger => {
+        return new Logger(prefix);
+      };
+  
+  - path: "src/types.ts"
+    content: |
+      export interface Config {
+        debug: boolean;
+        version: string;
+        logLevel: 'info' | 'warn' | 'error';
+      }
+
+      export type Status = 'active' | 'inactive' | 'pending';
+      
+      export interface User {
+        id: number;
+        name: string;
+        status: Status;
+      }
+  
+  - path: "src/math/advanced.ts"
+    content: |
+      import { Calculator } from '../calculator.js';
+
+      export class AdvancedCalculator extends Calculator {
+        power(base: number, exponent: number): number {
+          return Math.pow(base, exponent);
+        }
+        
+        sqrt(value: number): number {
+          return Math.sqrt(value);
+        }
+      }
+      
+      export const factorial = (n: number): number => {
+        if (n <= 1) return 1;
+        return n * factorial(n - 1);
+      };
+  
+  - path: "README.md"
+    content: |
+      # Sample Project
+      
+      This is a sample TypeScript project for testing RepoGraph.
+      
+      ## Features
+      - Calculator functionality
+      - Logging utilities
+      - Type definitions
+  
+  - path: "package.json"
+    content: |
+      {
+        "name": "sample-project",
+        "version": "1.0.0",
+        "type": "module",
+        "main": "./dist/index.js",
+        "scripts": {
+          "build": "tsc",
+          "test": "bun test"
+        },
+        "dependencies": {},
+        "devDependencies": {
+          "typescript": "^5.0.0"
+        }
+      }
+
+gitignore:
+  - "node_modules"
+  - "dist"
+  - "*.log"
+  - ".env"
+
+expected_nodes: 15
+expected_files: 5
+expected_symbols: 10

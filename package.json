@@ -22,15 +22,23 @@
     "build": "npm run clean && tsc -p tsconfig.build.json && npm run setup:wasm",
     "prepublishOnly": "npm run build",
     "dev": "tsc -w",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "bun run test/run-tests.ts",
+    "test:unit": "bun run test/run-tests.ts unit",
+    "test:integration": "bun run test/run-tests.ts integration",
+    "test:e2e": "bun run test/run-tests.ts e2e",
+    "test:watch": "bun test --watch test/**/*.test.ts",
+    "test:coverage": "bun test --coverage test/**/*.test.ts",
+    "test:basic": "bun test test-basic.js",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
   "dependencies": {
+    "@types/js-yaml": "^4.0.9",
     "globby": "^14.1.0",
     "graphology": "^0.26.0",
     "graphology-pagerank": "^1.1.0",
     "ignore": "^7.0.5",
+    "js-yaml": "^4.1.0",
     "web-tree-sitter": "^0.25.6"
   },
   "devDependencies": {
