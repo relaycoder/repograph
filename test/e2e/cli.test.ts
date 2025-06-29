@@ -280,6 +280,86 @@ describe('CLI End-to-End Tests', () => {
     });
   });
 
+  describe('Output Customization Flags', () => {
+    beforeEach(async () => {
+      const files = {
+        'src/index.ts': `import { helper, another, onemore } from './utils.js';
+export function main() { helper(); another(); onemore(); }`,
+        'src/utils.ts': `export function helper() {}
+export function another() {}
+export function onemore() {}`
+      };
+      await createTestFiles(tempDir, files);
+    });
+
+    it('should handle --no-header', async () => {
+      await runCLI([tempDir, '--no-header']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).not.toContain('# RepoGraph');
+    });
+    
+    it('should handle --no-overview', async () => {
+      await runCLI([tempDir, '--no-overview']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).not.toContain('## 🚀 Project Overview');
+    });
+
+    it('should handle --no-mermaid', async () => {
+      await runCLI([tempDir, '--no-mermaid']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).not.toContain('```mermaid');
+    });
+
+    it('should handle --no-file-list', async () => {
+      await runCLI([tempDir, '--no-file-list']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).not.toContain('### Top 10 Most Important Files');
+    });
+
+    it('should handle --no-symbol-details', async () => {
+      await runCLI([tempDir, '--no-symbol-details']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).not.toContain('## 📂 File & Symbol Breakdown');
+    });
+    
+    it('should handle --top-file-count', async () => {
+      await runCLI([tempDir, '--top-file-count', '1']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('### Top 1 Most Important Files');
+    });
+
+    it('should handle --file-section-separator', async () => {
+      await runCLI([tempDir, '--file-section-separator', '***']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('\n***\n\n');
+    });
+    
+    it('should handle --no-symbol-relations', async () => {
+      await runCLI([tempDir, '--no-symbol-relations']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).not.toContain('(calls');
+    });
+
+    it('should handle --no-symbol-line-numbers', async () => {
+      await runCLI([tempDir, '--no-symbol-line-numbers']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).not.toContain('_L2_');
+    });
+
+    it('should handle --no-symbol-snippets', async () => {
+      await runCLI([tempDir, '--no-symbol-snippets']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).not.toContain('```typescript');
+    });
+
+    it('should handle --max-relations-to-show', async () => {
+      await runCLI([tempDir, '--max-relations-to-show', '1']);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('calls `helper`...');
+      expect(content).not.toContain('`another`');
+    });
+  });
+
   describe('Output Validation', () => {
     it('should generate valid markdown structure', async () => {
       const files = {

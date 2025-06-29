@@ -194,9 +194,11 @@ export { Calculator };`,
 
     it('should pass renderer options through pipeline', async () => {
       const files = {
-        'src/index.ts': `export class TestClass {
-  method(): void {}
-}`
+        'src/index.ts': `import { util1, util2, util3 } from './utils.js';
+export function main() { util1(); util2(); util3(); }`,
+        'src/utils.ts': `export function util1() {}
+export function util2() {}
+export function util3() {}`
       };
       await createTestFiles(tempDir, files);
 
@@ -208,9 +210,17 @@ export { Calculator };`,
       });
 
       const rendererOptions: RendererOptions = {
-        customHeader: '# Custom Project Header',
+        includeHeader: false,
+        includeOverview: false,
         includeMermaidGraph: false,
-        includeSymbolDetails: false
+        includeFileList: false,
+        includeSymbolDetails: true,
+        fileSectionSeparator: '***',
+        symbolDetailOptions: {
+          includeRelations: false,
+          includeLineNumber: false,
+          includeCodeSnippet: false,
+        },
       };
 
       const outputPath = path.join(tempDir, 'custom.md');
@@ -221,9 +231,15 @@ export { Calculator };`,
       });
 
       const content = await readFile(outputPath);
-      expect(content).toStartWith('# Custom Project Header');
+      expect(content).not.toContain('# RepoGraph');
+      expect(content).not.toContain('## 🚀 Project Overview');
       expect(content).not.toContain('```mermaid');
-      expect(content).not.toContain('## 📂 File & Symbol Breakdown');
+      expect(content).not.toContain('### Top');
+      expect(content).toContain('## 📂 File & Symbol Breakdown');
+      expect(content).toContain('\n***\n\n');
+      expect(content).not.toContain('(calls `util1`');
+      expect(content).not.toContain('_L2_');
+      expect(content).not.toContain('```typescript');
     });
   });
 

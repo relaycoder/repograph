@@ -193,9 +193,11 @@ describe('High-Level API Integration', () => {
 
     it('should pass renderer options correctly', async () => {
       const files = {
-        'src/index.ts': `export class Test {
-  method(): void {}
-}`
+        'src/index.ts': `import { util1, util2, util3 } from './utils.js';
+export function main() { util1(); util2(); util3(); }`,
+        'src/utils.ts': `export function util1() {}
+export function util2() {}
+export function util3() {}`
       };
       await createTestFiles(tempDir, files);
 
@@ -205,15 +207,53 @@ describe('High-Level API Integration', () => {
         output: outputPath,
         rendererOptions: {
           customHeader: '# My Custom Project',
+          includeOverview: false,
           includeMermaidGraph: false,
-          includeSymbolDetails: false
+          includeFileList: true,
+          topFileCount: 1,
+          includeSymbolDetails: true,
+          fileSectionSeparator: '***',
+          symbolDetailOptions: {
+            includeRelations: true,
+            includeLineNumber: false,
+            includeCodeSnippet: false,
+            maxRelationsToShow: 1,
+          },
         }
       });
 
       const content = await readFile(outputPath);
       expect(content).toStartWith('# My Custom Project');
+      expect(content).not.toContain('## 🚀 Project Overview');
       expect(content).not.toContain('```mermaid');
-      expect(content).not.toContain('## 📂 File & Symbol Breakdown');
+      expect(content).toContain('### Top 1 Most Important Files');
+      expect(content).toContain('## 📂 File & Symbol Breakdown');
+      expect(content).toContain('\n***\n\n');
+      expect(content).toContain('(calls `util1`...)');
+      expect(content).not.toContain('`util2`');
+      expect(content).not.toContain('_L2_');
+      expect(content).not.toContain('```typescript');
+    });
+
+    it('should handle all boolean false renderer options', async () => {
+       const files = { 'src/index.ts': 'export function main() {}' };
+       await createTestFiles(tempDir, files);
+
+       const outputPath = path.join(tempDir, 'custom-bools.md');
+       await generateMap({
+         root: tempDir,
+         output: outputPath,
+         rendererOptions: {
+           includeHeader: false,
+           includeOverview: false,
+           includeMermaidGraph: false,
+           includeFileList: false,
+           includeSymbolDetails: false,
+         }
+       });
+
+       const content = await readFile(outputPath);
+       expect(content.trim()).toBe('');
     });
 
     it('should handle empty projects gracefully', async () => {
