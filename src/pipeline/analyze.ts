@@ -286,7 +286,7 @@ function processFileDefinitions(
  * Process a single symbol definition.
  */
 function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig): void {
-  const { nodes, file, node, symbolType, processedSymbols, fileState } = context;
+  const { nodes, file, node, symbolType, processedSymbols } = context;
   const handler = getLangHandler(langConfig.name);
 
   if (handler.shouldSkipSymbol(node, symbolType, langConfig.name)) return;

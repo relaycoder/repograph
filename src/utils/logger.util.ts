@@ -11,13 +11,19 @@ export type LogLevel = keyof typeof LogLevels;
 // This state is internal to the logger module.
 let currentLevel: LogLevel = 'info';
 
+const logFunctions: Record<Exclude<LogLevel, 'silent'>, (...args: any[]) => void> = {
+  error: console.error,
+  warn: console.warn,
+  info: console.log, // Use console.log for info for cleaner output
+  debug: console.debug,
+};
+
 const log = (level: LogLevel, ...args: any[]): void => {
-  if (LogLevels[level] > LogLevels[currentLevel]) {
+  if (level === 'silent' || LogLevels[level] > LogLevels[currentLevel]) {
     return;
   }
-  // Use console.log for info level for cleaner output in most terminals
-  const logFunction = level === 'info' ? console.log : console[level];
-  logFunction(...args);
+
+  logFunctions[level](...args);
 };
 
 export type Logger = {

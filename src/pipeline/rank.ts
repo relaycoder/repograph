@@ -69,9 +69,8 @@ export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker =
         }
       }
     } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
       // Provide a clear error message if git fails. This is a fatal error for this strategy.
-      throw new RepoGraphError(`Failed to use 'git' for ranking. Is git installed and is this a git repository?`, e);
+      throw new RepoGraphError('Failed to use \'git\' for ranking. Is git installed and is this a git repository?', e);
     }
 
     return { ...graph, ranks };
