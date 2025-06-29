@@ -42,6 +42,9 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 
 (variable_declarator) @variable.definition
 (export_statement declaration: (lexical_declaration (variable_declarator))) @variable.definition
+
+(call_expression
+  function: (identifier) @function.call)
 `
   },
   {
