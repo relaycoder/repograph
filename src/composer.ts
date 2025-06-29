@@ -38,19 +38,23 @@ export const createMapGenerator = (pipeline: {
   return async (config) => {
     const { root, output, include, ignore, noGitignore, rendererOptions } = config;
 
-    // 1. Discover
+    console.log('1/5 Discovering files...');
     const files = await pipeline.discover({ root, include, ignore, noGitignore });
+    console.log(`  -> Found ${files.length} files to analyze.`);
 
-    // 2. Analyze
+    console.log('2/5 Analyzing code and building graph...');
     const graph = await pipeline.analyze(files);
+    console.log(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
 
-    // 3. Rank
+    console.log('3/5 Ranking graph nodes...');
     const rankedGraph = await pipeline.rank(graph);
+    console.log('  -> Ranking complete.');
 
-    // 4. Render
+    console.log('4/5 Rendering output...');
     const markdown = pipeline.render(rankedGraph, rendererOptions);
+    console.log('  -> Rendering complete.');
 
-    // 5. Write to disk
+    console.log('5/5 Writing report to disk...');
     const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
     await fs.writeFile(outputPath, markdown);

@@ -79,7 +79,7 @@ const tsLangHandler: Partial<LanguageHandler> = {
         }
       }
     }
-    return { duplicateClassNames, processedClassNodes: new Set<number>() };
+    return { duplicateClassNames };
   },
   shouldSkipSymbol: (node, symbolType, langName) => {
     if (langName !== 'typescript') return false;
@@ -111,7 +111,11 @@ const tsLangHandler: Partial<LanguageHandler> = {
       if (classNameNode) {
         const className = classNameNode.text;
         const nameNode = node.childForFieldName('name');
-        if (nameNode && (fileState['processedClassNodes']?.has(classParent.startIndex) && !fileState['duplicateClassNames']?.has(className))) {
+        // The check for duplicateClassNames is important to avoid ambiguity.
+        // We remove the dependency on checking if the class has been processed first,
+        // because the order of captures from tree-sitter is not guaranteed to be in source order.
+        // This makes the analysis more robust.
+        if (nameNode && !fileState['duplicateClassNames']?.has(className)) {
           const methodName = nameNode.text;
           const symbolName = `${className}.${methodName}`;
           const symbolId = `${file.path}#${symbolName}`;
@@ -299,9 +303,6 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
 
   if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
     processedSymbols.add(symbolId);
-    if (symbolType === 'class' && declarationNode.type === 'class_declaration') {
-      fileState['processedClassNodes']?.add(declarationNode.startIndex);
-    }
     nodes.set(symbolId, {
       id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
       startLine: getLineFromIndex(file.content, node.startIndex),

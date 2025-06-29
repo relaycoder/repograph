@@ -20,17 +20,12 @@ export const generateMap = async (options: RepoGraphOptions = {}): Promise<void>
   } = options;
 
   let ranker: Ranker;
-  switch (rankingStrategy) {
-    case 'git-changes':
-      ranker = createGitRanker();
-      break;
-    case 'pagerank':
-    default:
-      if (rankingStrategy !== 'pagerank' && rankingStrategy !== 'git-changes') {
-        throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
-      }
-      ranker = createPageRanker();
-      break;
+  if (rankingStrategy === 'git-changes') {
+    ranker = createGitRanker();
+  } else if (rankingStrategy === 'pagerank') {
+    ranker = createPageRanker();
+  } else {
+    throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
   }
 
   const generator = createMapGenerator({

@@ -68,10 +68,9 @@ export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker =
         }
       }
     } catch (e) {
-      console.warn('Git command failed. Could not generate git-based ranks. Is git installed?');
-      for (const nodeId of graph.nodes.keys()) {
-        ranks.set(nodeId, 0);
-      }
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      // Provide a clear error message if git fails. This is a fatal error for this strategy.
+      throw new Error(`Failed to use 'git' for ranking. Is git installed and is this a git repository?\n  Original error: ${errorMessage}`);
     }
 
     return { ...graph, ranks };

@@ -186,15 +186,19 @@ Output Formatting:
     options.rendererOptions = rendererOptions;
   }
 
+  const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
+
+  console.log(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
   executeGenerateMap(options)
     .then(() => {
-      console.log(`✅ RepoGraph map generated successfully at ${path.resolve(options.root || process.cwd(), options.output || 'repograph.md')}`);
+      const relativePath = path.relative(process.cwd(), finalOutput);
+      console.log(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
     })
     .catch((error: unknown) => {
       if (error instanceof Error) {
-        console.error(`❌ Error generating RepoGraph map: ${error.message}`);
+        console.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
       } else {
-        console.error('❌ An unknown error occurred while generating the RepoGraph map.');
+        console.error('\n❌ An unknown error occurred while generating the RepoGraph map.');
       }
       process.exit(1);
     });
