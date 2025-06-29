@@ -1,5 +1,3 @@
-import type Graph from 'graphology';
-
 // Core Data Structures
 
 /** Represents a single file read from disk. Immutable. */

@@ -294,7 +294,7 @@ describe('Composer', () => {
             }
         }
         
-        return { graph, ranks };
+        return { ...graph, ranks };
       };
 
       const generator = createMapGenerator({

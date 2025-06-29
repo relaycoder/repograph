@@ -79,11 +79,11 @@ export const createMarkdownRenderer = (): Renderer => {
             if (outgoingEdges.length > 0) {
               const relationParts: string[] = [];
               const inherits = outgoingEdges.filter(e => e.type === 'inherits').map(e => `\`${rankedGraph.nodes.get(e.toId)?.name}\``).join(', ');
-              const implements = outgoingEdges.filter(e => e.type === 'implements').map(e => `\`${rankedGraph.nodes.get(e.toId)?.name}\``).join(', ');
+              const implementsList = outgoingEdges.filter(e => e.type === 'implements').map(e => `\`${rankedGraph.nodes.get(e.toId)?.name}\``).join(', ');
               const calls = outgoingEdges.filter(e => e.type === 'calls').map(e => `\`${rankedGraph.nodes.get(e.toId)?.name}\``);
               
               if (inherits) relationParts.push(`inherits ${inherits}`);
-              if (implements) relationParts.push(`implements ${implements}`);
+              if (implementsList) relationParts.push(`implements ${implementsList}`);
               if (calls.length > 0) {
                 const displayCalls = calls.slice(0, 3).join(', ');
                 relationParts.push(`calls ${displayCalls}${calls.length > 3 ? '...' : ''}`);

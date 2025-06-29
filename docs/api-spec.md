@@ -23,10 +23,33 @@ export type FileContent = {
   readonly content: string;
 };
 
-// Represents a single, identifiable symbol in the code.
+// The type of a symbol identified in the code.
+export type CodeNodeType =
+  | 'file'
+  | 'class'
+  | 'function'
+  | 'arrow_function'
+  | 'interface'
+  | 'variable'
+  | 'type'
+  | 'method'
+  | 'field'
+  | 'struct'
+  | 'enum'
+  | 'namespace'
+  | 'trait'
+  | 'impl'
+  | 'constructor'
+  | 'property'
+  | 'constant'
+  | 'static'
+  | 'union'
+  | 'template';
+
+// Represents a single, identifiable symbol (or a file) in the code.
 export type CodeNode = {
   readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
-  readonly type: 'file' | 'class' | 'function' | 'interface' | 'variable';
+  readonly type: CodeNodeType;
   readonly name: string; // e.g., 'MyClass'
   readonly filePath: string;
   readonly startLine: number;
@@ -94,7 +117,7 @@ export type RepoGraphOptions = {
   noGitignore?: boolean;
 
   /** The ranking strategy to use. @default 'pagerank' */
-  rankingStrategy?: 'pagerank' | 'git-changes' | 'alphabetical';
+  rankingStrategy?: 'pagerank' | 'git-changes';
 
   /** Configuration for the final Markdown output. */
   rendererOptions?: {

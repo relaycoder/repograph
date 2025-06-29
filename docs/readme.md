@@ -71,6 +71,7 @@ Different languages support different symbol types:
 | Class       | ✓          | ✓      | ✓    | ✓     |    |      | ✓  |
 | Function    | ✓          | ✓      |      | ✓     | ✓  | ✓    |    |
 | Method      | ✓          | ✓      | ✓    | ✓     | ✓  |      | ✓  |
+| Constructor |            |        | ✓    | ✓     |    |      | ✓  |
 | Interface   | ✓          |        | ✓    |       |    | ✓    | ✓  |
 | Struct      |            |        |      | ✓     |    | ✓    | ✓  |
 | Enum        |            |        | ✓    | ✓     |    | ✓    | ✓  |

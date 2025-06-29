@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createParserForLanguage } from '../tree-sitter/languages.js';
 import { getLanguageConfigForFile } from '../tree-sitter/language-config.js';
-import type { Analyzer, CodeNode, CodeNodeType, FileContent, CodeGraph, CodeEdge } from '../types.js';
+import type { Analyzer, CodeNode, CodeNodeType, FileContent, CodeEdge } from '../types.js';
 
 export const getNodeText = (node: import('web-tree-sitter').Node, content: string): string => {
   return content.slice(node.startIndex, node.endIndex);
@@ -63,7 +63,7 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
 
     // Phase 3: Process definitions for all language groups
     for (const [languageName, languageFiles] of filesByLanguage) {
-      const languageConfig = getLanguageConfigForFile(languageFiles[0].path);
+      const languageConfig = getLanguageConfigForFile(languageFiles[0]!.path);
       if (!languageConfig) continue;
 
       try {
@@ -77,7 +77,7 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
     // Phase 4: Process relationships for all language groups
     const resolver = new SymbolResolver(nodes, edges);
     for (const [languageName, languageFiles] of filesByLanguage) {
-        const languageConfig = getLanguageConfigForFile(languageFiles[0].path);
+        const languageConfig = getLanguageConfigForFile(languageFiles[0]!.path);
         if (!languageConfig) continue;
 
         try {
@@ -99,10 +99,14 @@ async function processDefinitionsForLanguage(
   graph: { nodes: Map<string, CodeNode>, edges: CodeEdge[] },
   files: FileContent[],
   parser: import('web-tree-sitter').Parser,
-  languageConfig: import('../tree-sitter/language-config.js').LanguageConfig,
+  languageConfig: import('../tree-sitter/language-config.js').LanguageConfig
 ): Promise<void> {
+  if (!parser.language) {
+    console.warn(`No language available for parser in ${languageConfig.name}. Skipping file processing.`);
+    return;
+  }
   const query = new (await import('web-tree-sitter')).Query(parser.language, languageConfig.query);
-
+  
   for (const file of files) {
     const tree = parser.parse(file.content);
     if (!tree) continue;
@@ -156,18 +160,16 @@ async function processDefinitionsForLanguage(
       if (subtype !== 'definition') continue;
 
       const type = parts.slice(0, -1).join('.');
-      const symbolType = getSymbolTypeFromCapture(name, type, languageConfig);
+      const symbolType = getSymbolTypeFromCapture(name, type);
       if (!symbolType) continue;
 
       await processSymbol(
         graph.nodes,
-        file, 
-        node, 
-        name, 
-        type, 
-        symbolType, 
-        processedSymbols, 
-        processedClassNodes, 
+        file,
+        node,
+        symbolType,
+        processedSymbols,
+        processedClassNodes,
         duplicateClassNames,
         languageConfig
       );
@@ -183,10 +185,14 @@ async function processRelationshipsForLanguage(
   files: FileContent[],
   parser: import('web-tree-sitter').Parser,
   languageConfig: import('../tree-sitter/language-config.js').LanguageConfig,
-  resolver: SymbolResolver,
+  resolver: SymbolResolver
 ): Promise<void> {
+  if (!parser.language) {
+    console.warn(`No language available for parser in ${languageConfig.name}. Skipping relationship processing.`);
+    return;
+  }
   const query = new (await import('web-tree-sitter')).Query(parser.language, languageConfig.query);
-
+  
   for (const file of files) {
     const tree = parser.parse(file.content);
     if (!tree) {
@@ -218,7 +224,7 @@ async function processRelationshipsForLanguage(
       }
 
       // Handle other relationships (inheritance, implementation, calls)
-      if (['inheritance', 'implementation', 'call'].includes(subtype)) {
+      if (subtype && ['inheritance', 'implementation', 'call'].includes(subtype)) {
         const fromId = findEnclosingSymbolId(node, file, graph.nodes);
         if (!fromId) continue;
 
@@ -245,7 +251,6 @@ function resolveImportPath(
 ): string | null {
   const sourcePath = importIdentifier.replace(/['"`]/g, '');
 
-  // Simplified resolution logic
   const potentialEndings: Record<string, string[]> = {
     typescript: ['.ts', '.tsx', '/index.ts', '/index.tsx', '.js', '.jsx', '.mjs', '.cjs'],
     javascript: ['.js', '.jsx', '/index.js', '/index.jsx', '.mjs', '.cjs'],
@@ -258,22 +263,28 @@ function resolveImportPath(
     rust: ['.rs', '/mod.rs'],
   };
   const basedir = path.dirname(fromFile);
-  let resolvedPath = path.normalize(path.join(basedir, sourcePath));
-
-  // 1. Check for absolute path match first.
-  if (allFiles.includes(resolvedPath)) return resolvedPath;
-
   const endings = potentialEndings[language] || [];
-  // 2. Try adding extensions for relative paths, or for paths without extensions.
-  if (!path.extname(sourcePath)) {
+
+  // 1. Try resolving path as is (e.g. './foo.js' might exist)
+  const resolvedPathAsIs = path.normalize(path.join(basedir, sourcePath));
+  if (allFiles.includes(resolvedPathAsIs)) {
+    return resolvedPathAsIs;
+  }
+
+  // 2. Try resolving by changing/adding extensions
+  const parsedSourcePath = path.parse(sourcePath);
+  const basePath = path.normalize(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
+
+  for (const end of endings) {
+    if (allFiles.includes(basePath + end)) return basePath + end;
+  }
+
+  // 3. Handle Java/C# package-style imports (e.g., com.package.Class)
+  if ((language === 'java' || language === 'csharp') && sourcePath.includes('.')) {
+    const packagePath = sourcePath.replace(/\./g, '/');
     for (const end of endings) {
-      if (allFiles.includes(resolvedPath + end)) return resolvedPath + end;
-       // For Java/C#, where imports are like `com.package.Class`, try converting to path.
-      if ((language === 'java' || language === 'csharp') && sourcePath.includes('.')) {
-        const packagePath = sourcePath.replace(/\./g, '/');
-        const fileFromRoot = packagePath + end;
-        if (allFiles.includes(fileFromRoot)) return fileFromRoot;
-      }
+      const fileFromRoot = packagePath + end;
+      if (allFiles.includes(fileFromRoot)) return fileFromRoot;
     }
   }
 
@@ -289,9 +300,8 @@ function resolveImportPath(
  * Get symbol type from capture name and language
  */
 function getSymbolTypeFromCapture(
-  captureName: string, 
-  type: string, 
-  languageConfig: import('./language-config.js').LanguageConfig
+  captureName: string,
+  type: string
 ): CodeNodeType | null {
   // Base mapping that works for most languages
   const baseMap: Record<string, CodeNodeType> = {
@@ -314,8 +324,6 @@ function getSymbolTypeFromCapture(
     static: 'static',
     union: 'union',
     template: 'template',
-    call: 'call',
-    inheritance: 'inheritance'
   };
 
   // Try the full capture name first, then the type part
@@ -329,13 +337,11 @@ async function processSymbol(
   nodes: Map<string, CodeNode>,
   file: FileContent,
   node: import('web-tree-sitter').Node,
-  captureName: string,
-  type: string,
   symbolType: CodeNodeType,
   processedSymbols: Set<string>,
   processedClassNodes: Set<number>,
   duplicateClassNames: Set<string>,
-  languageConfig: import('./language-config.js').LanguageConfig
+  languageConfig: import('../tree-sitter/language-config.js').LanguageConfig
 ): Promise<void> {
   // Skip field definitions that are actually arrow functions (TypeScript specific)
   if (languageConfig.name === 'typescript' && symbolType === 'field' && node.type === 'public_field_definition') {

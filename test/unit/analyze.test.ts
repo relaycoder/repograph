@@ -61,8 +61,8 @@ describe('Tree-sitter Analysis', () => {
 
       const indexNode = graph.nodes.get('src/index.ts');
       expect(indexNode!.type).toBe('file');
-      expect(indexNode.name).toBe('index.ts');
-      expect(indexNode.filePath).toBe('src/index.ts');
+      expect(indexNode!.name).toBe('index.ts');
+      expect(indexNode!.filePath).toBe('src/index.ts');
     });
 
     it('should identify function declarations', async () => {
@@ -85,10 +85,10 @@ export function multiply(x: number, y: number): number {
       expect(graph.nodes.has('src/functions.ts#multiply')).toBe(true);
 
       const addNode = graph.nodes.get('src/functions.ts#add');
-      expect(addNode.type).toBe('function');
-      expect(addNode.name).toBe('add');
-      expect(addNode.filePath).toBe('src/functions.ts');
-      expect(addNode.startLine).toBeGreaterThan(0);
+      expect(addNode!.type).toBe('function');
+      expect(addNode!.name).toBe('add');
+      expect(addNode!.filePath).toBe('src/functions.ts');
+      expect(addNode!.startLine).toBeGreaterThan(0);
     });
 
     it('should identify arrow function declarations', async () => {
@@ -109,8 +109,8 @@ const calculate = (x: number, y: number): number => x + y;`
       expect(graph.nodes.has('src/arrows.ts#calculate')).toBe(true);
 
       const greetNode = graph.nodes.get('src/arrows.ts#greet');
-      expect(greetNode.type).toBe('arrow_function');
-      expect(greetNode.name).toBe('greet');
+      expect(greetNode!.type).toBe('arrow_function');
+      expect(greetNode!.name).toBe('greet');
     });
 
     it('should identify class declarations', async () => {
@@ -140,9 +140,9 @@ class Logger {
       expect(graph.nodes.has('src/classes.ts#Logger')).toBe(true);
 
       const calculatorNode = graph.nodes.get('src/classes.ts#Calculator');
-      expect(calculatorNode.type).toBe('class');
-      expect(calculatorNode.name).toBe('Calculator');
-      expect(calculatorNode.codeSnippet).toContain('export class Calculator');
+      expect(calculatorNode!.type).toBe('class');
+      expect(calculatorNode!.name).toBe('Calculator');
+      expect(calculatorNode!.codeSnippet).toContain('export class Calculator');
     });
 
     it('should identify interface declarations', async () => {
@@ -168,8 +168,8 @@ interface Config {
       expect(graph.nodes.has('src/interfaces.ts#Config')).toBe(true);
 
       const userNode = graph.nodes.get('src/interfaces.ts#User');
-      expect(userNode.type).toBe('interface');
-      expect(userNode.name).toBe('User');
+      expect(userNode!.type).toBe('interface');
+      expect(userNode!.name).toBe('User');
     });
 
     it('should identify type alias declarations', async () => {
@@ -191,8 +191,8 @@ export type UserRole = 'admin' | 'user' | 'guest';`
       expect(graph.nodes.has('src/types.ts#UserRole')).toBe(true);
 
       const statusNode = graph.nodes.get('src/types.ts#Status');
-      expect(statusNode.type).toBe('type');
-      expect(statusNode.name).toBe('Status');
+      expect(statusNode!.type).toBe('type');
+      expect(statusNode!.name).toBe('Status');
     });
 
     it('should identify import statements and create edges', async () => {
@@ -251,7 +251,7 @@ export { Calculator, Logger };`
       expect(graph.nodes.has('src/empty.ts')).toBe(true);
 
       const readmeNode = graph.nodes.get('README.md');
-      expect(readmeNode.type).toBe('file');
+      expect(readmeNode!.type).toBe('file');
     });
 
     it('should handle malformed or unparseable files gracefully', async () => {
@@ -302,13 +302,13 @@ export interface ThirdInterface {
       const secondFunction = graph.nodes.get('src/multiline.ts#secondFunction');
       const thirdInterface = graph.nodes.get('src/multiline.ts#ThirdInterface');
 
-      expect(firstClass.startLine).toBe(3);
-      expect(secondFunction.startLine).toBe(9);
-      expect(thirdInterface.startLine).toBe(14);
+      expect(firstClass!.startLine).toBe(3);
+      expect(secondFunction!.startLine).toBe(9);
+      expect(thirdInterface!.startLine).toBe(14);
 
-      expect(firstClass.endLine).toBeGreaterThan(firstClass.startLine);
-      expect(secondFunction.endLine).toBeGreaterThan(secondFunction.startLine);
-      expect(thirdInterface.endLine).toBeGreaterThan(thirdInterface.startLine);
+      expect(firstClass!.endLine).toBeGreaterThan(firstClass!.startLine);
+      expect(secondFunction!.endLine).toBeGreaterThan(secondFunction!.startLine);
+      expect(thirdInterface!.endLine).toBeGreaterThan(thirdInterface!.startLine);
     });
 
     it('should include code snippets for symbols', async () => {
@@ -335,8 +335,8 @@ export function multiply(a: number, b: number): number {
       const calculatorNode = graph.nodes.get('src/snippets.ts#Calculator');
       const multiplyNode = graph.nodes.get('src/snippets.ts#multiply');
 
-      expect(calculatorNode.codeSnippet).toContain('export class Calculator');
-      expect(multiplyNode.codeSnippet).toContain('export function multiply(a: number, b: number): number');
+      expect(calculatorNode!.codeSnippet).toContain('export class Calculator');
+      expect(multiplyNode!.codeSnippet).toContain('export function multiply(a: number, b: number): number');
     });
 
     it('should handle complex import patterns', async () => {
@@ -404,8 +404,8 @@ import Logger, { LogLevel } from './logger.js';`
       expect(graph.nodes.has('src/nested.ts#OuterClass')).toBe(true);
       
       const outerClass = graph.nodes.get('src/nested.ts#OuterClass');
-      expect(outerClass.type).toBe('class');
-      expect(outerClass.name).toBe('OuterClass');
+      expect(outerClass!.type).toBe('class');
+      expect(outerClass!.name).toBe('OuterClass');
     });
 
     it('should handle circular imports gracefully', async () => {
@@ -538,8 +538,8 @@ export class Calculator {
       const helloNode = graph.nodes.get('src/main.ts#hello');
       const greetNode = graph.nodes.get('src/main.ts#greet');
 
-      expect(helloNode.type).toBe('function');
-      expect(greetNode.type).toBe('arrow_function');
+      expect(helloNode!.type).toBe('function');
+      expect(greetNode!.type).toBe('arrow_function');
     });
   });
 });
