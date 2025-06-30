@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'bun:test';
 import { runRepoGraphForTests } from '../test.util.js';
 
+interface TestCase {
+  language: string;
+  extension: string;
+  files: Record<string, string>;
+  expectedSymbols: string[];
+}
+
 describe('Multi-Language Support', () => {
-  const testCases = [
+  const testCases: TestCase[] = [
     {
       language: 'TypeScript',
       extension: 'ts',

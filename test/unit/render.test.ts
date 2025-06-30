@@ -8,9 +8,7 @@ import {
   cleanupTempDir,
   isValidMarkdown,
   containsValidMermaid,
-  extractFilePathsFromMarkdown,
   createTestNode,
-  createTestGraph
 } from '../test.util.js';
 
 describe('Markdown Rendering', () => {

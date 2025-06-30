@@ -116,7 +116,7 @@ describe('Composer', () => {
   });
 
   describe('Custom Components', () => {
-    let discoveredFiles: FileContent[] = [];
+    let discoveredFiles: readonly FileContent[] = [];
     it('should work with custom discoverer', async () => {
       const files = {
         'src/index.ts': 'export const ts = true;',

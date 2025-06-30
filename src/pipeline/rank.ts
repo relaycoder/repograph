@@ -1,6 +1,5 @@
 import pagerank from 'graphology-pagerank';
 import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
-import { RepoGraphError } from '../utils/error.util.js';
 import Graph from 'graphology';
 import { execSync } from 'node:child_process';
 import { logger } from '../utils/logger.util.js';
