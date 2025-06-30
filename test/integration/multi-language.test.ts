@@ -297,7 +297,7 @@ export default MyComponent;
 multi-line
 */
 
-namespace App\\Models;
+namespace App\\\\Models;
 
 class User extends Model {
     public function getName() {

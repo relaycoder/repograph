@@ -250,13 +250,11 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
     extensions: ['.swift'],
     wasmPath: 'tree-sitter-swift/tree-sitter-swift.wasm',
     query: `
-      (struct_declaration) @struct.definition
+      (class_declaration) @class.definition
       (protocol_declaration) @trait.definition
-      (enum_declaration) @enum.definition
-      (extension_declaration) @impl.definition
       (function_declaration) @function.definition
-      (variable_declaration) @field.definition
-      (function_signature) @method.definition
+      (protocol_function_declaration) @function.definition
+      (property_declaration) @field.definition
     `
   },
   {

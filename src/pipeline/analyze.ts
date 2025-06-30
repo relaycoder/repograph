@@ -178,6 +178,17 @@ const resolveImportFactory = (endings: string[], packageStyle: boolean = false) 
   return null;
 }
 
+const phpHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    if (declarationNode.type === 'namespace_definition') {
+      // For namespace definitions, get the namespace name node
+      const nameNode = declarationNode.childForFieldName('name');
+      return nameNode;
+    }
+    return declarationNode.childForFieldName('name');
+  },
+};
+
 const languageHandlers: Record<string, Partial<LanguageHandler>> = {
   default: {
     shouldSkipSymbol: () => false,
@@ -198,6 +209,7 @@ const languageHandlers: Record<string, Partial<LanguageHandler>> = {
   python: { ...pythonHandler, resolveImport: resolveImportFactory(['.py', '/__init__.py']) },
   java: { resolveImport: resolveImportFactory(['.java'], true) },
   csharp: { resolveImport: resolveImportFactory(['.cs'], true) },
+  php: { ...phpHandler, resolveImport: resolveImportFactory(['.php']) },
   go: goLangHandler,
   rust: {
     ...goLangHandler,
