@@ -30,6 +30,18 @@ type ProcessSymbolContext = {
   fileState: Record<string, any>;
 };
 
+const pythonHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    if (declarationNode.type === 'expression_statement') {
+      const assignmentNode = declarationNode.namedChild(0);
+      if (assignmentNode?.type === 'assignment') {
+        return assignmentNode.childForFieldName('left');
+      }
+    }
+    return declarationNode.childForFieldName('name');
+  },
+};
+
 const goLangHandler: Partial<LanguageHandler> = {
   getSymbolNameNode: (declarationNode: TSNode) => {
     const nodeType = declarationNode.type;
@@ -55,6 +67,13 @@ const cLangHandler: Partial<LanguageHandler> = {
         const nameNode = declarator.childForFieldName('declarator');
         if (nameNode?.type === 'identifier') return nameNode;
       }
+    }
+    if (declarationNode.type === 'field_declaration') {
+      const declarator = declarationNode.childForFieldName('declarator');
+      if (declarator?.type === 'function_declarator') {
+        return declarator.childForFieldName('declarator');
+      }
+      return declarator;
     }
     return declarationNode.childForFieldName('name');
   },
@@ -175,11 +194,15 @@ const languageHandlers: Record<string, Partial<LanguageHandler>> = {
   javascript: {
     resolveImport: resolveImportFactory(['.js', '.jsx', '/index.js', '/index.jsx', '.mjs', '.cjs']),
   },
-  python: { resolveImport: resolveImportFactory(['.py', '/__init__.py']) },
+  tsx: tsLangHandler,
+  python: { ...pythonHandler, resolveImport: resolveImportFactory(['.py', '/__init__.py']) },
   java: { resolveImport: resolveImportFactory(['.java'], true) },
   csharp: { resolveImport: resolveImportFactory(['.cs'], true) },
   go: goLangHandler,
-  rust: { resolveImport: resolveImportFactory(['.rs', '/mod.rs']) },
+  rust: {
+    ...goLangHandler,
+    resolveImport: resolveImportFactory(['.rs', '/mod.rs']),
+  },
   c: cLangHandler,
   cpp: cLangHandler,
 };
