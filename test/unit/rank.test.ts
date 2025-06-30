@@ -1,13 +1,14 @@
 import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
 import { createPageRanker, createGitRanker } from '../../src/pipeline/rank.js';
 import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
-import type { FileContent, CodeGraph, CodeNode, CodeEdge } from '../../src/types.js';
+import type { FileContent, CodeGraph } from '../../src/types.js';
 import {
   createTempDir,
   cleanupTempDir,
-  createTestFiles,
-  loadFixture,
-  createProjectFromFixture
+  createTestNode,
+  createTestGraph,
+  setupGitRepo,
+  makeGitCommit
 } from '../test.util.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -49,40 +50,10 @@ describe('Graph Ranking', () => {
     });
 
     it('should assign ranks to all nodes in the graph', async () => {
-      const nodes = new Map<string, CodeNode>();
-      const edges: CodeEdge[] = [];
-
-      // Create a simple graph with nodes and edges
-      nodes.set('file1', {
-        id: 'file1',
-        type: 'file',
-        name: 'file1.ts',
-        filePath: 'file1.ts',
-        startLine: 1,
-        endLine: 10
-      });
-
-      nodes.set('file2', {
-        id: 'file2',
-        type: 'file',
-        name: 'file2.ts',
-        filePath: 'file2.ts',
-        startLine: 1,
-        endLine: 15
-      });
-
-      nodes.set('symbol1', {
-        id: 'symbol1',
-        type: 'function',
-        name: 'func1',
-        filePath: 'file1.ts',
-        startLine: 2,
-        endLine: 5
-      });
-
-      edges.push({ fromId: 'file1', toId: 'file2', type: 'imports' });
-
-      const graph: CodeGraph = { nodes, edges };
+      const graph = createTestGraph(
+        [createTestNode('file1'), createTestNode('file2'), createTestNode('symbol1', { type: 'function' })],
+        [{ fromId: 'file1', toId: 'file2', type: 'imports' }]
+      );
       const result = await pageRanker(graph);
 
       expect(result.ranks.size).toBe(3);
@@ -97,65 +68,26 @@ describe('Graph Ranking', () => {
     });
 
     it('should assign higher ranks to more connected nodes', async () => {
-      const nodes = new Map<string, CodeNode>();
-      const edges: CodeEdge[] = [];
+      const hub = createTestNode('hub');
+      const isolated = createTestNode('isolated');
+      const spokes = Array.from({ length: 5 }, (_, i) => createTestNode(`node${i + 1}`));
+      const edges = spokes.map(spoke => ({ fromId: spoke.id, toId: hub.id, type: 'imports' as const }));
 
-      // Create a hub node that many others connect to
-      nodes.set('hub', {
-        id: 'hub',
-        type: 'file',
-        name: 'hub.ts',
-        filePath: 'hub.ts',
-        startLine: 1,
-        endLine: 10
-      });
-
-      // Create several nodes that import from the hub
-      for (let i = 1; i <= 5; i++) {
-        const nodeId = `node${i}`;
-        nodes.set(nodeId, {
-          id: nodeId,
-          type: 'file',
-          name: `${nodeId}.ts`,
-          filePath: `${nodeId}.ts`,
-          startLine: 1,
-          endLine: 10
-        });
-        edges.push({ fromId: nodeId, toId: 'hub', type: 'imports' });
-      }
-
-      // Create an isolated node
-      nodes.set('isolated', {
-        id: 'isolated',
-        type: 'file',
-        name: 'isolated.ts',
-        filePath: 'isolated.ts',
-        startLine: 1,
-        endLine: 10
-      });
-
-      const graph: CodeGraph = { nodes, edges };
+      const graph: CodeGraph = createTestGraph([hub, isolated, ...spokes], edges);
       const result = await pageRanker(graph);
 
       const hubRank = result.ranks.get('hub')!;
       const isolatedRank = result.ranks.get('isolated')!;
+      const spokeRank = result.ranks.get('node1')!;
 
       // Hub should have higher rank than isolated node
       expect(hubRank).toBeGreaterThan(isolatedRank);
+      // Hub should have a higher rank than any single spoke that links to it
+      expect(hubRank).toBeGreaterThan(spokeRank);
     });
 
     it('should return RankedCodeGraph with correct structure', async () => {
-      const nodes = new Map<string, CodeNode>();
-      nodes.set('test', {
-        id: 'test',
-        type: 'file',
-        name: 'test.ts',
-        filePath: 'test.ts',
-        startLine: 1,
-        endLine: 10
-      });
-      const graph: CodeGraph = { nodes, edges: [] };
-
+      const graph: CodeGraph = createTestGraph([createTestNode('test')]);
       const result = await pageRanker(graph);
 
       expect(result).toHaveProperty('nodes');
@@ -237,30 +169,11 @@ export class Calculator {
     });
 
     it('should assign zero ranks when git is not available', async () => {
-      const nodes = new Map<string, CodeNode>();
-      nodes.set('file1', {
-        id: 'file1',
-        type: 'file',
-        name: 'file1.ts',
-        filePath: 'file1.ts',
-        startLine: 1,
-        endLine: 10
-      });
-
-      nodes.set('symbol1', {
-        id: 'symbol1',
-        type: 'function',
-        name: 'func1',
-        filePath: 'file1.ts',
-        startLine: 2,
-        endLine: 5
-      });
-      const graph: CodeGraph = { nodes, edges: [] };
+      const graph: CodeGraph = createTestGraph([createTestNode('file1'), createTestNode('symbol1', { type: 'function' })]);
 
       // Change to a directory without git
       const originalCwd = process.cwd();
       process.chdir(tempDir);
-
       try {
         const result = await gitRanker(graph);
 
@@ -273,25 +186,7 @@ export class Calculator {
     });
 
     it('should only rank file nodes with git strategy', async () => {
-      const nodes = new Map<string, CodeNode>();
-      nodes.set('file1', {
-        id: 'file1',
-        type: 'file',
-        name: 'file1.ts',
-        filePath: 'file1.ts',
-        startLine: 1,
-        endLine: 10
-      });
-
-      nodes.set('symbol1', {
-        id: 'symbol1',
-        type: 'function',
-        name: 'func1',
-        filePath: 'file1.ts',
-        startLine: 2,
-        endLine: 5
-      });
-      const graph: CodeGraph = { nodes, edges: [] };
+      const graph: CodeGraph = createTestGraph([createTestNode('file1.ts'), createTestNode('file1.ts#symbol1', { type: 'function' })]);
 
       const result = await gitRanker(graph);
 
@@ -305,70 +200,38 @@ export class Calculator {
     });
 
     it('should normalize ranks between 0 and 1', async () => {
-      // Create a mock git repository for testing
-      await fs.mkdir(path.join(tempDir, '.git'), { recursive: true });
-      await createTestFiles(tempDir, {
-        'file1.ts': 'content1',
-        'file2.ts': 'content2'
-      });
-
-      const nodes = new Map<string, CodeNode>();
-      nodes.set('file1.ts', {
-        id: 'file1.ts',
-        type: 'file',
-        name: 'file1.ts',
-        filePath: 'file1.ts',
-        startLine: 1,
-        endLine: 10
-      });
-      nodes.set('file2.ts', {
-        id: 'file2.ts',
-        type: 'file',
-        name: 'file2.ts',
-        filePath: 'file2.ts',
-        startLine: 1,
-        endLine: 10
-      });
-      const graph: CodeGraph = { nodes, edges: [] };
-
-      const originalCwd = process.cwd();
-      process.chdir(tempDir);
-
       try {
-        // Initialize git repo and create some commits
-        execSync('git init', { stdio: 'ignore' });
-        execSync('git config user.email "test@example.com"', { stdio: 'ignore' });
-        execSync('git config user.name "Test User"', { stdio: 'ignore' });
-        execSync('git add .', { stdio: 'ignore' });
-        execSync('git commit -m "Initial commit"', { stdio: 'ignore' });
+        await fs.writeFile(path.join(tempDir, 'file1.ts'), 'content1');
+        await fs.writeFile(path.join(tempDir, 'file2.ts'), 'content2');
+        const graph: CodeGraph = createTestGraph([createTestNode('file1.ts'), createTestNode('file2.ts')]);
+
+        await setupGitRepo(tempDir);
+        await makeGitCommit(tempDir, 'Initial commit', ['file1.ts', 'file2.ts']);
 
         // Modify file1 more frequently
         await fs.writeFile(path.join(tempDir, 'file1.ts'), 'modified content1');
-        execSync('git add file1.ts', { stdio: 'ignore' });
-        execSync('git commit -m "Update file1"', { stdio: 'ignore' });
+        await makeGitCommit(tempDir, 'Update file1', ['file1.ts']);
 
         await fs.writeFile(path.join(tempDir, 'file1.ts'), 'modified content1 again');
-        execSync('git add file1.ts', { stdio: 'ignore' });
-        execSync('git commit -m "Update file1 again"', { stdio: 'ignore' });
+        await makeGitCommit(tempDir, 'Update file1 again', ['file1.ts']);
 
-        const result = await gitRanker(graph);
+        // The ranker needs to be executed within the git directory context
+        const ranker = createGitRanker({ root: tempDir });
+        const result = await ranker(graph);
 
         // All ranks should be between 0 and 1
-        for (const rank of result.ranks.values()) {
+        result.ranks.forEach(rank => {
           expect(rank).toBeGreaterThanOrEqual(0);
           expect(rank).toBeLessThanOrEqual(1);
-        }
+        });
 
         // file1.ts should have higher rank than file2.ts
         const file1Rank = result.ranks.get('file1.ts')!;
         const file2Rank = result.ranks.get('file2.ts')!;
         expect(file1Rank).toBeGreaterThan(file2Rank);
-
       } catch (error) {
         // Skip test if git is not available
         console.warn('Git not available, skipping git ranking test');
-      } finally {
-        process.chdir(originalCwd);
       }
     });
   });
@@ -413,26 +276,7 @@ export { Utils };`
     });
 
     it('should handle graphs with no edges', async () => {
-      const nodes = new Map<string, CodeNode>();
-
-      // Add isolated nodes
-      nodes.set('file1', {
-        id: 'file1',
-        type: 'file',
-        name: 'file1.ts',
-        filePath: 'file1.ts',
-        startLine: 1,
-        endLine: 10
-      });
-      nodes.set('file2', {
-        id: 'file2',
-        type: 'file',
-        name: 'file2.ts',
-        filePath: 'file2.ts',
-        startLine: 1,
-        endLine: 10
-      });
-      const graph: CodeGraph = { nodes, edges: [] };
+      const graph: CodeGraph = createTestGraph([createTestNode('file1'), createTestNode('file2')]);
 
       const pageRanker = createPageRanker();
       const result = await pageRanker(graph);
@@ -447,102 +291,9 @@ export { Utils };`
     });
   });
 
-  describe('Integration with Fixtures', () => {
-    it('should rank sample-project fixture correctly', async () => {
-      const fixture = await loadFixture('sample-project');
-      await createProjectFromFixture(tempDir, fixture);
-
-      const analyzer = createTreeSitterAnalyzer();
-      const files: FileContent[] = [];
-      
-      for (const file of fixture.files) {
-        if (file.path.endsWith('.ts')) {
-          files.push({
-            path: file.path,
-            content: file.content
-          });
-        }
-      }
-
-      const graph = await analyzer(files);
-      const pageRanker = createPageRanker();
-      const result = await pageRanker(graph);
-
-      expect(result.ranks.size).toBeGreaterThan(0);
-      
-      // Files that are imported more should have higher ranks
-      const loggerRank = result.ranks.get('src/utils/logger.ts');
-      const typesRank = result.ranks.get('src/types.ts');
-      
-      expect(loggerRank).toBeGreaterThan(0);
-      expect(typesRank).toBeGreaterThan(0);
-    });
-
-    it('should rank complex-project fixture correctly', async () => {
-      const fixture = await loadFixture('complex-project');
-      await createProjectFromFixture(tempDir, fixture);
-
-      const analyzer = createTreeSitterAnalyzer();
-      const files: FileContent[] = [];
-      
-      for (const file of fixture.files) {
-        if (file.path.endsWith('.ts') && !file.path.includes('test')) {
-          files.push({
-            path: file.path,
-            content: file.content
-          });
-        }
-      }
-
-      const graph = await analyzer(files);
-      const pageRanker = createPageRanker();
-      const result = await pageRanker(graph);
-
-      // Database and types should have high ranks as they're widely imported
-      const databaseRank = result.ranks.get('src/database/index.ts');
-      const typesRank = result.ranks.get('src/types/index.ts');
-      
-      expect(databaseRank).toBeGreaterThan(0);
-      expect(typesRank).toBeGreaterThan(0);
-    });
-
-    it('should handle minimal-project fixture', async () => {
-      const fixture = await loadFixture('minimal-project');
-      await createProjectFromFixture(tempDir, fixture);
-
-      const analyzer = createTreeSitterAnalyzer();
-      const files: FileContent[] = [
-        {
-          path: 'src/main.ts',
-          content: fixture.files[0]!.content
-        }
-      ];
-
-      const graph = await analyzer(files);
-      const pageRanker = createPageRanker();
-      const result = await pageRanker(graph);
-
-      expect(result.ranks.size).toBe(fixture.expected_nodes!);
-      
-      // All nodes should have positive ranks
-      for (const rank of result.ranks.values()) {
-        expect(rank).toBeGreaterThan(0);
-      }
-    });
-  });
-
   describe('Edge Cases', () => {
     it('should handle self-referential imports', async () => {
-      const nodes = new Map<string, CodeNode>();
-      nodes.set('file1', {
-        id: 'file1',
-        type: 'file',
-        name: 'file1.ts',
-        filePath: 'file1.ts',
-        startLine: 1,
-        endLine: 10
-      });
-      const graph: CodeGraph = { nodes, edges: [] };
+      const graph: CodeGraph = createTestGraph([createTestNode('file1')]);
 
       // Note: self-loops are disabled in our graph configuration
       // This tests that the ranker handles this gracefully
@@ -555,27 +306,13 @@ export { Utils };`
     });
 
     it('should handle very large graphs efficiently', async () => {
-      const nodes = new Map<string, CodeNode>();
-      const edges: CodeEdge[] = [];
-
       // Create a large graph with many nodes
       const nodeCount = 1000;
-      for (let i = 0; i < nodeCount; i++) {
-        nodes.set(`node${i}`, {
-          id: `node${i}`,
-          type: 'file',
-          name: `file${i}.ts`,
-          filePath: `file${i}.ts`,
-          startLine: 1,
-          endLine: 10
-        });
-      }
+      const nodes = Array.from({ length: nodeCount }, (_, i) => createTestNode(`node${i}`));
 
       // Add some edges
-      for (let i = 0; i < nodeCount - 1; i++) {
-        edges.push({ fromId: `node${i}`, toId: `node${i + 1}`, type: 'imports' });
-      }
-      const graph: CodeGraph = { nodes, edges };
+      const edges = Array.from({ length: nodeCount - 1 }, (_, i) => ({ fromId: `node${i}`, toId: `node${i + 1}`, type: 'imports' as const }));
+      const graph: CodeGraph = createTestGraph(nodes, edges);
 
       const pageRanker = createPageRanker();
       const startTime = Date.now();

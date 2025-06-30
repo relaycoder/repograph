@@ -291,72 +291,30 @@ export function onemore() {}`
       };
       await createTestFiles(tempDir, files);
     });
-
-    it('should handle --no-header', async () => {
-      await runCLI([tempDir, '--no-header']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).not.toContain('# RepoGraph');
-    });
     
-    it('should handle --no-overview', async () => {
-      await runCLI([tempDir, '--no-overview']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).not.toContain('## 🚀 Project Overview');
-    });
+    const flagTestCases = [
+      { name: 'no-header', args: ['--no-header'], notToContain: '# RepoGraph' },
+      { name: 'no-overview', args: ['--no-overview'], notToContain: '## 🚀 Project Overview' },
+      { name: 'no-mermaid', args: ['--no-mermaid'], notToContain: '```mermaid' },
+      { name: 'no-file-list', args: ['--no-file-list'], notToContain: '### Top 10 Most Important Files' },
+      { name: 'no-symbol-details', args: ['--no-symbol-details'], notToContain: '## 📂 File & Symbol Breakdown' },
+      { name: 'top-file-count', args: ['--top-file-count', '1'], toContain: '### Top 1 Most Important Files' },
+      { name: 'file-section-separator', args: ['--file-section-separator', '***'], toContain: '\n***\n\n' },
+      { name: 'no-symbol-relations', args: ['--no-symbol-relations'], notToContain: '(calls' },
+      { name: 'no-symbol-line-numbers', args: ['--no-symbol-line-numbers'], notToContain: '_L2_' },
+      { name: 'no-symbol-snippets', args: ['--no-symbol-snippets'], notToContain: '```typescript' },
+      { name: 'max-relations-to-show', args: ['--max-relations-to-show', '1'], toContain: 'calls `helper`...', notToContain: '`another`' },
+    ];
 
-    it('should handle --no-mermaid', async () => {
-      await runCLI([tempDir, '--no-mermaid']);
+    it.each(flagTestCases)('should handle flag $name', async ({ args, toContain, notToContain }) => {
+      await runCLI([tempDir, ...args]);
       const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).not.toContain('```mermaid');
-    });
-
-    it('should handle --no-file-list', async () => {
-      await runCLI([tempDir, '--no-file-list']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).not.toContain('### Top 10 Most Important Files');
-    });
-
-    it('should handle --no-symbol-details', async () => {
-      await runCLI([tempDir, '--no-symbol-details']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).not.toContain('## 📂 File & Symbol Breakdown');
-    });
-    
-    it('should handle --top-file-count', async () => {
-      await runCLI([tempDir, '--top-file-count', '1']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('### Top 1 Most Important Files');
-    });
-
-    it('should handle --file-section-separator', async () => {
-      await runCLI([tempDir, '--file-section-separator', '***']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('\n***\n\n');
-    });
-    
-    it('should handle --no-symbol-relations', async () => {
-      await runCLI([tempDir, '--no-symbol-relations']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).not.toContain('(calls');
-    });
-
-    it('should handle --no-symbol-line-numbers', async () => {
-      await runCLI([tempDir, '--no-symbol-line-numbers']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).not.toContain('_L2_');
-    });
-
-    it('should handle --no-symbol-snippets', async () => {
-      await runCLI([tempDir, '--no-symbol-snippets']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).not.toContain('```typescript');
-    });
-
-    it('should handle --max-relations-to-show', async () => {
-      await runCLI([tempDir, '--max-relations-to-show', '1']);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('calls `helper`...');
-      expect(content).not.toContain('`another`');
+      if (toContain) {
+        expect(content).toContain(toContain);
+      }
+      if (notToContain) {
+        expect(content).not.toContain(notToContain);
+      }
     });
   });
 

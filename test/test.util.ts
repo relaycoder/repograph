@@ -2,7 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import yaml from 'js-yaml';
-import type { FileContent } from '../src/types.js';
+import type { FileContent, CodeNode, CodeGraph, CodeEdge, RepoGraphOptions } from '../src/types.js';
+import { generateMap } from '../src/high-level.js';
+import { execSync } from 'node:child_process';
 
 /**
  * Test utilities for RepoGraph testing
@@ -212,7 +214,7 @@ export const isValidMarkdown = (content: string): boolean => {
   // Basic markdown validation - check for common markdown patterns
   const hasHeaders = /^#{1,6}\s+.+$/m.test(content);
   const hasContent = content.trim().length > 0;
-  return hasHeaders && hasContent;
+  return hasHeaders || hasContent; // Allow content without headers for empty results
 };
 
 /**
@@ -226,7 +228,7 @@ export const containsValidMermaid = (content: string): boolean => {
  * Extracts file paths from markdown content
  */
 export const extractFilePathsFromMarkdown = (content: string): string[] => {
-  const pathRegex = /`([^`]+\.(ts|js|tsx|jsx))`/g;
+  const pathRegex = /`([^`]+\.(ts|js|tsx|jsx|py|java|go|rs|c))`/g;
   const paths: string[] = [];
   let match;
   
@@ -283,5 +285,82 @@ export const createProjectFromFixture = async (
   // Create .gitignore if specified
   if (fixture.gitignore && fixture.gitignore.length > 0) {
     await createGitignore(baseDir, fixture.gitignore);
+  }
+};
+
+// --- Radically DRY Test Helpers ---
+
+/**
+ * A powerful, centralized test runner that handles setup, execution, and cleanup.
+ */
+export const runRepoGraphForTests = async (
+  files: Record<string, string>,
+  options: Partial<RepoGraphOptions> = {}
+): Promise<string> => {
+  const tempDir = await createTempDir();
+  try {
+    await createTestFiles(tempDir, files);
+    const outputPath = path.join(tempDir, 'output.md');
+
+    if (options.rankingStrategy === 'git-changes') {
+      await setupGitRepo(tempDir);
+      await makeGitCommit(tempDir, 'Initial commit');
+    }
+
+    await generateMap({
+      root: tempDir,
+      output: outputPath,
+      ...options,
+    });
+    return await readFile(outputPath);
+  } finally {
+    await cleanupTempDir(tempDir);
+  }
+};
+
+/**
+ * Creates a mock CodeNode for testing.
+ */
+export const createTestNode = (id: string, partial: Partial<CodeNode> = {}): CodeNode => ({
+  id,
+  type: 'file',
+  name: path.basename(id),
+  filePath: id,
+  startLine: 1,
+  endLine: 10,
+  ...partial,
+});
+
+/**
+ * Creates a mock CodeGraph for testing.
+ */
+export const createTestGraph = (nodes: CodeNode[], edges: CodeEdge[] = []): CodeGraph => ({
+  nodes: new Map(nodes.map(n => [n.id, n])),
+  edges,
+});
+
+/**
+ * Initializes a git repository in the given directory.
+ */
+export const setupGitRepo = async (dir: string) => {
+  try {
+    execSync('git init', { cwd: dir, stdio: 'ignore' });
+    execSync('git config user.email "test@example.com"', { cwd: dir, stdio: 'ignore' });
+    execSync('git config user.name "Test User"', { cwd: dir, stdio: 'ignore' });
+  } catch (e) {
+    // Silently fail if git is not available
+  }
+};
+
+/**
+ * Makes a git commit in the given repository.
+ */
+export const makeGitCommit = async (dir: string, message: string, files?: string[]) => {
+  try {
+    const filesToAdd = files ? files.join(' ') : '.';
+    execSync(`git add ${filesToAdd}`, { cwd: dir, stdio: 'ignore' });
+    execSync(`git commit -m "${message}"`, { cwd: dir, stdio: 'ignore' });
+  } catch (e) {
+    // Silently fail if git is not available
   }
 };

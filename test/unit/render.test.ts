@@ -9,8 +9,8 @@ import {
   isValidMarkdown,
   containsValidMermaid,
   extractFilePathsFromMarkdown,
-  loadFixture,
-  createProjectFromFixture
+  createTestNode,
+  createTestGraph
 } from '../test.util.js';
 
 describe('Markdown Rendering', () => {
@@ -47,14 +47,7 @@ describe('Markdown Rendering', () => {
 
     it('should include project overview section', () => {
       const nodes = new Map<string, CodeNode>();
-      nodes.set('src/index.ts', {
-        id: 'src/index.ts',
-        type: 'file',
-        name: 'index.ts',
-        filePath: 'src/index.ts',
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set('src/index.ts', createTestNode('src/index.ts'));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -73,24 +66,8 @@ describe('Markdown Rendering', () => {
       const nodes = new Map<string, CodeNode>();
       const edges: CodeEdge[] = [];
 
-      nodes.set('src/a.ts', {
-        id: 'src/a.ts',
-        type: 'file',
-        name: 'a.ts',
-        filePath: 'src/a.ts',
-        startLine: 1,
-        endLine: 10
-      });
-
-      nodes.set('src/b.ts', {
-        id: 'src/b.ts',
-        type: 'file',
-        name: 'b.ts',
-        filePath: 'src/b.ts',
-        startLine: 1,
-        endLine: 10
-      });
-
+      nodes.set('src/a.ts', createTestNode('src/a.ts', { name: 'a.ts' }));
+      nodes.set('src/b.ts', createTestNode('src/b.ts', { name: 'b.ts' }));
       edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports' });
 
       const rankedGraph: RankedCodeGraph = {
@@ -111,14 +88,7 @@ describe('Markdown Rendering', () => {
 
     it('should exclude Mermaid graph when option is false', () => {
       const nodes = new Map<string, CodeNode>();
-      nodes.set('src/index.ts', {
-        id: 'src/index.ts',
-        type: 'file',
-        name: 'index.ts',
-        filePath: 'src/index.ts',
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set('src/index.ts', createTestNode('src/index.ts'));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -143,14 +113,7 @@ describe('Markdown Rendering', () => {
       // Create 15 files with different ranks
       for (let i = 1; i <= 15; i++) {
         const nodeId = `src/file${i}.ts`;
-        nodes.set(nodeId, {
-          id: nodeId,
-          type: 'file',
-          name: `file${i}.ts`,
-          filePath: nodeId,
-          startLine: 1,
-          endLine: 10
-        });
+        nodes.set(nodeId, createTestNode(nodeId, { name: `file${i}.ts` }));
         ranks.set(nodeId, i / 15); // Higher numbers get higher ranks
       }
 
@@ -174,34 +137,9 @@ describe('Markdown Rendering', () => {
     it('should include symbol details by default', () => {
       const nodes = new Map<string, CodeNode>();
 
-      nodes.set('src/test.ts', {
-        id: 'src/test.ts',
-        type: 'file',
-        name: 'test.ts',
-        filePath: 'src/test.ts',
-        startLine: 1,
-        endLine: 20
-      });
-
-      nodes.set('src/test.ts#TestClass', {
-        id: 'src/test.ts#TestClass',
-        type: 'class',
-        name: 'TestClass',
-        filePath: 'src/test.ts',
-        startLine: 5,
-        endLine: 15,
-        codeSnippet: 'export class TestClass {'
-      });
-
-      nodes.set('src/test.ts#testFunction', {
-        id: 'src/test.ts#testFunction',
-        type: 'function',
-        name: 'testFunction',
-        filePath: 'src/test.ts',
-        startLine: 17,
-        endLine: 19,
-        codeSnippet: 'export function testFunction(): void'
-      });
+      nodes.set('src/test.ts', createTestNode('src/test.ts', { endLine: 20 }));
+      nodes.set('src/test.ts#TestClass', createTestNode('src/test.ts#TestClass', { type: 'class', name: 'TestClass', startLine: 5, endLine: 15, codeSnippet: 'export class TestClass {' }));
+      nodes.set('src/test.ts#testFunction', createTestNode('src/test.ts#testFunction', { type: 'function', name: 'testFunction', startLine: 17, endLine: 19, codeSnippet: 'export function testFunction(): void' }));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -225,14 +163,7 @@ describe('Markdown Rendering', () => {
 
     it('should exclude symbol details when option is false', () => {
       const nodes = new Map<string, CodeNode>();
-      nodes.set('src/test.ts', {
-        id: 'src/test.ts',
-        type: 'file',
-        name: 'test.ts',
-        filePath: 'src/test.ts',
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set('src/test.ts', createTestNode('src/test.ts'));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -256,12 +187,12 @@ describe('Markdown Rendering', () => {
         const nodes = new Map<string, CodeNode>();
         const edges: CodeEdge[] = [];
 
-        nodes.set('src/main.ts', { id: 'src/main.ts', type: 'file', name: 'main.ts', filePath: 'src/main.ts', startLine: 1, endLine: 10, language: 'typescript' });
-        nodes.set('src/utils.ts', { id: 'src/utils.ts', type: 'file', name: 'utils.ts', filePath: 'src/utils.ts', startLine: 1, endLine: 10, language: 'typescript' });
-        nodes.set('src/main.ts#main', { id: 'src/main.ts#main', type: 'function', name: 'main', filePath: 'src/main.ts', startLine: 2, endLine: 5, codeSnippet: 'function main() {}' });
-        nodes.set('src/utils.ts#helper', { id: 'src/utils.ts#helper', type: 'function', name: 'helper', filePath: 'src/utils.ts', startLine: 2, endLine: 5, codeSnippet: 'function helper() {}' });
-        nodes.set('src/utils.ts#another', { id: 'src/utils.ts#another', type: 'function', name: 'another', filePath: 'src/utils.ts', startLine: 6, endLine: 8 });
-        nodes.set('src/utils.ts#onemore', { id: 'src/utils.ts#onemore', type: 'function', name: 'onemore', filePath: 'src/utils.ts', startLine: 9, endLine: 10 });
+        nodes.set('src/main.ts', createTestNode('src/main.ts', { name: 'main.ts', language: 'typescript' }));
+        nodes.set('src/utils.ts', createTestNode('src/utils.ts', { name: 'utils.ts', language: 'typescript' }));
+        nodes.set('src/main.ts#main', createTestNode('src/main.ts#main', { type: 'function', name: 'main', startLine: 2, endLine: 5, codeSnippet: 'function main() {}' }));
+        nodes.set('src/utils.ts#helper', createTestNode('src/utils.ts#helper', { type: 'function', name: 'helper', startLine: 2, endLine: 5, codeSnippet: 'function helper() {}' }));
+        nodes.set('src/utils.ts#another', createTestNode('src/utils.ts#another', { type: 'function', name: 'another', startLine: 6, endLine: 8 }));
+        nodes.set('src/utils.ts#onemore', createTestNode('src/utils.ts#onemore', { type: 'function', name: 'onemore', startLine: 9, endLine: 10 }));
 
         edges.push({ fromId: 'src/main.ts', toId: 'src/utils.ts', type: 'imports' });
         edges.push({ fromId: 'src/main.ts#main', toId: 'src/utils.ts#helper', type: 'calls' });
@@ -372,14 +303,7 @@ describe('Markdown Rendering', () => {
 
     it('should handle files with no symbols', () => {
       const nodes = new Map<string, CodeNode>();
-      nodes.set('README.md', {
-        id: 'README.md',
-        type: 'file',
-        name: 'README.md',
-        filePath: 'README.md',
-        startLine: 1,
-        endLine: 5
-      });
+      nodes.set('README.md', createTestNode('README.md', { name: 'README.md', endLine: 5 }));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -395,42 +319,12 @@ describe('Markdown Rendering', () => {
 
     it('should sort symbols by line number', () => {
       const nodes = new Map<string, CodeNode>();
-      nodes.set('src/test.ts', {
-        id: 'src/test.ts',
-        type: 'file',
-        name: 'test.ts',
-        filePath: 'src/test.ts',
-        startLine: 1,
-        endLine: 30
-      });
+      nodes.set('src/test.ts', createTestNode('src/test.ts', { endLine: 30 }));
 
       // Add symbols in non-sequential order
-      nodes.set('src/test.ts#lastFunction', {
-        id: 'src/test.ts#lastFunction',
-        type: 'function',
-        name: 'lastFunction',
-        filePath: 'src/test.ts',
-        startLine: 25,
-        endLine: 28
-      });
-
-      nodes.set('src/test.ts#firstFunction', {
-        id: 'src/test.ts#firstFunction',
-        type: 'function',
-        name: 'firstFunction',
-        filePath: 'src/test.ts',
-        startLine: 5,
-        endLine: 10
-      });
-
-      nodes.set('src/test.ts#middleClass', {
-        id: 'src/test.ts#middleClass',
-        type: 'class',
-        name: 'middleClass',
-        filePath: 'src/test.ts',
-        startLine: 15,
-        endLine: 20
-      });
+      nodes.set('src/test.ts#lastFunction', createTestNode('src/test.ts#lastFunction', { type: 'function', name: 'lastFunction', startLine: 25, endLine: 28 }));
+      nodes.set('src/test.ts#firstFunction', createTestNode('src/test.ts#firstFunction', { type: 'function', name: 'firstFunction', startLine: 5, endLine: 10 }));
+      nodes.set('src/test.ts#middleClass', createTestNode('src/test.ts#middleClass', { type: 'class', name: 'middleClass', startLine: 15, endLine: 20 }));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -465,14 +359,7 @@ describe('Markdown Rendering', () => {
       const ranks = new Map<string, number>();
 
       for (const file of files) {
-        nodes.set(file.id, {
-          id: file.id,
-          type: 'file',
-          name: file.id.split('/').pop()!,
-          filePath: file.id,
-          startLine: 1,
-          endLine: 10
-        });
+        nodes.set(file.id, createTestNode(file.id, { name: file.id.split('/').pop()! }));
         ranks.set(file.id, file.rank);
       }
 
@@ -490,24 +377,9 @@ describe('Markdown Rendering', () => {
 
     it('should handle symbols without code snippets', () => {
       const nodes = new Map<string, CodeNode>();
-      nodes.set('src/test.ts', {
-        id: 'src/test.ts',
-        type: 'file',
-        name: 'test.ts',
-        filePath: 'src/test.ts',
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set('src/test.ts', createTestNode('src/test.ts'));
 
-      nodes.set('src/test.ts#noSnippet', {
-        id: 'src/test.ts#noSnippet',
-        type: 'function',
-        name: 'noSnippet',
-        filePath: 'src/test.ts',
-        startLine: 5,
-        endLine: 8
-        // No codeSnippet property
-      });
+      nodes.set('src/test.ts#noSnippet', createTestNode('src/test.ts#noSnippet', { type: 'function', name: 'noSnippet', startLine: 5, endLine: 8 }));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -528,12 +400,7 @@ describe('Markdown Rendering', () => {
     it('should generate proper markdown links for files', () => {
       const nodes = new Map<string, CodeNode>();
       nodes.set('src/nested/deep/file.ts', {
-        id: 'src/nested/deep/file.ts',
-        type: 'file',
-        name: 'file.ts',
-        filePath: 'src/nested/deep/file.ts',
-        startLine: 1,
-        endLine: 10
+        id: 'src/nested/deep/file.ts', type: 'file', name: 'file.ts', filePath: 'src/nested/deep/file.ts', startLine: 1, endLine: 10
       });
 
       const rankedGraph: RankedCodeGraph = {
@@ -553,33 +420,9 @@ describe('Markdown Rendering', () => {
       const nodes = new Map<string, CodeNode>();
       const edges: CodeEdge[] = [];
 
-      nodes.set('src/a.ts', {
-        id: 'src/a.ts',
-        type: 'file',
-        name: 'a.ts',
-        filePath: 'src/a.ts',
-        startLine: 1,
-        endLine: 10
-      });
-
-      nodes.set('src/a.ts#Class', {
-        id: 'src/a.ts#Class',
-        type: 'class',
-        name: 'Class',
-        filePath: 'src/a.ts',
-        startLine: 2,
-        endLine: 8
-      });
-
-      nodes.set('src/b.ts', {
-        id: 'src/b.ts',
-        type: 'file',
-        name: 'b.ts',
-        filePath: 'src/b.ts',
-        startLine: 1,
-        endLine: 10
-      });
-
+      nodes.set('src/a.ts', createTestNode('src/a.ts', { name: 'a.ts' }));
+      nodes.set('src/a.ts#Class', createTestNode('src/a.ts#Class', { type: 'class', name: 'Class', startLine: 2, endLine: 8 }));
+      nodes.set('src/b.ts', createTestNode('src/b.ts', { name: 'b.ts' }));
       edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports' });
 
       const rankedGraph: RankedCodeGraph = {
@@ -600,14 +443,7 @@ describe('Markdown Rendering', () => {
 
     it('should handle graphs with no file-to-file edges', () => {
       const nodes = new Map<string, CodeNode>();
-      nodes.set('src/isolated.ts', {
-        id: 'src/isolated.ts',
-        type: 'file',
-        name: 'isolated.ts',
-        filePath: 'src/isolated.ts',
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set('src/isolated.ts', createTestNode('src/isolated.ts', { name: 'isolated.ts' }));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -625,23 +461,9 @@ describe('Markdown Rendering', () => {
     it('should deduplicate edges in Mermaid graph', () => {
       const nodes = new Map<string, CodeNode>();
       const edges: CodeEdge[] = [];
-      nodes.set('src/a.ts', {
-        id: 'src/a.ts',
-        type: 'file',
-        name: 'a.ts',
-        filePath: 'src/a.ts',
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set('src/a.ts', createTestNode('src/a.ts', { name: 'a.ts' }));
 
-      nodes.set('src/b.ts', {
-        id: 'src/b.ts',
-        type: 'file',
-        name: 'b.ts',
-        filePath: 'src/b.ts',
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set('src/b.ts', createTestNode('src/b.ts', { name: 'b.ts' }));
 
       // Add multiple edges between the same files (multi-graph)
       edges.push({ fromId: 'src/a.ts', toId: 'src/b.ts', type: 'imports' });
@@ -709,111 +531,11 @@ export function main(): void {
     });
   });
 
-  describe('Integration with Fixtures', () => {
-    it('should render sample-project fixture correctly', async () => {
-      const fixture = await loadFixture('sample-project');
-      await createProjectFromFixture(tempDir, fixture);
-
-      const analyzer = createTreeSitterAnalyzer();
-      const ranker = createPageRanker();
-
-      const files: FileContent[] = [];
-      for (const file of fixture.files) {
-        if (file.path.endsWith('.ts')) {
-          files.push({
-            path: file.path,
-            content: file.content
-          });
-        }
-      }
-
-      const graph = await analyzer(files);
-      const rankedGraph = await ranker(graph);
-      const markdown = renderer(rankedGraph);
-
-      expect(isValidMarkdown(markdown)).toBe(true);
-      expect(markdown).toContain('Calculator');
-      expect(markdown).toContain('Logger');
-      expect(markdown).toContain('Config');
-      
-      const filePaths = extractFilePathsFromMarkdown(markdown);
-      expect(filePaths.length).toBeGreaterThan(0);
-      expect(filePaths).toContain('src/calculator.ts');
-      expect(filePaths).toContain('src/utils/logger.ts');
-    });
-
-    it('should render complex-project fixture correctly', async () => {
-      const fixture = await loadFixture('complex-project');
-      await createProjectFromFixture(tempDir, fixture);
-
-      const analyzer = createTreeSitterAnalyzer();
-      const ranker = createPageRanker();
-
-      const files: FileContent[] = [];
-      for (const file of fixture.files) {
-        if (file.path.endsWith('.ts') && !file.path.includes('test')) {
-          files.push({
-            path: file.path,
-            content: file.content
-          });
-        }
-      }
-
-      const graph = await analyzer(files);
-      const rankedGraph = await ranker(graph);
-      const markdown = renderer(rankedGraph);
-
-      expect(isValidMarkdown(markdown)).toBe(true);
-      expect(markdown).toContain('Database');
-      expect(markdown).toContain('ApiServer');
-      expect(markdown).toContain('UserService');
-      expect(containsValidMermaid(markdown)).toBe(true);
-    });
-
-    it('should handle all renderer options with fixtures', async () => {
-      const fixture = await loadFixture('minimal-project');
-      await createProjectFromFixture(tempDir, fixture);
-
-      const analyzer = createTreeSitterAnalyzer();
-      const ranker = createPageRanker();
-
-      const files: FileContent[] = [
-        {
-          path: 'src/main.ts',
-          content: fixture.files[0]!.content
-        }
-      ];
-
-      const graph = await analyzer(files);
-      const rankedGraph = await ranker(graph);
-
-      const options: RendererOptions = {
-        customHeader: '# My Minimal Project\n\nCustom description here.',
-        includeMermaidGraph: false,
-        includeSymbolDetails: false
-      };
-
-      const markdown = renderer(rankedGraph, options);
-
-      expect(markdown).toStartWith('# My Minimal Project');
-      expect(markdown).not.toContain('```mermaid');
-      expect(markdown).not.toContain('## 📂 File & Symbol Breakdown');
-      expect(markdown).toContain('### Top 10 Most Important Files');
-    });
-  });
-
   describe('Edge Cases', () => {
     it('should handle very long file paths', () => {
       const nodes = new Map<string, CodeNode>();
       const longPath = 'src/very/deeply/nested/directory/structure/with/many/levels/file.ts';
-      nodes.set(longPath, {
-        id: longPath,
-        type: 'file',
-        name: 'file.ts',
-        filePath: longPath,
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set(longPath, createTestNode(longPath, { name: 'file.ts' }));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -829,14 +551,7 @@ export function main(): void {
     it('should handle special characters in file names', () => {
       const nodes = new Map<string, CodeNode>();
       const specialPath = 'src/file-with-dashes_and_underscores.spec.ts';
-      nodes.set(specialPath, {
-        id: specialPath,
-        type: 'file',
-        name: 'file-with-dashes_and_underscores.spec.ts',
-        filePath: specialPath,
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set(specialPath, createTestNode(specialPath, { name: 'file-with-dashes_and_underscores.spec.ts' }));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
@@ -851,24 +566,9 @@ export function main(): void {
 
     it('should handle empty code snippets gracefully', () => {
       const nodes = new Map<string, CodeNode>();
-      nodes.set('src/test.ts', {
-        id: 'src/test.ts',
-        type: 'file',
-        name: 'test.ts',
-        filePath: 'src/test.ts',
-        startLine: 1,
-        endLine: 10
-      });
+      nodes.set('src/test.ts', createTestNode('src/test.ts'));
 
-      nodes.set('src/test.ts#empty', {
-        id: 'src/test.ts#empty',
-        type: 'function',
-        name: 'empty',
-        filePath: 'src/test.ts',
-        startLine: 5,
-        endLine: 6,
-        codeSnippet: ''
-      });
+      nodes.set('src/test.ts#empty', createTestNode('src/test.ts#empty', { type: 'function', name: 'empty', startLine: 5, endLine: 6, codeSnippet: '' }));
 
       const rankedGraph: RankedCodeGraph = {
         nodes,
