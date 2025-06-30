@@ -211,10 +211,10 @@ export const createSymlink = async (target: string, linkPath: string): Promise<v
  * Validates that a string contains valid Markdown
  */
 export const isValidMarkdown = (content: string): boolean => {
-  // Basic markdown validation - check for common markdown patterns
+  // Basic markdown validation: check for headers or the standard empty message.
   const hasHeaders = /^#{1,6}\s+.+$/m.test(content);
-  const hasContent = content.trim().length > 0;
-  return hasHeaders || hasContent; // Allow content without headers for empty results
+  const hasEmptyMessage = /This repository contains 0 nodes/.test(content);
+  return hasHeaders || hasEmptyMessage;
 };
 
 /**
@@ -325,7 +325,7 @@ export const createTestNode = (id: string, partial: Partial<CodeNode> = {}): Cod
   id,
   type: 'file',
   name: path.basename(id),
-  filePath: id,
+  filePath: id.split('#')[0]!,
   startLine: 1,
   endLine: 10,
   ...partial,

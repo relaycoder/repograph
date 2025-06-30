@@ -9,10 +9,11 @@ import {
   createTempDir, // Keep for beforeEach/afterEach
   cleanupTempDir,
   createTestFiles,
-  assertFileExists
-  isValidMarkdown
+  assertFileExists,
+  isValidMarkdown,
 } from '../test.util.js';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 
 describe('Composer', () => {
   let tempDir: string;

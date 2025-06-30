@@ -12,7 +12,7 @@
     "files": true,
     "removeComments": false,
     "removeEmptyLines": false,
-    "compress": false,
+    "compress": true,
     "topFilesLength": 5,
     "showLineNumbers": false,
     "copyToClipboard": true,
@@ -22,15 +22,7 @@
       "includeDiffs": false
     }
   },
-  "include": [
-    "src/pipeline/analyze.ts",
-    "src/tree-sitter/queries.ts",
-    "src/pipeline/discover.ts",
-    "test/unit/discover.test.ts",
-    "src/composer.ts",
-    "test/unit/render.test.ts",
-    "test/unit/composer.test.ts"
-  ],
+  "include": ["src"],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,

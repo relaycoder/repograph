@@ -169,7 +169,10 @@ export class Calculator {
     });
 
     it('should assign zero ranks when git is not available', async () => {
-      const graph: CodeGraph = createTestGraph([createTestNode('file1'), createTestNode('symbol1', { type: 'function' })]);
+      const graph: CodeGraph = createTestGraph([
+        createTestNode('file1.ts'),
+        createTestNode('file1.ts#symbol1', { type: 'function' }),
+      ]);
 
       // Change to a directory without git
       const originalCwd = process.cwd();
@@ -178,20 +181,34 @@ export class Calculator {
         const result = await gitRanker(graph);
 
         expect(result.ranks.size).toBe(2);
-        expect(result.ranks.get('file1')).toBe(0);
-        expect(result.ranks.get('symbol1')).toBe(0);
+        expect(result.ranks.get('file1.ts')).toBe(0);
+        expect(result.ranks.get('file1.ts#symbol1')).toBe(0);
       } finally {
         process.chdir(originalCwd);
       }
     });
 
     it('should only rank file nodes with git strategy', async () => {
-      const graph: CodeGraph = createTestGraph([createTestNode('file1.ts'), createTestNode('file1.ts#symbol1', { type: 'function' })]);
+      await setupGitRepo(tempDir);
+      await fs.writeFile(path.join(tempDir, 'file1.ts'), 'content');
+      await makeGitCommit(tempDir, 'Initial commit', ['file1.ts']);
 
-      const result = await gitRanker(graph);
+      const graph: CodeGraph = createTestGraph([
+        createTestNode('file1.ts'),
+        createTestNode('file1.ts#symbol1', { type: 'function' }),
+      ]);
 
-      // Symbol nodes should get rank 0 with git strategy
-      expect(result.ranks.get('symbol1')).toBe(0);
+      const originalCwd = process.cwd();
+      process.chdir(tempDir);
+      try {
+        const result = await gitRanker(graph);
+        // file node should have a rank
+        expect(result.ranks.get('file1.ts')).toBe(1);
+        // Symbol nodes should get rank 0 with git strategy
+        expect(result.ranks.get('file1.ts#symbol1')).toBe(0);
+      } finally {
+        process.chdir(originalCwd);
+      }
     });
 
     it('should respect maxCommits option', () => {
@@ -215,20 +232,24 @@ export class Calculator {
         await fs.writeFile(path.join(tempDir, 'file1.ts'), 'modified content1 again');
         await makeGitCommit(tempDir, 'Update file1 again', ['file1.ts']);
 
-        // The ranker needs to be executed within the git directory context
-        const ranker = createGitRanker({ root: tempDir });
-        const result = await ranker(graph);
+        const originalCwd = process.cwd();
+        process.chdir(tempDir);
+        try {
+          const result = await gitRanker(graph);
 
-        // All ranks should be between 0 and 1
-        result.ranks.forEach(rank => {
-          expect(rank).toBeGreaterThanOrEqual(0);
-          expect(rank).toBeLessThanOrEqual(1);
-        });
+          // All ranks should be between 0 and 1
+          result.ranks.forEach(rank => {
+            expect(rank).toBeGreaterThanOrEqual(0);
+            expect(rank).toBeLessThanOrEqual(1);
+          });
 
-        // file1.ts should have higher rank than file2.ts
-        const file1Rank = result.ranks.get('file1.ts')!;
-        const file2Rank = result.ranks.get('file2.ts')!;
-        expect(file1Rank).toBeGreaterThan(file2Rank);
+          // file1.ts should have higher rank than file2.ts
+          const file1Rank = result.ranks.get('file1.ts')!;
+          const file2Rank = result.ranks.get('file2.ts')!;
+          expect(file1Rank).toBeGreaterThan(file2Rank);
+        } finally {
+          process.chdir(originalCwd);
+        }
       } catch (error) {
         // Skip test if git is not available
         console.warn('Git not available, skipping git ranking test');

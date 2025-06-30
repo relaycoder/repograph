@@ -3,6 +3,7 @@ import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
 import { RepoGraphError } from '../utils/error.util.js';
 import Graph from 'graphology';
 import { execSync } from 'node:child_process';
+import { logger } from '../utils/logger.util.js';
 
 /**
  * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
@@ -47,6 +48,10 @@ export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker =
     const { maxCommits = 500 } = options;
     const ranks = new Map<string, number>();
 
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks };
+    }
+
     try {
       const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
       const output = execSync(command, { encoding: 'utf-8' });
@@ -62,15 +67,18 @@ export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker =
       for (const [nodeId, attributes] of graph.nodes) {
         // We only rank file nodes with this strategy
         if (attributes.type === 'file') {
-          const count = changeCounts[attributes.filePath] || 0;
+          const count = changeCounts[attributes.filePath] ?? 0;
           ranks.set(nodeId, count / maxChanges); // Normalize score
         } else {
           ranks.set(nodeId, 0);
         }
       }
     } catch (e) {
-      // Provide a clear error message if git fails. This is a fatal error for this strategy.
-      throw new RepoGraphError('Failed to use \'git\' for ranking. Is git installed and is this a git repository?', e);
+      // This is not a fatal error for the whole process, but this ranker cannot proceed.
+      logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
+      for (const [nodeId] of graph.nodes) {
+        ranks.set(nodeId, 0);
+      }
     }
 
     return { ...graph, ranks };
