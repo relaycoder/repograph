@@ -271,6 +271,8 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
         }
       } catch (error) {
         logger.warn(new ParserError(`Failed to process ${langName} files`, langName, error));
+        // Continue processing other languages, don't let one language failure stop the entire analysis
+        continue;
       }
     }
 

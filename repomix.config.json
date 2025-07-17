@@ -12,7 +12,7 @@
     "files": true,
     "removeComments": false,
     "removeEmptyLines": false,
-    "compress": true,
+    "compress": false,
     "topFilesLength": 5,
     "showLineNumbers": false,
     "copyToClipboard": true,
@@ -22,7 +22,13 @@
       "includeDiffs": false
     }
   },
-  "include": ["src"],
+  "include": [
+    "test/integration/multi-language.test.ts",
+    "test/unit/analyze.test.ts",
+    "test/unit/composer.test.ts",
+    "test/test.util.ts",
+    "README.md"
+  ],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,

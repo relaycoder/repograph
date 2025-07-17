@@ -1,16 +1,16 @@
 import path from 'node:path';
-import type { Analyzer, FileDiscoverer, Ranker, Renderer } from './types.js';
+import type { Analyzer, FileDiscoverer, Ranker, Renderer, RepoGraphMap } from './types.js';
 import { logger } from './utils/logger.util.js';
 import { writeFile } from './utils/fs.util.js';
 
 type MapGenerator = (config: {
   readonly root: string;
-  readonly output: string;
+  readonly output?: string;
   readonly include?: readonly string[];
   readonly ignore?: readonly string[];
   readonly noGitignore?: boolean;
   readonly rendererOptions?: any;
-}) => Promise<void>;
+}) => Promise<RepoGraphMap>;
 
 /**
  * A Higher-Order Function that takes pipeline functions as arguments and
@@ -39,25 +39,29 @@ export const createMapGenerator = (pipeline: {
   return async (config) => {
     const { root, output, include, ignore, noGitignore, rendererOptions } = config;
 
-    logger.info('1/5 Discovering files...');
+    logger.info('1/4 Discovering files...');
     const files = await pipeline.discover({ root, include, ignore, noGitignore });
     logger.info(`  -> Found ${files.length} files to analyze.`);
 
-    logger.info('2/5 Analyzing code and building graph...');
+    logger.info('2/4 Analyzing code and building graph...');
     const graph = await pipeline.analyze(files);
     logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
 
-    logger.info('3/5 Ranking graph nodes...');
+    logger.info('3/4 Ranking graph nodes...');
     const rankedGraph = await pipeline.rank(graph);
     logger.info('  -> Ranking complete.');
 
-    logger.info('4/5 Rendering output...');
+    logger.info('4/4 Rendering output...');
     const markdown = pipeline.render(rankedGraph, rendererOptions);
     logger.info('  -> Rendering complete.');
 
-    const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
-    logger.info(`5/5 Writing report to ${path.relative(process.cwd(), outputPath)}...`);
-    await writeFile(outputPath, markdown);
-    logger.info('  -> Report saved.');
+    if (output) {
+      const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+      logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+      await writeFile(outputPath, markdown);
+      logger.info('  -> Report saved.');
+    }
+
+    return { graph: rankedGraph, markdown };
   };
 };

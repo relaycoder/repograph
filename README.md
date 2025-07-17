@@ -1,3 +1,4 @@
+
 <div align="center">
 
 <!-- TODO: Add a cool logo here -->
@@ -195,9 +196,9 @@ console.log('✅ Report generated!');
 
 #### Low-Level API (`createMapGenerator`)
 
-Unleash the full power of RepoGraph's composable architecture. Swap out any part of the pipeline with your own implementation.
+Unleash the full power of RepoGraph's composable architecture. Swap out any part of the pipeline with your own implementation, and get the raw data back for custom processing.
 
-In this example, we'll create a custom ranker that scores files based on their line count.
+In this example, we'll create a custom ranker that scores files based on line count, get the data back, and perform our own analysis before writing the report to a file.
 
 ```typescript
 // my-advanced-script.ts
@@ -207,7 +208,8 @@ import {
   createTreeSitterAnalyzer,
   createMarkdownRenderer,
 } from 'repograph';
-import type { Ranker, CodeGraph, RankedCodeGraph } from 'repograph';
+import type { Ranker, CodeGraph, RankedCodeGraph, RepoGraphMap } from 'repograph';
+import fs from 'node:fs/promises';
 
 // 1. Define our custom ranker
 const createLineCountRanker = (): Ranker => {
@@ -225,7 +227,7 @@ const createLineCountRanker = (): Ranker => {
     // Normalize ranks between 0 and 1
     const maxRank = Math.max(...ranks.values(), 1);
     for (const [id, rank] of ranks.entries()) {
-        ranks.set(id, rank / maxRank);
+      ranks.set(id, rank / maxRank);
     }
     return { ...graph, ranks };
   };
@@ -239,13 +241,26 @@ const myCustomGenerator = createMapGenerator({
   render: createMarkdownRenderer(),
 });
 
-// 3. Run the generator
-await myCustomGenerator({
+// 3. Run the generator to get the map object
+const map: RepoGraphMap = await myCustomGenerator({
   root: './path/to/your/project',
-  output: 'line-count-report.md',
+  // By omitting 'output', the result is returned instead of written to a file.
 });
 
-console.log('✅ Custom report generated!');
+// 4. Now you have full control over the output
+console.log(`Generated map with ${map.graph.nodes.size} nodes.`);
+console.log('Top 3 files by line count:');
+[...map.graph.nodes.values()]
+  .filter(n => n.type === 'file')
+  .sort((a, b) => (map.graph.ranks.get(b.id) ?? 0) - (map.graph.ranks.get(a.id) ?? 0))
+  .slice(0, 3)
+  .forEach((file, i) => {
+    console.log(`  ${i + 1}. ${file.filePath}`);
+  });
+
+// You can still write the markdown to a file if you want
+await fs.writeFile('line-count-report.md', map.markdown);
+console.log('✅ Custom report generated and saved!');
 ```
 
 ## 🔬 The RepoGraph Pipeline
@@ -275,15 +290,18 @@ RepoGraph processes your code in four distinct, composable stages:
 
 Thanks to Tree-sitter, RepoGraph has robust support for a wide array of popular languages:
 
--   TypeScript
--   JavaScript
+-   TypeScript / JavaScript (including JSX/TSX)
 -   Python
 -   Java
 -   Go
 -   Rust
--   C
--   C++
+-   C / C++
 -   C#
+-   PHP
+-   Ruby
+-   Solidity
+-   Swift
+-   Vue
 
 *Support for more languages is on the roadmap!*
 

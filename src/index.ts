@@ -25,6 +25,7 @@ export type {
   CodeEdge,
   CodeGraph,
   RankedCodeGraph,
+  RepoGraphMap,
   RepoGraphOptions,
   RendererOptions,
   FileDiscoverer,

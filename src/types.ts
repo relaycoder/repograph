@@ -59,6 +59,12 @@ export type RankedCodeGraph = CodeGraph & {
   readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
 };
 
+/** The output of a map generation process, containing the graph and rendered output. */
+export type RepoGraphMap = {
+  readonly graph: RankedCodeGraph;
+  readonly markdown: string;
+};
+
 // High-Level API Options
 
 /** Configuration for the final Markdown output. */
