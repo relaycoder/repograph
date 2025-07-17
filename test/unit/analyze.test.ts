@@ -542,4 +542,71 @@ export class Calculator {
       expect(greetNode!.type).toBe('arrow_function');
     });
   });
+
+  describe('Code Relationships', () => {
+    it("should create a 'calls' edge when one function calls another", async () => {
+      const files: FileContent[] = [
+        {
+          path: 'src/calls.ts',
+          content: `function a() { console.log('a'); }
+function b() { a(); }`
+        }
+      ];
+      const graph = await analyzer(files);
+      
+      const hasCallEdge = graph.edges.some(
+        e => e.fromId === 'src/calls.ts#b' && e.toId === 'src/calls.ts#a' && e.type === 'calls'
+      );
+      
+      expect(hasCallEdge).toBe(true);
+    });
+
+    it("should create 'inherits' and 'implements' edges for class expressions", async () => {
+      const files: FileContent[] = [
+        {
+          path: 'src/expressions.ts',
+          content: `
+interface IRunnable { run(): void; }
+class Base {}
+const MyClass = class extends Base implements IRunnable {
+  run() {}
+};`
+        }
+      ];
+      const graph = await analyzer(files);
+
+      const fromId = 'src/expressions.ts#MyClass';
+      const inheritsEdge = graph.edges.some(
+        e => e.fromId === fromId && e.toId === 'src/expressions.ts#Base' && e.type === 'inherits'
+      );
+      const implementsEdge = graph.edges.some(
+        e => e.fromId === fromId && e.toId === 'src/expressions.ts#IRunnable' && e.type === 'implements'
+      );
+      
+      expect(graph.nodes.has(fromId)).toBe(true);
+      expect(inheritsEdge).toBe(true);
+      expect(implementsEdge).toBe(true);
+    });
+
+    it("should correctly resolve module imports that omit the file extension", async () => {
+      const files: FileContent[] = [
+        {
+          path: 'src/main.ts',
+          content: "import { helper } from './utils'"
+        },
+        {
+          path: 'src/utils.ts',
+          content: 'export const helper = () => {};'
+        }
+      ];
+
+      const graph = await analyzer(files);
+      
+      const hasImportEdge = graph.edges.some(
+        e => e.fromId === 'src/main.ts' && e.toId === 'src/utils.ts' && e.type === 'imports'
+      );
+
+      expect(hasImportEdge).toBe(true);
+    });
+  });
 });

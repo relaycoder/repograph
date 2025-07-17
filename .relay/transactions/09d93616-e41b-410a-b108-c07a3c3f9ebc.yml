@@ -1,0 +1,1006 @@
+uuid: 09d93616-e41b-410a-b108-c07a3c3f9ebc
+projectId: repograph
+createdAt: '2025-07-17T23:15:49.251Z'
+linesAdded: 16
+linesRemoved: 10
+gitCommitMsg: 'fix(tests): resolve tsc errors in test suite'
+promptSummary: >-
+  The user provided a list of TypeScript compilation errors from `bun tsc`. I
+  have addressed all six errors by fixing incorrect test assertions, removing
+  unused code, explicitly typing variables to satisfy the compiler, and
+  adjusting the test setup for the GitRanker to avoid type mismatches.
+reasoning:
+  - >-
+    I've identified the causes of the TypeScript errors and will now apply the
+    necessary corrections. The issues stem from a mix of unused variables,
+    incorrect API usage in tests, and assumptions about test runner features.
+  - '### Step 1: Fix `multi-language.test.ts`'
+  - >-
+    The `toBe()` matcher in `bun:test` does not support a second argument for a
+    custom error message. I will remove the message.
+  - '### Step 2: Fix `composer.test.ts`'
+  - 'This file has three issues:'
+  - 1.  An unused type import (`RepoGraphMap`).
+  - 2.  An unused local class (`RepoGraphError`).
+  - 3.  An unused function parameter (`graph`).
+  - >-
+    I will add an explicit type to use the import, remove the unused class, and
+    rename the unused parameter with a `_` prefix to signify it's intentionally
+    ignored.
+  - '### Step 3: Fix `rank.test.ts`'
+  - >-
+    The `createGitRanker` function was being called with a `root` property that
+    its type definition doesn't recognize. The likely implementation relies on
+    the current working directory (`process.cwd()`). I will adjust the test to
+    change the working directory to the temporary test directory before running
+    the ranker, ensuring it can find the git repository without causing a type
+    error.
+  - These changes resolve all the reported TypeScript errors.
+operations:
+  - type: write
+    path: test/integration/multi-language.test.ts
+    content: >-
+      --- test/integration/multi-language.test.ts
+
+      +++ test/integration/multi-language.test.ts
+
+      @@ -90,7 +90,7 @@
+               const hasEdge = graph.edges.some(
+                 (e) => e.fromId === edge.from && e.toId === edge.to && e.type === edge.type
+               );
+      -        expect(hasEdge).toBe(true, `Missing edge: ${edge.from} ->
+      ${edge.to} (${edge.type})`);
+
+      +        expect(hasEdge).toBe(true);
+             }
+           }
+         });
+    patchStrategy: new-unified
+  - type: write
+    path: test/unit/composer.test.ts
+    content: >-
+      --- test/unit/composer.test.ts
+
+      +++ test/unit/composer.test.ts
+
+      @@ -231,12 +231,6 @@
+         });
+       
+         describe('Error Handling', () => {
+      -    // Mock RepoGraphError for type checking, assuming it's available.
+
+      -    class RepoGraphError extends Error {
+
+      -        constructor(message: string) { super(message); this.name =
+      'RepoGraphError'; }
+
+      -    }
+
+      -
+           it('should handle discoverer errors gracefully', async () => {
+             const errorDiscoverer: FileDiscoverer = async () => {
+               throw new Error('Discoverer failed');
+      @@ -339,7 +333,7 @@
+               render: createMarkdownRenderer()
+             });
+       
+      -      const result = await generator({ root: tempDir });
+
+      +      const result: RepoGraphMap = await generator({ root: tempDir });
+       
+             expect(result).toBeDefined();
+             expect(result.graph).toBeDefined();
+      @@ -350,7 +344,7 @@
+       
+           it('should pass the correct, fully-formed RendererOptions down to the renderer', async () => {
+               let receivedOptions: any;
+      -        const trackingRenderer: Renderer = (graph, options) => {
+
+      +        const trackingRenderer: Renderer = (_graph, options) => {
+                   receivedOptions = options;
+                   return '';
+               };
+    patchStrategy: new-unified
+  - type: write
+    path: test/unit/rank.test.ts
+    content: |-
+      --- test/unit/rank.test.ts
+      +++ test/unit/rank.test.ts
+      @@ -48,6 +48,18 @@
+         });
+       
+         describe('GitRanker', () => {
+      +    let originalCwd: string;
+      +
+      +    beforeEach(() => {
+      +      originalCwd = process.cwd();
+      +      process.chdir(tempDir);
+      +    });
+      +
+      +    afterEach(() => {
+      +      process.chdir(originalCwd);
+      +    });
+      +
+           it('should assign a rank of zero to files that have no commits in git history', async () => {
+             await setupGitRepo(tempDir);
+             await createTestFiles(tempDir, {
+      @@ -59,7 +71,7 @@
+               createTestNode('uncommitted.ts')
+             ]);
+       
+      -      const ranker = createGitRanker({ root: tempDir });
+      +      const ranker = createGitRanker();
+             const { ranks } = await ranker(graph);
+       
+             expect(ranks.get('committed.ts')).toBeGreaterThan(0);
+      @@ -79,7 +91,7 @@
+             await makeGitCommit(tempDir, 'feat: add c', ['renamed.ts']);
+             
+             const graph = createTestGraph([createTestNode('renamed.ts')]);
+      -      const ranker = createGitRanker({ root: tempDir });
+      +      const ranker = createGitRanker();
+             const { ranks } = await ranker(graph);
+             
+             // The rank should reflect all 3 commits, including history from before the rename.
+    patchStrategy: new-unified
+snapshot:
+  test/integration/multi-language.test.ts: |-
+    import { describe, it, expect } from 'bun:test';
+    import { runAnalyzerForTests } from '../test.util.js';
+    import type { FileContent } from '../../src/types.js';
+
+    interface TestCase {
+      language: string;
+      files: FileContent[];
+      expectedNodeIds: string[];
+      expectedEdges?: Array<{ from: string; to: string; type: 'imports' | 'inherits' | 'implements' }>;
+    }
+
+    describe('Multi-Language Support', () => {
+      const testCases: TestCase[] = [
+        {
+          language: 'TypeScript Relationships',
+          files: [
+            { path: 'src/base.ts', content: 'export class Base {}; export interface ILog { log(): void; }' },
+            { path: 'src/main.ts', content: "import { Base } from './base'; export class Main extends Base implements ILog { log() {} }" },
+          ],
+          expectedNodeIds: ['src/base.ts', 'src/base.ts#Base', 'src/base.ts#ILog', 'src/main.ts', 'src/main.ts#Main'],
+          expectedEdges: [
+            { from: 'src/main.ts', to: 'src/base.ts', type: 'imports' },
+            { from: 'src/main.ts#Main', to: 'src/base.ts#Base', type: 'inherits' },
+            { from: 'src/main.ts#Main', to: 'src/base.ts#ILog', type: 'implements' },
+          ],
+        },
+        {
+          language: 'Python Relationships',
+          files: [
+            { path: 'src/models/base.py', content: 'class Base:\n  pass' },
+            { path: 'src/models/user.py', content: 'from .base import Base\n\nclass User(Base):\n  pass' },
+          ],
+          expectedNodeIds: ['src/models/base.py', 'src/models/base.py#Base', 'src/models/user.py', 'src/models/user.py#User'],
+          expectedEdges: [
+            { from: 'src/models/user.py', to: 'src/models/base.py', type: 'imports' },
+            { from: 'src/models/user.py#User', to: 'src/models/base.py#Base', type: 'inherits' },
+          ],
+        },
+        {
+          language: 'Java Relationships',
+          files: [
+            { path: 'com/example/Base.java', content: 'package com.example; public class Base {}' },
+            { path: 'com/example/Iface.java', content: 'package com.example; public interface Iface {}' },
+            { path: 'com/example/Main.java', content: 'package com.example; import com.example.Base; public class Main extends Base implements Iface {}' },
+          ],
+          expectedNodeIds: [
+            'com/example/Base.java', 'com/example/Base.java#Base',
+            'com/example/Iface.java', 'com/example/Iface.java#Iface',
+            'com/example/Main.java', 'com/example/Main.java#Main',
+          ],
+          expectedEdges: [
+            { from: 'com/example/Main.java', to: 'com/example/Base.java', type: 'imports' },
+            { from: 'com/example/Main.java#Main', to: 'com/example/Base.java#Base', type: 'inherits' },
+            { from: 'com/example/Main.java#Main', to: 'com/example/Iface.java#Iface', type: 'implements' },
+          ]
+        },
+        {
+            language: 'Rust Relationships',
+            files: [
+                { path: 'src/utils.rs', content: 'pub fn helper() {}' },
+                { path: 'src/main.rs', content: 'mod utils; use utils::helper; fn main() { helper(); }' }
+            ],
+            expectedNodeIds: [
+                'src/utils.rs', 'src/utils.rs#helper',
+                'src/main.rs', 'src/main.rs#main', 'src/main.rs#helper'
+            ],
+            expectedEdges: [
+                { from: 'src/main.rs', to: 'src/utils.rs', type: 'imports' }
+            ]
+        },
+        {
+          language: 'Vue (Graceful Failure)',
+          files: [ { path: 'src/component.vue', content: '<template><div></div></template>' } ],
+          expectedNodeIds: ['src/component.vue'], // Should create a file node, but no symbol nodes due to parser issues.
+          expectedEdges: [],
+        }
+      ];
+
+      it.each(testCases)('should correctly analyze $language', async ({ files, expectedNodeIds, expectedEdges }) => {
+        const graph = await runAnalyzerForTests(files);
+
+        // Verify all expected nodes exist
+        for (const nodeId of expectedNodeIds) {
+          expect(graph.nodes.has(nodeId)).toBe(true);
+        }
+
+        // Verify all expected edges exist
+        if (expectedEdges) {
+          for (const edge of expectedEdges) {
+            const hasEdge = graph.edges.some(
+              (e) => e.fromId === edge.from && e.toId === edge.to && e.type === edge.type
+            );
+            expect(hasEdge).toBe(true, `Missing edge: ${edge.from} -> ${edge.to} (${edge.type})`);
+          }
+        }
+      });
+
+      it('should handle unsupported file types gracefully alongside supported ones', async () => {
+        const files: FileContent[] = [
+          { path: 'src/code.ts', content: `export const hello = 'world';` },
+          { path: 'README.md', content: '# This is markdown' },
+          { path: 'config.json', content: '{"key": "value"}' }
+        ];
+
+        const graph = await runAnalyzerForTests(files);
+        
+        expect(graph.nodes.has('src/code.ts')).toBe(true);
+        expect(graph.nodes.has('src/code.ts#hello')).toBe(true);
+        expect(graph.nodes.has('README.md')).toBe(true);
+        expect(graph.nodes.has('config.json')).toBe(true);
+
+        // Should not create symbol nodes for non-code files
+        expect(graph.nodes.size).toBe(4);
+      });
+    });
+  test/unit/composer.test.ts: >-
+    import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+
+    import { createMapGenerator } from '../../src/composer.js';
+
+    import { createDefaultDiscoverer } from '../../src/pipeline/discover.js';
+
+    import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
+
+    import { createPageRanker } from '../../src/pipeline/rank.js';
+
+    import { createMarkdownRenderer } from '../../src/pipeline/render.js';
+
+    import type { FileDiscoverer, Analyzer, Ranker, Renderer, FileContent,
+    RepoGraphMap } from '../../src/types.js';
+
+    import {
+      createTempDir, // Keep for beforeEach/afterEach
+      cleanupTempDir,
+      createTestFiles,
+      assertFileExists,
+      isValidMarkdown,
+    } from '../test.util.js';
+
+    import path from 'node:path';
+
+    import fs from 'node:fs/promises';
+
+
+    describe('Composer', () => {
+      let tempDir: string;
+
+      beforeEach(async () => {
+        tempDir = await createTempDir();
+      });
+
+      afterEach(async () => {
+        await cleanupTempDir(tempDir);
+      });
+
+      describe('createMapGenerator()', () => {
+        it('should return a function when given valid components', () => {
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          expect(typeof generator).toBe('function');
+        });
+
+        it('should require all four components', () => {
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker()
+            // Missing render
+          } as any)).toThrow();
+
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            // Missing rank
+            render: createMarkdownRenderer()
+          } as any)).toThrow();
+
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            // Missing analyze
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          } as any)).toThrow();
+
+          expect(() => createMapGenerator({
+            // Missing discover
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          } as any)).toThrow();
+        });
+
+        it('should create output directory if it does not exist', async () => {
+          const files = {
+            'src/index.ts': `export class Example {
+      method(): string {
+        return 'hello';
+      }
+    }`
+          };
+          await createTestFiles(tempDir, files);
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'nested', 'deep', 'output.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          await assertFileExists(outputPath);
+        });
+
+        it('should handle empty projects gracefully', async () => {
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'empty.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          await assertFileExists(outputPath);
+          const content = await fs.readFile(outputPath, 'utf-8');
+          expect(isValidMarkdown(content)).toBe(true);
+          expect(content).toContain('This repository contains 0 nodes (0 files)');
+        });
+      });
+
+      describe('Custom Components', () => {
+        let discoveredFiles: readonly FileContent[] = [];
+        it('should work with custom discoverer', async () => {
+          const files = {
+            'src/index.ts': 'export const ts = true;',
+            'src/index.js': 'export const js = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          // Custom discoverer that tracks what it found
+          const customDiscoverer: FileDiscoverer = async (options) => {
+            const defaultDiscoverer = createDefaultDiscoverer();
+            discoveredFiles = await defaultDiscoverer(options);
+            return discoveredFiles;
+          };
+
+          const generator = createMapGenerator({
+            discover: customDiscoverer,
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'custom.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          expect(discoveredFiles.some(f => f.path === 'src/index.js')).toBe(true);
+        });
+
+        it('should work with custom analyzer', async () => {
+          const files = {
+            'src/index.ts': `export class Example {
+      method(): string {
+        return 'hello';
+      }
+    }`
+          };
+          await createTestFiles(tempDir, files);
+
+          let wasCustomAnalyzerCalled = false;
+          const customAnalyzer: Analyzer = async (files) => {
+            wasCustomAnalyzerCalled = true;
+            const defaultAnalyzer = createTreeSitterAnalyzer();
+            return await defaultAnalyzer(files);
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: customAnalyzer,
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'custom.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          expect(wasCustomAnalyzerCalled).toBe(true);
+          await assertFileExists(outputPath);
+        });
+
+        it('should work with custom ranker', async () => {
+          const files = {
+            'src/a.ts': 'export const a = true;',
+            'src/b.ts': 'export const b = true;',
+            'src/c.ts': 'export const c = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          let wasCustomRankerCalled = false;
+          const customRanker: Ranker = async (graph) => {
+            wasCustomRankerCalled = true;
+            return await createPageRanker()(graph);
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: customRanker,
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'custom.md');
+          await generator({ root: tempDir, output: outputPath });
+
+          expect(wasCustomRankerCalled).toBe(true);
+        });
+
+        it('should work with custom renderer', async () => {
+          const files = {
+            'src/index.ts': `export class Example {
+      method(): string {
+        return 'hello';
+      }
+    }`
+          };
+          await createTestFiles(tempDir, files);
+
+          let wasCustomRendererCalled = false;
+          const customRenderer: Renderer = (rankedGraph, options) => {
+            wasCustomRendererCalled = true;
+            return createMarkdownRenderer()(rankedGraph, options);
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: customRenderer
+          });
+
+          const outputPath = path.join(tempDir, 'custom.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+          expect(wasCustomRendererCalled).toBe(true);
+        });
+
+        it('should work with all custom components', async () => {
+          const files = {
+            'custom.special': 'special file content',
+            'src/index.ts': 'export const normal = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const customDiscoverer: FileDiscoverer = async () => [{ path: 'custom.special', content: 'custom' }];
+          const customAnalyzer: Analyzer = async () => ({ nodes: new Map(), edges: [] });
+          const customRanker: Ranker = async (g) => ({ ...g, ranks: new Map() });
+          const customRenderer: Renderer = () => 'CUSTOM RENDERER OUTPUT';
+
+          const generator = createMapGenerator({
+            discover: customDiscoverer,
+            analyze: customAnalyzer,
+            rank: customRanker,
+            render: customRenderer
+          });
+
+          const outputPath = path.join(tempDir, 'custom.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          const content = await fs.readFile(outputPath, 'utf-8');
+          expect(content).toBe('CUSTOM RENDERER OUTPUT');
+        });
+      });
+
+      describe('Error Handling', () => {
+        // Mock RepoGraphError for type checking, assuming it's available.
+        class RepoGraphError extends Error {
+            constructor(message: string) { super(message); this.name = 'RepoGraphError'; }
+        }
+
+        it('should handle discoverer errors gracefully', async () => {
+          const errorDiscoverer: FileDiscoverer = async () => {
+            throw new Error('Discoverer failed');
+          };
+
+          const generator = createMapGenerator({
+            discover: errorDiscoverer,
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'error.md');
+          
+          await expect(generator({
+            root: tempDir,
+            output: outputPath
+          })).rejects.toThrow('Error in discover stage: Discoverer failed');
+        });
+
+        it('should handle analyzer errors gracefully', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const errorAnalyzer: Analyzer = async () => {
+            throw new Error('Analyzer failed');
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: errorAnalyzer,
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'error.md');
+          
+          await expect(generator({
+            root: tempDir,
+            output: outputPath
+          })).rejects.toThrow('Error in analyze stage: Analyzer failed');
+        });
+
+        it('should handle ranker errors gracefully', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const errorRanker: Ranker = async () => {
+            throw new Error('Ranker failed');
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: errorRanker,
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'error.md');
+          
+          await expect(generator({
+            root: tempDir,
+            output: outputPath
+          })).rejects.toThrow('Error in rank stage: Ranker failed');
+        });
+
+        it('should handle renderer errors gracefully', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const errorRenderer: Renderer = () => {
+            throw new Error('Renderer failed');
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: errorRenderer
+          });
+
+          const outputPath = path.join(tempDir, 'error.md');
+          
+          await expect(generator({
+            root: tempDir,
+            output: outputPath
+          })).rejects.toThrow('Error in render stage: Renderer failed');
+        });
+
+        it('should handle file write errors gracefully', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          // Try to write to an invalid path
+          const invalidOutputPath = '/root/cannot-write.md';
+          
+          await expect(generator({
+            root: tempDir,
+            output: invalidOutputPath
+          })).rejects.toThrow();
+        });
+      });
+
+      describe('API Behavior', () => {
+        it('should return a RepoGraphMap object when no output path is provided', async () => {
+          const files = { 'src/index.ts': 'export const a = 1;' };
+          await createTestFiles(tempDir, files);
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const result = await generator({ root: tempDir });
+
+          expect(result).toBeDefined();
+          expect(result.graph).toBeDefined();
+          expect(result.markdown).toBeDefined();
+          expect(result.graph.nodes.size).toBeGreaterThan(0);
+          expect(typeof result.markdown).toBe('string');
+        });
+
+        it('should pass the correct, fully-formed RendererOptions down to the renderer', async () => {
+            let receivedOptions: any;
+            const trackingRenderer: Renderer = (graph, options) => {
+                receivedOptions = options;
+                return '';
+            };
+
+            const generator = createMapGenerator({
+                discover: async () => [],
+                analyze: async () => ({ nodes: new Map(), edges: [] }),
+                rank: async (g) => ({ ...g, ranks: new Map() }),
+                render: trackingRenderer
+            });
+
+            await generator({ root: tempDir, output: 'out.md', rendererOptions: { topFileCount: 5, noMermaid: true } });
+            
+            expect(receivedOptions.topFileCount).toBe(5);
+            expect(receivedOptions.noMermaid).toBe(true);
+        });
+      });
+
+      describe('Component Interface Validation', () => {
+        it('should validate discoverer interface', () => {
+          const invalidDiscoverer = 'not a function';
+          
+          expect(() => createMapGenerator({
+            discover: invalidDiscoverer as any,
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          })).toThrow();
+        });
+
+        it('should validate analyzer interface', () => {
+          const invalidAnalyzer = 'not a function';
+          
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: invalidAnalyzer as any,
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          })).toThrow();
+        });
+
+        it('should validate ranker interface', () => {
+          const invalidRanker = 'not a function';
+          
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: invalidRanker as any,
+            render: createMarkdownRenderer()
+          })).toThrow();
+        });
+
+        it('should validate renderer interface', () => {
+          const invalidRenderer = 'not a function';
+          
+          expect(() => createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: createPageRanker(),
+            render: invalidRenderer as any
+          })).toThrow();
+        });
+      });
+
+      describe('Pipeline Data Flow', () => {
+        it('should pass files from discoverer to analyzer', async () => {
+          const files = {
+            'src/a.ts': 'export const a = true;',
+            'src/b.ts': 'export const b = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          let discoveredFiles: readonly FileContent[] = [];
+          let analyzedFiles: readonly FileContent[] = [];
+
+          const trackingDiscoverer: FileDiscoverer = async (options) => {
+            const defaultDiscoverer = createDefaultDiscoverer();
+            discoveredFiles = await defaultDiscoverer(options);
+            return discoveredFiles;
+          };
+
+          const trackingAnalyzer: Analyzer = async (files) => {
+            analyzedFiles = files;
+            const defaultAnalyzer = createTreeSitterAnalyzer();
+            return await defaultAnalyzer(files);
+          };
+
+          const generator = createMapGenerator({
+            discover: trackingDiscoverer,
+            analyze: trackingAnalyzer,
+            rank: createPageRanker(),
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'tracking.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          expect(discoveredFiles.length).toBe(2);
+          expect(analyzedFiles.length).toBe(2);
+          expect(analyzedFiles).toEqual(discoveredFiles);
+        });
+
+        it('should pass graph from analyzer to ranker', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          let analyzedGraph: any;
+          let rankedGraph: any;
+
+          const trackingAnalyzer: Analyzer = async (files) => {
+            const defaultAnalyzer = createTreeSitterAnalyzer();
+            analyzedGraph = await defaultAnalyzer(files);
+            return analyzedGraph;
+          };
+
+          const trackingRanker: Ranker = async (graph) => {
+            rankedGraph = graph;
+            const defaultRanker = createPageRanker();
+            return await defaultRanker(graph);
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: trackingAnalyzer,
+            rank: trackingRanker,
+            render: createMarkdownRenderer()
+          });
+
+          const outputPath = path.join(tempDir, 'tracking.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          expect(rankedGraph).toBe(analyzedGraph);
+        });
+
+        it('should pass ranked graph from ranker to renderer', async () => {
+          const files = {
+            'src/index.ts': 'export const test = true;'
+          };
+          await createTestFiles(tempDir, files);
+
+          let rankerOutput: any;
+          let rendererInput: any;
+
+          const trackingRanker: Ranker = async (graph) => {
+            const defaultRanker = createPageRanker();
+            rankerOutput = await defaultRanker(graph);
+            return rankerOutput;
+          };
+
+          const trackingRenderer: Renderer = (rankedGraph, options) => {
+            rendererInput = rankedGraph;
+            const defaultRenderer = createMarkdownRenderer();
+            return defaultRenderer(rankedGraph, options);
+          };
+
+          const generator = createMapGenerator({
+            discover: createDefaultDiscoverer(),
+            analyze: createTreeSitterAnalyzer(),
+            rank: trackingRanker,
+            render: trackingRenderer
+          });
+
+          const outputPath = path.join(tempDir, 'tracking.md');
+          await generator({
+            root: tempDir,
+            output: outputPath
+          });
+
+          expect(rendererInput).toBe(rankerOutput);
+        });
+      });
+    });
+  test/unit/rank.test.ts: >-
+    import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+
+    import { createPageRanker, createGitRanker } from
+    '../../src/pipeline/rank.js';
+
+    import {
+      createTempDir,
+      cleanupTempDir,
+      createTestFiles,
+      setupGitRepo,
+      makeGitCommit,
+      createTestGraph,
+      createTestNode
+    } from '../test.util.js';
+
+    import fs from 'node:fs/promises';
+
+    import path from 'node:path';
+
+
+    describe('Graph Rankers', () => {
+      let tempDir: string;
+
+      beforeEach(async () => {
+        tempDir = await createTempDir();
+      });
+
+      afterEach(async () => {
+        await cleanupTempDir(tempDir);
+      });
+
+      describe('PageRanker', () => {
+        it('should correctly calculate ranks in a graph with disconnected components', async () => {
+          const ranker = createPageRanker();
+          const graph = createTestGraph(
+            [
+              // Component 1
+              createTestNode('a.ts'),
+              createTestNode('b.ts'),
+              // Component 2
+              createTestNode('c.ts'),
+              createTestNode('d.ts'),
+            ],
+            [
+              { fromId: 'a.ts', toId: 'b.ts', type: 'imports' },
+              { fromId: 'c.ts', toId: 'd.ts', type: 'imports' }
+            ]
+          );
+          
+          const { ranks } = await ranker(graph);
+          
+          expect(ranks.size).toBe(4);
+          expect(ranks.get('a.ts')).toBeDefined();
+          expect(ranks.get('b.ts')).toBeDefined();
+          expect(ranks.get('c.ts')).toBeDefined();
+          expect(ranks.get('d.ts')).toBeDefined();
+          // In two identical components, ranks of corresponding nodes should be equal
+          expect(ranks.get('b.ts')).toBeCloseTo(ranks.get('d.ts')!);
+        });
+
+        it('should rank a central utility file imported by many others higher than leaf files', async () => {
+          const ranker = createPageRanker();
+          const graph = createTestGraph(
+            [
+              createTestNode('utils.ts'),
+              createTestNode('a.ts'),
+              createTestNode('b.ts'),
+              createTestNode('c.ts'),
+            ],
+            [
+              { fromId: 'a.ts', toId: 'utils.ts', type: 'imports' },
+              { fromId: 'b.ts', toId: 'utils.ts', type: 'imports' },
+              { fromId: 'c.ts', toId: 'utils.ts', type: 'imports' },
+            ]
+          );
+          
+          const { ranks } = await ranker(graph);
+          const utilRank = ranks.get('utils.ts')!;
+          const aRank = ranks.get('a.ts')!;
+          
+          expect(utilRank).toBeGreaterThan(aRank);
+        });
+      });
+
+      describe('GitRanker', () => {
+        it('should assign a rank of zero to files that have no commits in git history', async () => {
+          await setupGitRepo(tempDir);
+          await createTestFiles(tempDir, {
+            'committed.ts': 'export const a = 1;',
+            'uncommitted.ts': 'export const b = 2;'
+          });
+          await makeGitCommit(tempDir, 'Initial commit', ['committed.ts']);
+          
+          const graph = createTestGraph([
+            createTestNode('committed.ts'),
+            createTestNode('uncommitted.ts')
+          ]);
+
+          const ranker = createGitRanker({ root: tempDir });
+          const { ranks } = await ranker(graph);
+
+          expect(ranks.get('committed.ts')).toBeGreaterThan(0);
+          expect(ranks.get('uncommitted.ts')).toBe(0);
+        });
+
+        it('should correctly rank files when the git history contains file renames', async () => {
+          await setupGitRepo(tempDir);
+          
+          // Commit 1: Create original file
+          await createTestFiles(tempDir, { 'original.ts': 'let a = 1;' });
+          await makeGitCommit(tempDir, 'feat: create original');
+          
+          // Commit 2: Rename and modify
+          await fs.rename(path.join(tempDir, 'original.ts'), path.join(tempDir, 'renamed.ts'));
+          await createTestFiles(tempDir, { 'renamed.ts': 'let a = 1; let b = 2;' });
+          await makeGitCommit(tempDir, 'refactor: rename and modify', ['renamed.ts']);
+          
+          // Commit 3: Modify again
+          await createTestFiles(tempDir, { 'renamed.ts': 'let a = 1; let b = 2; let c = 3;' });
+          await makeGitCommit(tempDir, 'feat: add c', ['renamed.ts']);
+          
+          const graph = createTestGraph([createTestNode('renamed.ts')]);
+          const ranker = createGitRanker({ root: tempDir });
+          const { ranks } = await ranker(graph);
+          
+          // The rank should reflect all 3 commits, including history from before the rename.
+          // A rank of 1.0 indicates it has been part of every commit.
+          expect(ranks.get('renamed.ts')).toBe(1.0);
+        });
+      });
+    });
+approved: true

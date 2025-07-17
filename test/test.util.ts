@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { createTreeSitterAnalyzer } from '../src/pipeline/analyze.js';
 import yaml from 'js-yaml';
 import type { FileContent, CodeNode, CodeGraph, CodeEdge, RepoGraphOptions } from '../src/types.js';
 import { generateMap } from '../src/high-level.js';
@@ -350,6 +351,14 @@ export const setupGitRepo = async (dir: string) => {
   } catch (e) {
     // Silently fail if git is not available
   }
+};
+
+/**
+ * Runs only the analysis stage for testing purposes.
+ */
+export const runAnalyzerForTests = async (files: FileContent[]): Promise<CodeGraph> => {
+  const analyzer = createTreeSitterAnalyzer();
+  return await analyzer(files);
 };
 
 /**

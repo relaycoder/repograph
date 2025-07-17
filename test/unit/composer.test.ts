@@ -4,7 +4,7 @@ import { createDefaultDiscoverer } from '../../src/pipeline/discover.js';
 import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
 import { createPageRanker } from '../../src/pipeline/rank.js';
 import { createMarkdownRenderer } from '../../src/pipeline/render.js';
-import type { FileDiscoverer, Analyzer, Ranker, Renderer, FileContent } from '../../src/types.js';
+import type { FileDiscoverer, Analyzer, Ranker, Renderer, FileContent, RepoGraphMap } from '../../src/types.js';
 import {
   createTempDir, // Keep for beforeEach/afterEach
   cleanupTempDir,
@@ -287,7 +287,7 @@ describe('Composer', () => {
       await expect(generator({
         root: tempDir,
         output: outputPath
-      })).rejects.toThrow('Discoverer failed');
+      })).rejects.toThrow('Error in discover stage: Discoverer failed');
     });
 
     it('should handle analyzer errors gracefully', async () => {
@@ -312,7 +312,7 @@ describe('Composer', () => {
       await expect(generator({
         root: tempDir,
         output: outputPath
-      })).rejects.toThrow('Analyzer failed');
+      })).rejects.toThrow('Error in analyze stage: Analyzer failed');
     });
 
     it('should handle ranker errors gracefully', async () => {
@@ -337,7 +337,7 @@ describe('Composer', () => {
       await expect(generator({
         root: tempDir,
         output: outputPath
-      })).rejects.toThrow('Ranker failed');
+      })).rejects.toThrow('Error in rank stage: Ranker failed');
     });
 
     it('should handle renderer errors gracefully', async () => {
@@ -362,7 +362,7 @@ describe('Composer', () => {
       await expect(generator({
         root: tempDir,
         output: outputPath
-      })).rejects.toThrow('Renderer failed');
+      })).rejects.toThrow('Error in render stage: Renderer failed');
     });
 
     it('should handle file write errors gracefully', async () => {
@@ -385,6 +385,48 @@ describe('Composer', () => {
         root: tempDir,
         output: invalidOutputPath
       })).rejects.toThrow();
+    });
+  });
+
+  describe('API Behavior', () => {
+    it('should return a RepoGraphMap object when no output path is provided', async () => {
+      const files = { 'src/index.ts': 'export const a = 1;' };
+      await createTestFiles(tempDir, files);
+
+      const generator = createMapGenerator({
+        discover: createDefaultDiscoverer(),
+        analyze: createTreeSitterAnalyzer(),
+        rank: createPageRanker(),
+        render: createMarkdownRenderer()
+      });
+
+      const result: RepoGraphMap = await generator({ root: tempDir });
+
+      expect(result).toBeDefined();
+      expect(result.graph).toBeDefined();
+      expect(result.markdown).toBeDefined();
+      expect(result.graph.nodes.size).toBeGreaterThan(0);
+      expect(typeof result.markdown).toBe('string');
+    });
+
+    it('should pass the correct, fully-formed RendererOptions down to the renderer', async () => {
+        let receivedOptions: any;
+        const trackingRenderer: Renderer = (_graph, options) => {
+            receivedOptions = options;
+            return '';
+        };
+
+        const generator = createMapGenerator({
+            discover: async () => [],
+            analyze: async () => ({ nodes: new Map(), edges: [] }),
+            rank: async (g) => ({ ...g, ranks: new Map() }),
+            render: trackingRenderer
+        });
+
+        await generator({ root: tempDir, output: 'out.md', rendererOptions: { topFileCount: 5, noMermaid: true } });
+        
+        expect(receivedOptions.topFileCount).toBe(5);
+        expect(receivedOptions.noMermaid).toBe(true);
     });
   });
 
