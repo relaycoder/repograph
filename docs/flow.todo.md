@@ -1,3 +1,15 @@
+if programmer user wants to get only the related path.
+
+===
+
+if programmer user wants to build this format, can he do it with current public programmatic low-level api?
+
+===
+
+update readme to show detailed usage example like input and output both in high level and low level programmatic api
+
+===
+
 the low level api needs tests files and cases. give me the list in `it should` language
 
 ===

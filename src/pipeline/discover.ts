@@ -1,5 +1,6 @@
 import { globby } from 'globby';
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import Ignore from 'ignore';
 import type { FileContent, FileDiscoverer } from '../types.js';
 import { isDirectory, readFile } from '../utils/fs.util.js';
@@ -54,10 +55,30 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       gitignore: false, // We handle gitignore patterns manually
       dot: true,
       absolute: false,
+      followSymbolicLinks: true,
+      onlyFiles: true,
     });
+
+    // Filter out files that would cause symlink cycles
+    const visitedRealPaths = new Set<string>();
+    const safeRelativePaths: string[] = [];
+    
+    for (const relativePath of relativePaths) {
+      const fullPath = path.resolve(root, relativePath);
+      try {
+        const realPath = await realpath(fullPath);
+        if (!visitedRealPaths.has(realPath)) {
+          visitedRealPaths.add(realPath);
+          safeRelativePaths.push(relativePath);
+        }
+      } catch (error) {
+        // If we can't resolve the real path, skip this file
+        logger.debug(`Skipping file due to symlink resolution error: ${relativePath}`);
+      }
+    }
     
     // Filter the paths using the ignore package
-    const filteredPaths = relativePaths.filter(p => !ignoreFilter.ignores(p));
+    const filteredPaths = safeRelativePaths.filter(p => !ignoreFilter.ignores(p));
 
     const fileContents = await Promise.all(
       filteredPaths.map(async (relativePath): Promise<FileContent | null> => {

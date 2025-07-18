@@ -1,1010 +1,490 @@
 # Directory Structure
 ```
-test/
-  integration/
-    multi-language.test.ts
-  unit/
-    analyze.test.ts
-    composer.test.ts
-  test.util.ts
+src/
+  pipeline/
+    analyze.ts
+    discover.ts
+    rank.ts
+    render.ts
+  tree-sitter/
+    language-config.ts
+    languages.ts
+    queries.ts
+  types/
+    graphology-pagerank.d.ts
+  utils/
+    error.util.ts
+    fs.util.ts
+    logger.util.ts
+  composer.ts
+  high-level.ts
+  index.ts
+  types.ts
 README.md
 ```
 
 # Files
 
-## File: test/unit/analyze.test.ts
+## File: src/utils/error.util.ts
 ````typescript
-import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
-import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
-import type { FileContent } from '../../src/types.js';
-import {
-  createTempDir,
-  cleanupTempDir,
-  loadFixture,
-  createProjectFromFixture
-} from '../test.util.js';
-
-describe('Tree-sitter Analysis', () => {
-  let tempDir: string;
-  let analyzer: ReturnType<typeof createTreeSitterAnalyzer>;
-
-  beforeEach(async () => {
-    tempDir = await createTempDir();
-    analyzer = createTreeSitterAnalyzer();
-  });
-
-  afterEach(async () => {
-    await cleanupTempDir(tempDir);
-  });
-
-  describe('createTreeSitterAnalyzer()', () => {
-    it('should return an Analyzer function', () => {
-      expect(typeof analyzer).toBe('function');
-    });
-
-    it('should create a CodeGraph from file content', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/index.ts',
-          content: `export function hello(): string {
-  return 'Hello, World!';
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      expect(graph).toBeDefined();
-      expect(graph.nodes.size).toBeGreaterThan(0); // Should have nodes
-    });
-
-    it('should add file nodes to the graph', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/index.ts',
-          content: 'export const hello = "world";'
-        },
-        {
-          path: 'src/utils.ts',
-          content: 'export const util = () => {};'
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      expect(graph.nodes.has('src/index.ts')).toBe(true);
-      expect(graph.nodes.has('src/utils.ts')).toBe(true);
-
-      const indexNode = graph.nodes.get('src/index.ts');
-      expect(indexNode!.type).toBe('file');
-      expect(indexNode!.name).toBe('index.ts');
-      expect(indexNode!.filePath).toBe('src/index.ts');
-    });
-
-    it('should identify function declarations', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/functions.ts',
-          content: `export function add(a: number, b: number): number {
-  return a + b;
-}
-
-export function multiply(x: number, y: number): number {
-  return x * y;
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      expect(graph.nodes.has('src/functions.ts#add')).toBe(true);
-      expect(graph.nodes.has('src/functions.ts#multiply')).toBe(true);
-
-      const addNode = graph.nodes.get('src/functions.ts#add');
-      expect(addNode!.type).toBe('function');
-      expect(addNode!.name).toBe('add');
-      expect(addNode!.filePath).toBe('src/functions.ts');
-      expect(addNode!.startLine).toBeGreaterThan(0);
-    });
-
-    it('should identify arrow function declarations', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/arrows.ts',
-          content: `export const greet = (name: string): string => {
-  return \`Hello, \${name}!\`;
-};
-
-const calculate = (x: number, y: number): number => x + y;`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      expect(graph.nodes.has('src/arrows.ts#greet')).toBe(true);
-      expect(graph.nodes.has('src/arrows.ts#calculate')).toBe(true);
-
-      const greetNode = graph.nodes.get('src/arrows.ts#greet');
-      expect(greetNode!.type).toBe('arrow_function');
-      expect(greetNode!.name).toBe('greet');
-    });
-
-    it('should identify class declarations', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/classes.ts',
-          content: `export class Calculator {
-  private value: number = 0;
-  
-  add(n: number): this {
-    this.value += n;
-    return this;
-  }
-}
-
-class Logger {
-  log(message: string): void {
-    console.log(message);
-  }
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      expect(graph.nodes.has('src/classes.ts#Calculator')).toBe(true);
-      expect(graph.nodes.has('src/classes.ts#Logger')).toBe(true);
-
-      const calculatorNode = graph.nodes.get('src/classes.ts#Calculator');
-      expect(calculatorNode!.type).toBe('class');
-      expect(calculatorNode!.name).toBe('Calculator');
-      expect(calculatorNode!.codeSnippet).toContain('export class Calculator');
-    });
-
-    it('should identify interface declarations', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/interfaces.ts',
-          content: `export interface User {
-  id: number;
-  name: string;
-  email: string;
-}
-
-interface Config {
-  debug: boolean;
-  version: string;
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      expect(graph.nodes.has('src/interfaces.ts#User')).toBe(true);
-      expect(graph.nodes.has('src/interfaces.ts#Config')).toBe(true);
-
-      const userNode = graph.nodes.get('src/interfaces.ts#User');
-      expect(userNode!.type).toBe('interface');
-      expect(userNode!.name).toBe('User');
-    });
-
-    it('should identify type alias declarations', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/types.ts',
-          content: `export type Status = 'active' | 'inactive' | 'pending';
-
-type Handler = (event: Event) => void;
-
-export type UserRole = 'admin' | 'user' | 'guest';`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      expect(graph.nodes.has('src/types.ts#Status')).toBe(true);
-      expect(graph.nodes.has('src/types.ts#Handler')).toBe(true);
-      expect(graph.nodes.has('src/types.ts#UserRole')).toBe(true);
-
-      const statusNode = graph.nodes.get('src/types.ts#Status');
-      expect(statusNode!.type).toBe('type');
-      expect(statusNode!.name).toBe('Status');
-    });
-
-    it('should identify import statements and create edges', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/index.ts',
-          content: `import { Calculator } from './calculator.js';
-import { Logger } from './utils/logger.js';
-
-export { Calculator, Logger };`
-        },
-        {
-          path: 'src/calculator.ts',
-          content: `export class Calculator {
-  add(a: number, b: number): number {
-    return a + b;
-  }
-}`
-        },
-        {
-          path: 'src/utils/logger.ts',
-          content: `export class Logger {
-  log(message: string): void {
-    console.log(message);
-  }
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      // Check if import edges exist
-      const hasCalculatorImport = graph.edges.some(e => e.fromId === 'src/index.ts' && e.toId === 'src/calculator.ts');
-      const hasLoggerImport = graph.edges.some(e => e.fromId === 'src/index.ts' && e.toId === 'src/utils/logger.ts');
-      
-      expect(hasCalculatorImport).toBe(true);
-      expect(hasLoggerImport).toBe(true);
-    });
-
-    it('should handle files with no symbols gracefully', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'README.md',
-          content: '# Project\n\nThis is a readme file.'
-        },
-        {
-          path: 'src/empty.ts',
-          content: '// This file is empty\n'
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      // Should still create file nodes
-      expect(graph.nodes.has('README.md')).toBe(true);
-      expect(graph.nodes.has('src/empty.ts')).toBe(true);
-
-      const readmeNode = graph.nodes.get('README.md');
-      expect(readmeNode!.type).toBe('file');
-    });
-
-    it('should handle malformed or unparseable files gracefully', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/valid.ts',
-          content: 'export const valid = true;'
-        },
-        {
-          path: 'src/invalid.ts',
-          content: 'this is not valid typescript syntax {'
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      // Should still create file nodes for both
-      expect(graph.nodes.has('src/valid.ts')).toBe(true);
-      expect(graph.nodes.has('src/invalid.ts')).toBe(true);
-    });
-
-    it('should set correct line numbers for symbols', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/multiline.ts',
-          content: `// Line 1
-// Line 2
-export class FirstClass {
-  // Line 4
-  method(): void {}
-}
-
-// Line 8
-export function secondFunction(): string {
-  return 'hello';
-}
-
-// Line 13
-export interface ThirdInterface {
-  prop: string;
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      const firstClass = graph.nodes.get('src/multiline.ts#FirstClass');
-      const secondFunction = graph.nodes.get('src/multiline.ts#secondFunction');
-      const thirdInterface = graph.nodes.get('src/multiline.ts#ThirdInterface');
-
-      expect(firstClass!.startLine).toBe(3);
-      expect(secondFunction!.startLine).toBe(9);
-      expect(thirdInterface!.startLine).toBe(14);
-
-      expect(firstClass!.endLine).toBeGreaterThan(firstClass!.startLine);
-      expect(secondFunction!.endLine).toBeGreaterThan(secondFunction!.startLine);
-      expect(thirdInterface!.endLine).toBeGreaterThan(thirdInterface!.startLine);
-    });
-
-    it('should include code snippets for symbols', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/snippets.ts',
-          content: `export class Calculator {
-  private value: number = 0;
-  
-  add(n: number): this {
-    this.value += n;
-    return this;
-  }
-}
-
-export function multiply(a: number, b: number): number {
-  return a * b;
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      const calculatorNode = graph.nodes.get('src/snippets.ts#Calculator');
-      const multiplyNode = graph.nodes.get('src/snippets.ts#multiply');
-
-      expect(calculatorNode!.codeSnippet).toContain('export class Calculator');
-      expect(multiplyNode!.codeSnippet).toContain('export function multiply(a: number, b: number): number');
-    });
-
-    it('should handle complex import patterns', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/imports.ts',
-          content: `import { Calculator } from './math/calculator.js';
-import * as utils from './utils.js';
-import type { Config } from './config.js';
-import Logger, { LogLevel } from './logger.js';`
-        },
-        {
-          path: 'src/math/calculator.ts',
-          content: 'export class Calculator {}'
-        },
-        {
-          path: 'src/utils.ts',
-          content: 'export const helper = () => {};'
-        },
-        {
-          path: 'src/config.ts',
-          content: 'export interface Config {}'
-        },
-        {
-          path: 'src/logger.ts',
-          content: 'export default class Logger {}'
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      // Check import edges
-      const hasCalcImport = graph.edges.some(e => e.fromId === 'src/imports.ts' && e.toId === 'src/math/calculator.ts');
-      const hasUtilsImport = graph.edges.some(e => e.fromId === 'src/imports.ts' && e.toId === 'src/utils.ts');
-      const hasConfigImport = graph.edges.some(e => e.fromId === 'src/imports.ts' && e.toId === 'src/config.ts');
-      const hasLoggerImport = graph.edges.some(e => e.fromId === 'src/imports.ts' && e.toId === 'src/logger.ts');
-      expect(hasCalcImport).toBe(true);
-      expect(hasUtilsImport).toBe(true);
-      expect(hasConfigImport).toBe(true);
-      expect(hasLoggerImport).toBe(true);
-    });
-
-    it('should handle nested class and function definitions', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/nested.ts',
-          content: `export class OuterClass {
-  private inner = class InnerClass {
-    method(): void {}
-  };
-  
-  outerMethod(): void {
-    function nestedFunction(): string {
-      return 'nested';
+export class RepoGraphError extends Error {
+  constructor(message: string, public readonly originalError?: unknown) {
+    super(message);
+    this.name = 'RepoGraphError';
+    if (this.originalError instanceof Error && this.originalError.stack) {
+      this.stack = `${this.stack}\nCaused by: ${this.originalError.stack}`;
     }
-    nestedFunction();
-  }
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      // Should identify the outer class
-      expect(graph.nodes.has('src/nested.ts#OuterClass')).toBe(true);
-      
-      const outerClass = graph.nodes.get('src/nested.ts#OuterClass');
-      expect(outerClass!.type).toBe('class');
-      expect(outerClass!.name).toBe('OuterClass');
-    });
-
-    it('should handle circular imports gracefully', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/a.ts',
-          content: `import { B } from './b.js';
-export class A {
-  b: B;
-}`
-        },
-        {
-          path: 'src/b.ts',
-          content: `import { A } from './a.js';
-export class B {
-  a: A;
-}`
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      const aToB = graph.edges.some(e => e.fromId === 'src/a.ts' && e.toId === 'src/b.ts');
-      const bToA = graph.edges.some(e => e.fromId === 'src/b.ts' && e.toId === 'src/a.ts');
-      
-      expect(aToB).toBe(true);
-      expect(bToA).toBe(true);
-      expect(graph.nodes.has('src/a.ts#A')).toBe(true);
-      expect(graph.nodes.has('src/b.ts#B')).toBe(true);
-    });
-    it('should not create duplicate nodes for the same symbol', async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/duplicate.ts',
-          content: `export class Calculator {
-  add(a: number, b: number): number {
-    return a + b;
   }
 }
 
-// This should not create a duplicate
-export class Calculator {
-  multiply(a: number, b: number): number {
-    return a * b;
+export class FileSystemError extends RepoGraphError {
+  constructor(message: string, public readonly path: string, originalError?: unknown) {
+    super(`${message}: ${path}`, originalError);
+    this.name = 'FileSystemError';
   }
-}`
-        }
-      ];
+}
 
-      const graph = await analyzer(files);
-
-      // Should only have one Calculator node (first one wins)
-      const calculatorNodes = [...graph.nodes.keys()].filter((nodeId) =>
-        nodeId.includes('#Calculator')
-      );
-      expect(calculatorNodes.length).toBe(1);
-    });
-  });
-
-  describe('Integration with Fixtures', () => {
-    it('should analyze sample-project fixture correctly', async () => {
-      const fixture = await loadFixture('sample-project');
-      await createProjectFromFixture(tempDir, fixture);
-
-      const files: FileContent[] = [];
-      for (const file of fixture.files) {
-        if (file.path.endsWith('.ts')) {
-          files.push({
-            path: file.path,
-            content: file.content
-          });
-        }
-      }
-
-      const graph = await analyzer(files);
-
-      expect(graph.nodes.size).toBe(fixture.expected_nodes!);
-      
-      // Check for specific symbols from the fixture
-      expect(graph.nodes.has('src/calculator.ts#Calculator')).toBe(true);
-      expect(graph.nodes.has('src/utils/logger.ts#Logger')).toBe(true);
-      expect(graph.nodes.has('src/types.ts#Config')).toBe(true);
-    });
-
-    it('should analyze complex-project fixture correctly', async () => {
-      const fixture = await loadFixture('complex-project');
-      await createProjectFromFixture(tempDir, fixture);
-
-      const files: FileContent[] = [];
-      for (const file of fixture.files) {
-        if (file.path.endsWith('.ts') && !file.path.includes('test')) {
-          files.push({
-            path: file.path,
-            content: file.content
-          });
-        }
-      }
-
-      const graph = await analyzer(files);
-
-      // Check for key classes and interfaces
-      expect(graph.nodes.has('src/database/index.ts#Database')).toBe(true);
-      expect(graph.nodes.has('src/api/server.ts#ApiServer')).toBe(true);
-      expect(graph.nodes.has('src/services/user.ts#UserService')).toBe(true);
-      
-      // Check for import relationships
-      const serverToDb = graph.edges.some(e => e.fromId === 'src/api/server.ts' && e.toId === 'src/database/index.ts');
-      const serverToUser = graph.edges.some(e => e.fromId === 'src/api/server.ts' && e.toId === 'src/services/user.ts');
-      expect(serverToDb).toBe(true);
-      expect(serverToUser).toBe(true);
-    });
-
-    it('should handle minimal-project fixture', async () => {
-      const fixture = await loadFixture('minimal-project');
-      await createProjectFromFixture(tempDir, fixture);
-
-      const files: FileContent[] = [
-        {
-          path: 'src/main.ts',
-          content: fixture.files[0]!.content
-        }
-      ];
-
-      const graph = await analyzer(files);
-
-      expect(graph.nodes.has('src/main.ts')).toBe(true);
-      expect(graph.nodes.has('src/main.ts#hello')).toBe(true);
-      expect(graph.nodes.has('src/main.ts#greet')).toBe(true);
-
-      const helloNode = graph.nodes.get('src/main.ts#hello');
-      const greetNode = graph.nodes.get('src/main.ts#greet');
-
-      expect(helloNode!.type).toBe('function');
-      expect(greetNode!.type).toBe('arrow_function');
-    });
-  });
-
-  describe('Code Relationships', () => {
-    it("should create a 'calls' edge when one function calls another", async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/calls.ts',
-          content: `function a() { console.log('a'); }
-function b() { a(); }`
-        }
-      ];
-      const graph = await analyzer(files);
-      
-      const hasCallEdge = graph.edges.some(
-        e => e.fromId === 'src/calls.ts#b' && e.toId === 'src/calls.ts#a' && e.type === 'calls'
-      );
-      
-      expect(hasCallEdge).toBe(true);
-    });
-
-    it("should create 'inherits' and 'implements' edges for class expressions", async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/expressions.ts',
-          content: `
-interface IRunnable { run(): void; }
-class Base {}
-const MyClass = class extends Base implements IRunnable {
-  run() {}
-};`
-        }
-      ];
-      const graph = await analyzer(files);
-
-      const fromId = 'src/expressions.ts#MyClass';
-      const inheritsEdge = graph.edges.some(
-        e => e.fromId === fromId && e.toId === 'src/expressions.ts#Base' && e.type === 'inherits'
-      );
-      const implementsEdge = graph.edges.some(
-        e => e.fromId === fromId && e.toId === 'src/expressions.ts#IRunnable' && e.type === 'implements'
-      );
-      
-      expect(graph.nodes.has(fromId)).toBe(true);
-      expect(inheritsEdge).toBe(true);
-      expect(implementsEdge).toBe(true);
-    });
-
-    it("should correctly resolve module imports that omit the file extension", async () => {
-      const files: FileContent[] = [
-        {
-          path: 'src/main.ts',
-          content: "import { helper } from './utils'"
-        },
-        {
-          path: 'src/utils.ts',
-          content: 'export const helper = () => {};'
-        }
-      ];
-
-      const graph = await analyzer(files);
-      
-      const hasImportEdge = graph.edges.some(
-        e => e.fromId === 'src/main.ts' && e.toId === 'src/utils.ts' && e.type === 'imports'
-      );
-
-      expect(hasImportEdge).toBe(true);
-    });
-  });
-});
+export class ParserError extends RepoGraphError {
+  constructor(message: string, public readonly language?: string, originalError?: unknown) {
+    super(language ? `[${language}] ${message}` : message, originalError);
+    this.name = 'ParserError';
+  }
+}
 ````
 
-## File: test/test.util.ts
+## File: src/utils/fs.util.ts
 ````typescript
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { tmpdir } from 'node:os';
-import { createTreeSitterAnalyzer } from '../src/pipeline/analyze.js';
-import yaml from 'js-yaml';
-import type { FileContent, CodeNode, CodeGraph, CodeEdge, RepoGraphOptions } from '../src/types.js';
-import { generateMap } from '../src/high-level.js';
-import { execSync } from 'node:child_process';
+import { FileSystemError } from './error.util.js';
 
-/**
- * Test utilities for RepoGraph testing
- */
-
-/**
- * Creates a temporary directory for testing
- */
-export const createTempDir = async (): Promise<string> => {
-  const tempDir = await fs.mkdtemp(path.join(tmpdir(), 'repograph-test-'));
-  return tempDir;
-};
-
-/**
- * Cleans up a temporary directory
- */
-export const cleanupTempDir = async (dir: string): Promise<void> => {
-  try {
-    await fs.rm(dir, { recursive: true, force: true });
-  } catch (error) {
-    // Ignore cleanup errors
-  }
-};
-
-/**
- * Creates a test file structure in a directory
- */
-export const createTestFiles = async (
-  baseDir: string,
-  files: Record<string, string>
-): Promise<void> => {
-  for (const [filePath, content] of Object.entries(files)) {
-    const fullPath = path.join(baseDir, filePath);
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, content);
-  }
-};
-
-/**
- * Creates a .gitignore file in the specified directory
- */
-export const createGitignore = async (
-  baseDir: string,
-  patterns: string[]
-): Promise<void> => {
-  const gitignorePath = path.join(baseDir, '.gitignore');
-  await fs.writeFile(gitignorePath, patterns.join('\n'));
-};
-
-/**
- * Reads all files in a directory recursively
- */
-export const readAllFiles = async (dir: string): Promise<FileContent[]> => {
-  const files: FileContent[] = [];
-  
-  const readDir = async (currentDir: string, relativePath = ''): Promise<void> => {
-    const entries = await fs.readdir(currentDir, { withFileTypes: true });
-    
-    for (const entry of entries) {
-      const entryPath = path.join(currentDir, entry.name);
-      const relativeEntryPath = path.join(relativePath, entry.name);
-      
-      if (entry.isDirectory()) {
-        await readDir(entryPath, relativeEntryPath);
-      } else if (entry.isFile()) {
-        try {
-          const content = await fs.readFile(entryPath, 'utf-8');
-          files.push({
-            path: relativeEntryPath.replace(/\\/g, '/'), // Normalize path separators
-            content
-          });
-        } catch {
-          // Skip files that can't be read
-        }
-      }
-    }
-  };
-  
-  await readDir(dir);
-  return files;
-};
-
-/**
- * Creates sample TypeScript files for testing
- */
-export const createSampleTSFiles = (): Record<string, string> => {
-  return {
-    'src/index.ts': `export { Calculator } from './calculator.js';
-export { Logger } from './utils/logger.js';`,
-    
-    'src/calculator.ts': `import { Logger } from './utils/logger.js';
-
-export class Calculator {
-  private logger: Logger;
-  
-  constructor() {
-    this.logger = new Logger();
-  }
-  
-  add(a: number, b: number): number {
-    this.logger.log('Adding numbers');
-    return a + b;
-  }
-  
-  multiply = (a: number, b: number): number => {
-    return a * b;
-  };
-}`,
-    
-    'src/utils/logger.ts': `export interface LogLevel {
-  level: 'info' | 'warn' | 'error';
-}
-
-export type LogMessage = string;
-
-export class Logger {
-  log(message: LogMessage): void {
-    console.log(message);
-  }
-  
-  warn(message: LogMessage): void {
-    console.warn(message);
-  }
-}
-
-export const createLogger = (): Logger => {
-  return new Logger();
-};`,
-    
-    'src/types.ts': `export interface Config {
-  debug: boolean;
-  version: string;
-}
-
-export type Status = 'active' | 'inactive';`,
-    
-    'README.md': '# Test Project\n\nThis is a test project.',
-    
-    'package.json': JSON.stringify({
-      name: 'test-project',
-      version: '1.0.0',
-      type: 'module'
-    }, null, 2)
-  };
-};
-
-/**
- * Creates a minimal test project structure
- */
-export const createMinimalProject = (): Record<string, string> => {
-  return {
-    'src/main.ts': `export function hello(): string {
-  return 'Hello, World!';
-}`,
-    'package.json': JSON.stringify({
-      name: 'minimal-project',
-      version: '1.0.0'
-    }, null, 2)
-  };
-};
-
-/**
- * Asserts that a file exists
- */
-export const assertFileExists = async (filePath: string): Promise<void> => {
-  try {
-    await fs.access(filePath);
-  } catch {
-    throw new Error(`File does not exist: ${filePath}`);
-  }
-};
-
-/**
- * Reads a file and returns its content
- */
 export const readFile = async (filePath: string): Promise<string> => {
-  return await fs.readFile(filePath, 'utf-8');
-};
-
-/**
- * Checks if a directory exists
- */
-export const directoryExists = async (dirPath: string): Promise<boolean> => {
   try {
-    const stat = await fs.stat(dirPath);
-    return stat.isDirectory();
-  } catch {
-    return false;
+    const buffer = await fs.readFile(filePath);
+    // A simple heuristic to filter out binary files is checking for a null byte.
+    if (buffer.includes(0)) {
+      throw new FileSystemError('File appears to be binary', filePath);
+    }
+    return buffer.toString('utf-8');
+  } catch (e) {
+    if (e instanceof FileSystemError) {
+      throw e;
+    }
+    throw new FileSystemError('Failed to read file', filePath, e);
   }
 };
 
-/**
- * Creates a symbolic link for testing
- */
-export const createSymlink = async (target: string, linkPath: string): Promise<void> => {
+export const writeFile = async (filePath: string, content: string): Promise<void> => {
   try {
-    await fs.symlink(target, linkPath);
-  } catch {
-    // Ignore symlink creation errors (may not be supported on all platforms)
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, content);
+  } catch (e) {
+    throw new FileSystemError('Failed to write file', filePath, e);
   }
 };
 
-/**
- * Validates that a string contains valid Markdown
- */
-export const isValidMarkdown = (content: string): boolean => {
-  // Basic markdown validation: check for headers or the standard empty message.
-  const hasHeaders = /^#{1,6}\s+.+$/m.test(content);
-  const hasEmptyMessage = /This repository contains 0 nodes/.test(content);
-  return hasHeaders || hasEmptyMessage;
+export const isDirectory = async (filePath: string): Promise<boolean> => {
+  try {
+    const stats = await fs.stat(filePath);
+    return stats.isDirectory();
+  } catch (e) {
+    if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
+      return false;
+    }
+    throw new FileSystemError('Failed to check if path is a directory', filePath, e);
+  }
+};
+````
+
+## File: src/types/graphology-pagerank.d.ts
+````typescript
+declare module 'graphology-pagerank' {
+  import type Graph from 'graphology';
+
+  export default function pagerank<T = any>(graph: Graph<T>, options?: {
+    alpha?: number;
+    tolerance?: number;
+    maxIterations?: number;
+    getEdgeWeight?: (edge: string) => number;
+  }): Record<string, number>;
+}
+````
+
+## File: src/utils/logger.util.ts
+````typescript
+export const LogLevels = {
+  silent: 0,
+  error: 1,
+  warn: 2,
+  info: 3,
+  debug: 4,
+} as const;
+
+export type LogLevel = keyof typeof LogLevels;
+
+// This state is internal to the logger module.
+let currentLevel: LogLevel = 'info';
+
+const logFunctions: Record<Exclude<LogLevel, 'silent'>, (...args: any[]) => void> = {
+  error: console.error,
+  warn: console.warn,
+  info: console.log, // Use console.log for info for cleaner output
+  debug: console.debug,
 };
 
-/**
- * Validates that a string contains valid Mermaid syntax
- */
-export const containsValidMermaid = (content: string): boolean => {
-  return content.includes('```mermaid') && content.includes('graph TD');
+const log = (level: LogLevel, ...args: any[]): void => {
+  if (level === 'silent' || LogLevels[level] > LogLevels[currentLevel]) {
+    return;
+  }
+
+  logFunctions[level](...args);
 };
 
+export type Logger = {
+  readonly error: (...args: any[]) => void;
+  readonly warn: (...args: any[]) => void;
+  readonly info: (...args: any[]) => void;
+  readonly debug: (...args: any[]) => void;
+  readonly setLevel: (level: LogLevel) => void;
+  readonly getLevel: () => LogLevel;
+};
+
+const createLogger = (): Logger => {
+  return Object.freeze({
+    error: (...args: any[]) => log('error', ...args),
+    warn: (...args: any[]) => log('warn', ...args),
+    info: (...args: any[]) => log('info', ...args),
+    debug: (...args: any[]) => log('debug', ...args),
+    setLevel: (level: LogLevel) => {
+      if (level in LogLevels) {
+        currentLevel = level;
+      }
+    },
+    getLevel: () => currentLevel,
+  });
+};
+
+export const logger = createLogger();
+````
+
+## File: src/tree-sitter/language-config.ts
+````typescript
+import type { Language } from 'web-tree-sitter';
+
+export interface LanguageConfig {
+  name: string;
+  extensions: string[];
+  wasmPath: string;
+  query: string;
+}
+
+export interface LoadedLanguage {
+  config: LanguageConfig;
+  language: Language;
+}
+
+export const LANGUAGE_CONFIGS: LanguageConfig[] = [
+  {
+    name: 'typescript',
+    extensions: ['.ts', '.js', '.mjs', '.cjs'],
+    wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
+    query: `
+(import_statement
+  source: (string) @import.source) @import.statement
+
+(class_declaration) @class.definition
+(export_statement declaration: (class_declaration)) @class.definition
+
+(function_declaration) @function.definition
+(export_statement declaration: (function_declaration)) @function.definition
+
+(variable_declarator value: (arrow_function)) @function.arrow.definition
+(public_field_definition value: (arrow_function)) @function.arrow.definition
+(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
+
+(interface_declaration) @interface.definition
+(export_statement declaration: (interface_declaration)) @interface.definition
+
+(type_alias_declaration) @type.definition
+(export_statement declaration: (type_alias_declaration)) @type.definition
+
+(enum_declaration) @enum.definition
+(export_statement declaration: (enum_declaration)) @enum.definition
+
+(method_definition) @method.definition
+(public_field_definition) @field.definition
+
+(variable_declarator) @variable.definition
+(export_statement declaration: (lexical_declaration (variable_declarator))) @variable.definition
+
+(call_expression
+  function: (identifier) @function.call)
+
+; Class inheritance and implementation patterns
+(extends_clause (identifier) @class.inheritance)
+(implements_clause (type_identifier) @class.implementation)
+`
+  },
+  {
+    name: 'tsx',
+    extensions: ['.tsx', '.jsx'],
+    wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
+    query: `
+      (import_statement source: (string) @import.source) @import.statement
+      (class_declaration) @class.definition
+      (export_statement declaration: (class_declaration)) @class.definition
+      (function_declaration) @function.definition
+      (export_statement declaration: (function_declaration)) @function.definition
+      (variable_declarator value: (arrow_function)) @function.arrow.definition
+      (public_field_definition value: (arrow_function)) @function.arrow.definition
+      (interface_declaration) @interface.definition
+      (export_statement declaration: (interface_declaration)) @interface.definition
+      (type_alias_declaration) @type.definition
+      (export_statement declaration: (type_alias_declaration)) @type.definition
+      (enum_declaration) @enum.definition
+      (export_statement declaration: (enum_declaration)) @enum.definition
+      (method_definition) @method.definition
+      (public_field_definition) @field.definition
+      
+      ; Class inheritance and implementation patterns
+      (extends_clause (identifier) @class.inheritance)
+      (implements_clause (type_identifier) @class.implementation)
+    `
+  },
+  {
+    name: 'python',
+    extensions: ['.py', '.pyw'],
+    wasmPath: 'tree-sitter-python/tree-sitter-python.wasm',
+    query: `
+(import_statement) @import.statement
+(import_from_statement
+  module_name: (relative_import) @import.source) @import.statement
+(import_from_statement
+  module_name: (dotted_name) @import.source) @import.statement
+
+(class_definition) @class.definition
+
+(function_definition) @function.definition
+
+(decorated_definition
+  (function_definition)) @function.definition
+
+(decorated_definition
+  (class_definition)) @class.definition
+
+(class_definition
+  body: (block (function_definition) @method.definition))
+
+(expression_statement
+  (assignment)) @variable.definition
+
+; Python inheritance patterns
+(class_definition
+  superclasses: (argument_list (identifier) @class.inheritance))
+`
+  },
+  {
+    name: 'java',
+    extensions: ['.java'],
+    wasmPath: 'tree-sitter-java/tree-sitter-java.wasm',
+    query: `
+(import_declaration
+  (scoped_identifier) @import.source) @import.statement
+
+(class_declaration) @class.definition
+(interface_declaration) @interface.definition
+(enum_declaration) @enum.definition
+
+(method_declaration) @method.definition
+(constructor_declaration) @constructor.definition
+
+(field_declaration) @field.definition
+
+; Java inheritance and implementation patterns
+(superclass (type_identifier) @class.inheritance)
+(super_interfaces (type_list (type_identifier) @class.implementation))
+
+`
+  },
+  {
+    name: 'cpp',
+    extensions: ['.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx'],
+    wasmPath: 'tree-sitter-cpp/tree-sitter-cpp.wasm',
+    query: `
+(preproc_include) @import.statement
+
+(function_definition) @function.definition
+(declaration
+  declarator: (function_declarator)) @function.declaration
+
+(class_specifier) @class.definition
+(struct_specifier) @struct.definition
+(union_specifier) @union.definition
+(enum_specifier) @enum.definition
+
+(namespace_definition) @namespace.definition
+
+(template_declaration) @template.definition
+
+(function_definition declarator: (qualified_identifier)) @method.definition
+(field_declaration declarator: (function_declarator)) @method.definition
+(field_declaration) @field.definition
+`
+  },
+  {
+    name: 'c',
+    extensions: ['.c'],
+    wasmPath: 'tree-sitter-c/tree-sitter-c.wasm',
+    query: `
+(preproc_include) @import.statement
+
+(function_definition) @function.definition
+(declaration declarator: (function_declarator)) @function.declaration
+(struct_specifier) @struct.definition
+(union_specifier) @union.definition
+(enum_specifier) @enum.definition
+(type_definition) @type.definition
+`
+  },
+  {
+    name: 'go',
+    extensions: ['.go'],
+    wasmPath: 'tree-sitter-go/tree-sitter-go.wasm',
+    query: `
+(import_declaration) @import.statement
+
+(function_declaration) @function.definition
+(method_declaration) @method.definition
+
+(type_declaration) @type.definition
+
+(var_declaration) @variable.definition
+(const_declaration) @constant.definition
+`
+  },
+  {
+    name: 'rust',
+    extensions: ['.rs'],
+    wasmPath: 'tree-sitter-rust/tree-sitter-rust.wasm',
+    query: `
+(mod_item
+  name: (identifier) @import.source) @import.statement
+
+(function_item) @function.definition
+(impl_item) @impl.definition
+
+(struct_item) @struct.definition
+(enum_item) @enum.definition
+(trait_item) @trait.definition
+(function_signature_item) @method.definition
+
+(type_item) @type.definition
+(const_item) @constant.definition
+(static_item) @static.definition
+
+(function_signature_item) @function.declaration
+`
+  },
+  {
+    name: 'csharp',
+    extensions: ['.cs'],
+    wasmPath: 'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm',
+    query: `
+(using_directive) @import.statement
+
+(class_declaration) @class.definition
+(interface_declaration) @interface.definition
+(struct_declaration) @struct.definition
+(enum_declaration) @enum.definition
+
+(method_declaration) @method.definition
+(constructor_declaration) @constructor.definition
+
+(field_declaration) @field.definition
+(property_declaration) @property.definition
+
+(namespace_declaration) @namespace.definition
+`
+  },
+  {
+    name: 'php',
+    extensions: ['.php'],
+    wasmPath: 'tree-sitter-php/tree-sitter-php.wasm',
+    query: `
+      (namespace_definition) @namespace.definition
+      (class_declaration) @class.definition
+      (function_definition) @function.definition
+      (method_declaration) @method.definition
+    `
+  },
+  {
+    name: 'ruby',
+    extensions: ['.rb'],
+    wasmPath: 'tree-sitter-ruby/tree-sitter-ruby.wasm',
+    query: `
+      (module) @module.definition
+      (class) @class.definition
+      (method) @method.definition
+      (singleton_method) @method.definition
+    `
+  },
+  {
+    name: 'solidity',
+    extensions: ['.sol'],
+    wasmPath: 'tree-sitter-solidity/tree-sitter-solidity.wasm',
+    query: `
+      (contract_declaration) @class.definition
+      (function_definition) @function.definition
+      (event_definition) @enum.definition
+    `
+  },
+  {
+    name: 'swift',
+    extensions: ['.swift'],
+    wasmPath: 'tree-sitter-swift/tree-sitter-swift.wasm',
+    query: `
+      (class_declaration) @class.definition
+      (protocol_declaration) @trait.definition
+      (function_declaration) @function.definition
+      (protocol_function_declaration) @function.definition
+      (property_declaration) @field.definition
+    `
+  },
+  {
+    name: 'vue',
+    extensions: ['.vue'],
+    wasmPath: 'tree-sitter-vue/tree-sitter-vue.wasm',
+    query: `
+      (script_element .
+        [
+          (lexical_declaration (variable_declarator)) @variable.definition
+          (function_declaration) @function.definition
+        ])
+`
+  }
+];
+
 /**
- * Extracts file paths from markdown content
+ * Get the language configuration for a given file extension
  */
-export const extractFilePathsFromMarkdown = (content: string): string[] => {
-  const pathRegex = /`([^`]+\.(ts|js|tsx|jsx|py|java|go|rs|c))`/g;
-  const paths: string[] = [];
-  let match;
+export function getLanguageConfigForFile(filePath: string): LanguageConfig | null {
+  const extension = filePath.substring(filePath.lastIndexOf('.'));
   
-  while ((match = pathRegex.exec(content)) !== null) {
-    if (match[1]) {
-      paths.push(match[1]);
+  for (const config of LANGUAGE_CONFIGS) {
+    if (config.extensions.includes(extension)) {
+      return config;
     }
   }
   
-  return paths;
-};
-
-/**
- * Test fixture structure
- */
-export interface TestFixture {
-  name: string;
-  description: string;
-  files: Array<{
-    path: string;
-    content: string;
-  }>;
-  gitignore?: string[];
-  expected_nodes?: number;
-  expected_files?: number;
-  expected_symbols?: number;
+  return null;
 }
 
 /**
- * Loads a test fixture from a YAML file
+ * Get all supported file extensions
  */
-export const loadFixture = async (fixtureName: string): Promise<TestFixture> => {
-  // Get the correct path relative to the project root
-  const projectRoot = process.cwd().endsWith('/test') ? path.dirname(process.cwd()) : process.cwd();
-  const fixturePath = path.join(projectRoot, 'test', 'fixtures', `${fixtureName}.yaml`);
-  const content = await fs.readFile(fixturePath, 'utf-8');
-  return yaml.load(content) as TestFixture;
-};
-
-/**
- * Creates a test project from a fixture
- */
-export const createProjectFromFixture = async (
-  baseDir: string,
-  fixture: TestFixture
-): Promise<void> => {
-  // Create files
-  const fileMap: Record<string, string> = {};
-  for (const file of fixture.files) {
-    fileMap[file.path] = file.content;
-  }
-  await createTestFiles(baseDir, fileMap);
-  
-  // Create .gitignore if specified
-  if (fixture.gitignore && fixture.gitignore.length > 0) {
-    await createGitignore(baseDir, fixture.gitignore);
-  }
-};
-
-// --- Radically DRY Test Helpers ---
-
-/**
- * A powerful, centralized test runner that handles setup, execution, and cleanup.
- */
-export const runRepoGraphForTests = async (
-  files: Record<string, string>,
-  options: Partial<RepoGraphOptions> = {}
-): Promise<string> => {
-  const tempDir = await createTempDir();
-  try {
-    await createTestFiles(tempDir, files);
-    const outputPath = path.join(tempDir, 'output.md');
-
-    if (options.rankingStrategy === 'git-changes') {
-      await setupGitRepo(tempDir);
-      await makeGitCommit(tempDir, 'Initial commit');
-    }
-
-    await generateMap({
-      root: tempDir,
-      output: outputPath,
-      ...options,
-    });
-    return await readFile(outputPath);
-  } finally {
-    await cleanupTempDir(tempDir);
-  }
-};
-
-/**
- * Creates a mock CodeNode for testing.
- */
-export const createTestNode = (id: string, partial: Partial<CodeNode> = {}): CodeNode => ({
-  id,
-  type: 'file',
-  name: path.basename(id),
-  filePath: id.split('#')[0]!,
-  startLine: 1,
-  endLine: 10,
-  ...partial,
-});
-
-/**
- * Creates a mock CodeGraph for testing.
- */
-export const createTestGraph = (nodes: CodeNode[], edges: CodeEdge[] = []): CodeGraph => ({
-  nodes: new Map(nodes.map(n => [n.id, n])),
-  edges,
-});
-
-/**
- * Initializes a git repository in the given directory.
- */
-export const setupGitRepo = async (dir: string) => {
-  try {
-    execSync('git init', { cwd: dir, stdio: 'ignore' });
-    execSync('git config user.email "test@example.com"', { cwd: dir, stdio: 'ignore' });
-    execSync('git config user.name "Test User"', { cwd: dir, stdio: 'ignore' });
-  } catch (e) {
-    // Silently fail if git is not available
-  }
-};
-
-/**
- * Runs only the analysis stage for testing purposes.
- */
-export const runAnalyzerForTests = async (files: FileContent[]): Promise<CodeGraph> => {
-  const analyzer = createTreeSitterAnalyzer();
-  return await analyzer(files);
-};
-
-/**
- * Makes a git commit in the given repository.
- */
-export const makeGitCommit = async (dir: string, message: string, files?: string[]) => {
-  try {
-    const filesToAdd = files ? files.join(' ') : '.';
-    execSync(`git add ${filesToAdd}`, { cwd: dir, stdio: 'ignore' });
-    execSync(`git commit -m "${message}"`, { cwd: dir, stdio: 'ignore' });
-  } catch (e) {
-    // Silently fail if git is not available
-  }
-};
+export function getSupportedExtensions(): string[] {
+  return LANGUAGE_CONFIGS.flatMap(config => config.extensions);
+}
 ````
 
 ## File: README.md
@@ -1333,724 +813,1514 @@ The project uses `bun` for development, `eslint` for linting, and `prettier` for
 This project is licensed under the **MIT License**. See the [LICENSE](./LICENSE) file for details.
 ````
 
-## File: test/integration/multi-language.test.ts
+## File: src/tree-sitter/languages.ts
 ````typescript
-import { describe, it, expect } from 'bun:test';
-import { runAnalyzerForTests } from '../test.util.js';
-import type { FileContent } from '../../src/types.js';
+import * as Parser from 'web-tree-sitter';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config.js';
+import { logger } from '../utils/logger.util.js';
+import { ParserError } from '../utils/error.util.js';
 
-interface TestCase {
-  language: string;
-  files: FileContent[];
-  expectedNodeIds: string[];
-  expectedEdges?: Array<{ from: string; to: string; type: 'imports' | 'inherits' | 'implements' }>;
-}
+// Helper to get the correct path in different environments
+const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
 
-describe('Multi-Language Support', () => {
-  const testCases: TestCase[] = [
-    {
-      language: 'TypeScript Relationships',
-      files: [
-        { path: 'src/base.ts', content: 'export class Base {}; export interface ILog { log(): void; }' },
-        { path: 'src/main.ts', content: "import { Base } from './base'; export class Main extends Base implements ILog { log() {} }" },
-      ],
-      expectedNodeIds: ['src/base.ts', 'src/base.ts#Base', 'src/base.ts#ILog', 'src/main.ts', 'src/main.ts#Main'],
-      expectedEdges: [
-        { from: 'src/main.ts', to: 'src/base.ts', type: 'imports' },
-        { from: 'src/main.ts#Main', to: 'src/base.ts#Base', type: 'inherits' },
-        { from: 'src/main.ts#Main', to: 'src/base.ts#ILog', type: 'implements' },
-      ],
-    },
-    {
-      language: 'Python Relationships',
-      files: [
-        { path: 'src/models/base.py', content: 'class Base:\n  pass' },
-        { path: 'src/models/user.py', content: 'from .base import Base\n\nclass User(Base):\n  pass' },
-      ],
-      expectedNodeIds: ['src/models/base.py', 'src/models/base.py#Base', 'src/models/user.py', 'src/models/user.py#User'],
-      expectedEdges: [
-        { from: 'src/models/user.py', to: 'src/models/base.py', type: 'imports' },
-        { from: 'src/models/user.py#User', to: 'src/models/base.py#Base', type: 'inherits' },
-      ],
-    },
-    {
-      language: 'Java Relationships',
-      files: [
-        { path: 'com/example/Base.java', content: 'package com.example; public class Base {}' },
-        { path: 'com/example/Iface.java', content: 'package com.example; public interface Iface {}' },
-        { path: 'com/example/Main.java', content: 'package com.example; import com.example.Base; public class Main extends Base implements Iface {}' },
-      ],
-      expectedNodeIds: [
-        'com/example/Base.java', 'com/example/Base.java#Base',
-        'com/example/Iface.java', 'com/example/Iface.java#Iface',
-        'com/example/Main.java', 'com/example/Main.java#Main',
-      ],
-      expectedEdges: [
-        { from: 'com/example/Main.java', to: 'com/example/Base.java', type: 'imports' },
-        { from: 'com/example/Main.java#Main', to: 'com/example/Base.java#Base', type: 'inherits' },
-        { from: 'com/example/Main.java#Main', to: 'com/example/Iface.java#Iface', type: 'implements' },
-      ]
-    },
-    {
-        language: 'Rust Relationships',
-        files: [
-            { path: 'src/utils.rs', content: 'pub fn helper() {}' },
-            { path: 'src/main.rs', content: 'mod utils; use utils::helper; fn main() { helper(); }' }
-        ],
-        expectedNodeIds: [
-            'src/utils.rs', 'src/utils.rs#helper',
-            'src/main.rs', 'src/main.rs#main', 'src/main.rs#helper'
-        ],
-        expectedEdges: [
-            { from: 'src/main.rs', to: 'src/utils.rs', type: 'imports' }
-        ]
-    },
-    {
-      language: 'Vue (Graceful Failure)',
-      files: [ { path: 'src/component.vue', content: '<template><div></div></template>' } ],
-      expectedNodeIds: ['src/component.vue'], // Should create a file node, but no symbol nodes due to parser issues.
-      expectedEdges: [],
-    }
-  ];
+let isInitialized = false;
+const loadedLanguages = new Map<string, LoadedLanguage>();
 
-  it.each(testCases)('should correctly analyze $language', async ({ files, expectedNodeIds, expectedEdges }) => {
-    const graph = await runAnalyzerForTests(files);
+/**
+ * Initializes the Tree-sitter parser system.
+ * This function is idempotent.
+ */
+export const initializeParser = async (): Promise<void> => {
+  if (isInitialized) {
+    return;
+  }
 
-    // Verify all expected nodes exist
-    for (const nodeId of expectedNodeIds) {
-      expect(graph.nodes.has(nodeId)).toBe(true);
-    }
+  await Parser.Parser.init();
+  isInitialized = true;
+};
 
-    // Verify all expected edges exist
-    if (expectedEdges) {
-      for (const edge of expectedEdges) {
-        const hasEdge = graph.edges.some(
-          (e) => e.fromId === edge.from && e.toId === edge.to && e.type === edge.type
-        );
-        expect(hasEdge).toBe(true, `Missing edge: ${edge.from} -> ${edge.to} (${edge.type})`);
-      }
-    }
-  });
+/**
+ * Loads a specific language grammar.
+ * @param config The language configuration to load
+ * @returns A LoadedLanguage object containing the config and language
+ */
+export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLanguage> => {
+  if (loadedLanguages.has(config.name)) {
+    return loadedLanguages.get(config.name)!;
+  }
 
-  it('should handle unsupported file types gracefully alongside supported ones', async () => {
-    const files: FileContent[] = [
-      { path: 'src/code.ts', content: `export const hello = 'world';` },
-      { path: 'README.md', content: '# This is markdown' },
-      { path: 'config.json', content: '{"key": "value"}' }
-    ];
+  await initializeParser();
 
-    const graph = await runAnalyzerForTests(files);
+  try {
+    const wasmPath = path.resolve(getDirname(), '..', '..', 'node_modules', config.wasmPath);
+    const language = await Parser.Language.load(wasmPath);
     
-    expect(graph.nodes.has('src/code.ts')).toBe(true);
-    expect(graph.nodes.has('src/code.ts#hello')).toBe(true);
-    expect(graph.nodes.has('README.md')).toBe(true);
-    expect(graph.nodes.has('config.json')).toBe(true);
+    const loadedLanguage: LoadedLanguage = {
+      config,
+      language
+    };
+    
+    loadedLanguages.set(config.name, loadedLanguage);
+    return loadedLanguage;
+  } catch (error) {
+    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure '${config.wasmPath.split('/')[0]}' is installed.`;
+    logger.error(message, error);
+    throw new ParserError(message, config.name, error);
+  }
+};
 
-    // Should not create symbol nodes for non-code files
-    expect(graph.nodes.size).toBe(4);
-  });
-});
+/**
+ * Creates a parser instance for a specific language.
+ * @param config The language configuration
+ * @returns A parser instance configured for the specified language
+ */
+export const createParserForLanguage = async (config: LanguageConfig): Promise<Parser.Parser> => {
+  const loadedLanguage = await loadLanguage(config);
+  const parser = new Parser.Parser();
+  parser.setLanguage(loadedLanguage.language);
+  return parser;
+};
+
+/**
+ * Gets all loaded languages.
+ * @returns A map of language names to LoadedLanguage objects
+ */
+export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
+  return new Map(loadedLanguages);
+};
+
+/**
+ * Preloads all supported languages.
+ * This can be called to eagerly load all language parsers.
+ */
+export const preloadAllLanguages = async (): Promise<void> => {
+  await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
+};
+
+// Legacy function for backward compatibility
+export const getParser = async (): Promise<Parser.Parser> => {
+  const tsConfig = LANGUAGE_CONFIGS.find(config => config.name === 'typescript');
+  if (!tsConfig) {
+    throw new Error('TypeScript configuration not found');
+  }
+  return createParserForLanguage(tsConfig);
+};
 ````
 
-## File: test/unit/composer.test.ts
+## File: src/high-level.ts
 ````typescript
-import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
-import { createMapGenerator } from '../../src/composer.js';
-import { createDefaultDiscoverer } from '../../src/pipeline/discover.js';
-import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
-import { createPageRanker } from '../../src/pipeline/rank.js';
-import { createMarkdownRenderer } from '../../src/pipeline/render.js';
-import type { FileDiscoverer, Analyzer, Ranker, Renderer, FileContent, RepoGraphMap } from '../../src/types.js';
-import {
-  createTempDir, // Keep for beforeEach/afterEach
-  cleanupTempDir,
-  createTestFiles,
-  assertFileExists,
-  isValidMarkdown,
-} from '../test.util.js';
+import { createMapGenerator } from './composer.js';
+import { createDefaultDiscoverer } from './pipeline/discover.js';
+import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+import { createMarkdownRenderer } from './pipeline/render.js';
+import type { RepoGraphOptions, Ranker } from './types.js';
 import path from 'node:path';
-import fs from 'node:fs/promises';
+import { logger } from './utils/logger.util.js';
 
-describe('Composer', () => {
-  let tempDir: string;
+/**
+ * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+ * default pipeline based on a configuration object to generate a codemap.
+ *
+ * @param options The configuration object for generating the map.
+ */
+export const generateMap = async (options: RepoGraphOptions = {}): Promise<void> => {
+  const {
+    root = process.cwd(),
+    output = './repograph.md',
+    rankingStrategy = 'pagerank',
+    logLevel = 'info',
+  } = options;
 
-  beforeEach(async () => {
-    tempDir = await createTempDir();
-  });
-
-  afterEach(async () => {
-    await cleanupTempDir(tempDir);
-  });
-
-  describe('createMapGenerator()', () => {
-    it('should return a function when given valid components', () => {
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      });
-
-      expect(typeof generator).toBe('function');
-    });
-
-    it('should require all four components', () => {
-      expect(() => createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker()
-        // Missing render
-      } as any)).toThrow();
-
-      expect(() => createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        // Missing rank
-        render: createMarkdownRenderer()
-      } as any)).toThrow();
-
-      expect(() => createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        // Missing analyze
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      } as any)).toThrow();
-
-      expect(() => createMapGenerator({
-        // Missing discover
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      } as any)).toThrow();
-    });
-
-    it('should create output directory if it does not exist', async () => {
-      const files = {
-        'src/index.ts': `export class Example {
-  method(): string {
-    return 'hello';
+  if (logLevel) {
+    logger.setLevel(logLevel);
   }
-}`
-      };
-      await createTestFiles(tempDir, files);
 
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      });
+  let ranker: Ranker;
+  if (rankingStrategy === 'git-changes') {
+    ranker = createGitRanker();
+  } else if (rankingStrategy === 'pagerank') {
+    ranker = createPageRanker();
+  } else {
+    throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+  }
 
-      const outputPath = path.join(tempDir, 'nested', 'deep', 'output.md');
-      await generator({
-        root: tempDir,
-        output: outputPath
-      });
-
-      await assertFileExists(outputPath);
-    });
-
-    it('should handle empty projects gracefully', async () => {
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      });
-
-      const outputPath = path.join(tempDir, 'empty.md');
-      await generator({
-        root: tempDir,
-        output: outputPath
-      });
-
-      await assertFileExists(outputPath);
-      const content = await fs.readFile(outputPath, 'utf-8');
-      expect(isValidMarkdown(content)).toBe(true);
-      expect(content).toContain('This repository contains 0 nodes (0 files)');
-    });
+  const generator = createMapGenerator({
+    discover: createDefaultDiscoverer(),
+    analyze: createTreeSitterAnalyzer(),
+    rank: ranker,
+    render: createMarkdownRenderer(),
   });
 
-  describe('Custom Components', () => {
-    let discoveredFiles: readonly FileContent[] = [];
-    it('should work with custom discoverer', async () => {
-      const files = {
-        'src/index.ts': 'export const ts = true;',
-        'src/index.js': 'export const js = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      // Custom discoverer that tracks what it found
-      const customDiscoverer: FileDiscoverer = async (options) => {
-        const defaultDiscoverer = createDefaultDiscoverer();
-        discoveredFiles = await defaultDiscoverer(options);
-        return discoveredFiles;
-      };
-
-      const generator = createMapGenerator({
-        discover: customDiscoverer,
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      });
-
-      const outputPath = path.join(tempDir, 'custom.md');
-      await generator({
-        root: tempDir,
-        output: outputPath
-      });
-
-      expect(discoveredFiles.some(f => f.path === 'src/index.js')).toBe(true);
-    });
-
-    it('should work with custom analyzer', async () => {
-      const files = {
-        'src/index.ts': `export class Example {
-  method(): string {
-    return 'hello';
-  }
-}`
-      };
-      await createTestFiles(tempDir, files);
-
-      let wasCustomAnalyzerCalled = false;
-      const customAnalyzer: Analyzer = async (files) => {
-        wasCustomAnalyzerCalled = true;
-        const defaultAnalyzer = createTreeSitterAnalyzer();
-        return await defaultAnalyzer(files);
-      };
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: customAnalyzer,
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      });
-
-      const outputPath = path.join(tempDir, 'custom.md');
-      await generator({
-        root: tempDir,
-        output: outputPath
-      });
-
-      expect(wasCustomAnalyzerCalled).toBe(true);
-      await assertFileExists(outputPath);
-    });
-
-    it('should work with custom ranker', async () => {
-      const files = {
-        'src/a.ts': 'export const a = true;',
-        'src/b.ts': 'export const b = true;',
-        'src/c.ts': 'export const c = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      let wasCustomRankerCalled = false;
-      const customRanker: Ranker = async (graph) => {
-        wasCustomRankerCalled = true;
-        return await createPageRanker()(graph);
-      };
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: customRanker,
-        render: createMarkdownRenderer()
-      });
-
-      const outputPath = path.join(tempDir, 'custom.md');
-      await generator({ root: tempDir, output: outputPath });
-
-      expect(wasCustomRankerCalled).toBe(true);
-    });
-
-    it('should work with custom renderer', async () => {
-      const files = {
-        'src/index.ts': `export class Example {
-  method(): string {
-    return 'hello';
-  }
-}`
-      };
-      await createTestFiles(tempDir, files);
-
-      let wasCustomRendererCalled = false;
-      const customRenderer: Renderer = (rankedGraph, options) => {
-        wasCustomRendererCalled = true;
-        return createMarkdownRenderer()(rankedGraph, options);
-      };
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: customRenderer
-      });
-
-      const outputPath = path.join(tempDir, 'custom.md');
-      await generator({
-        root: tempDir,
-        output: outputPath
-      });
-      expect(wasCustomRendererCalled).toBe(true);
-    });
-
-    it('should work with all custom components', async () => {
-      const files = {
-        'custom.special': 'special file content',
-        'src/index.ts': 'export const normal = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const customDiscoverer: FileDiscoverer = async () => [{ path: 'custom.special', content: 'custom' }];
-      const customAnalyzer: Analyzer = async () => ({ nodes: new Map(), edges: [] });
-      const customRanker: Ranker = async (g) => ({ ...g, ranks: new Map() });
-      const customRenderer: Renderer = () => 'CUSTOM RENDERER OUTPUT';
-
-      const generator = createMapGenerator({
-        discover: customDiscoverer,
-        analyze: customAnalyzer,
-        rank: customRanker,
-        render: customRenderer
-      });
-
-      const outputPath = path.join(tempDir, 'custom.md');
-      await generator({
-        root: tempDir,
-        output: outputPath
-      });
-
-      const content = await fs.readFile(outputPath, 'utf-8');
-      expect(content).toBe('CUSTOM RENDERER OUTPUT');
-    });
+  await generator({
+    root: path.resolve(root),
+    output: output,
+    include: options.include,
+    ignore: options.ignore,
+    noGitignore: options.noGitignore,
+    rendererOptions: options.rendererOptions,
   });
+};
+````
 
-  describe('Error Handling', () => {
-    // Mock RepoGraphError for type checking, assuming it's available.
-    class RepoGraphError extends Error {
-        constructor(message: string) { super(message); this.name = 'RepoGraphError'; }
+## File: src/tree-sitter/queries.ts
+````typescript
+import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config.js';
+
+/**
+ * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
+ * This query is designed to find definitions of classes, functions, interfaces,
+ * and import statements to build the code graph.
+ * 
+ * @deprecated Use getQueryForLanguage() instead
+ */
+export const TS_QUERY = `
+(import_statement
+  source: (string) @import.source) @import.statement
+
+(class_declaration) @class.definition
+(export_statement declaration: (class_declaration)) @class.definition
+
+(function_declaration) @function.definition
+(export_statement declaration: (function_declaration)) @function.definition
+
+(variable_declarator value: (arrow_function)) @function.arrow.definition
+(public_field_definition value: (arrow_function)) @function.arrow.definition
+(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
+
+(interface_declaration) @interface.definition
+(export_statement declaration: (interface_declaration)) @interface.definition
+
+(type_alias_declaration) @type.definition
+(export_statement declaration: (type_alias_declaration)) @type.definition
+
+(method_definition) @method.definition
+(public_field_definition) @field.definition
+
+(call_expression
+  function: (identifier) @function.call)
+`;
+
+/**
+ * Get the Tree-sitter query for a specific language configuration.
+ * @param config The language configuration
+ * @returns The query string for the language
+ */
+export function getQueryForLanguage(config: LanguageConfig): string {
+  return config.query.trim();
+}
+
+/**
+ * Get the Tree-sitter query for a file based on its extension.
+ * @param filePath The file path
+ * @returns The query string for the file's language, or null if not supported
+ */
+export function getQueryForFile(filePath: string): string | null {
+  const config = getLanguageConfigForFile(filePath);
+  return config ? getQueryForLanguage(config) : null;
+}
+
+/**
+ * Get all supported language configurations.
+ * @returns Array of all language configurations
+ */
+export function getAllLanguageConfigs(): LanguageConfig[] {
+  return [...LANGUAGE_CONFIGS];
+}
+````
+
+## File: src/pipeline/render.ts
+````typescript
+import type { Renderer, RankedCodeGraph, RendererOptions, CodeEdge, CodeNode } from '../types.js';
+
+const generateMermaidGraph = (rankedGraph: RankedCodeGraph): string => {
+  const fileNodes = [...rankedGraph.nodes.values()].filter(node => node.type === 'file');
+  if (fileNodes.length === 0) return '';
+
+  let mermaidString = '```mermaid\n';
+  mermaidString += 'graph TD\n';
+  
+  const edges = new Set<string>();
+  for (const edge of rankedGraph.edges) {
+      const sourceNode = rankedGraph.nodes.get(edge.fromId);
+      const targetNode = rankedGraph.nodes.get(edge.toId);
+
+      if(sourceNode?.type === 'file' && targetNode?.type === 'file' && edge.type === 'imports'){
+        const edgeStr = `    ${edge.fromId}["${sourceNode.name}"] --> ${edge.toId}["${targetNode.name}"]`;
+        if(!edges.has(edgeStr)) {
+            edges.add(edgeStr);
+        }
+      }
+  }
+
+  mermaidString += Array.from(edges).join('\n');
+  mermaidString += '\n```\n';
+  return mermaidString;
+};
+
+const getRank = (id: string, ranks: ReadonlyMap<string, number>): number => ranks.get(id) || 0;
+
+const buildRelationString = (
+  label: string,
+  edges: readonly CodeEdge[],
+  allNodes: ReadonlyMap<string, CodeNode>,
+  limit?: number
+): string | null => {
+  const names = edges.map(e => `\`${allNodes.get(e.toId)?.name ?? 'unknown'}\``);
+  if (names.length === 0) return null;
+  
+  let displayNames = names;
+  let suffix = '';
+  if (limit && names.length > limit) {
+      displayNames = names.slice(0, limit);
+      suffix = '...';
+  }
+  
+  return `${label} ${displayNames.join(', ')}${suffix}`;
+};
+
+/**
+ * Creates the default Markdown renderer. It generates a summary, an optional
+ * Mermaid diagram, and a detailed breakdown of files and symbols.
+ * @returns A Renderer function.
+ */
+export const createMarkdownRenderer = (): Renderer => {
+  return (rankedGraph: RankedCodeGraph, options: RendererOptions = {}) => { // NOSONAR
+    const { nodes, ranks } = rankedGraph;
+    const {
+      customHeader,
+      includeHeader = true,
+      includeOverview = true,
+      includeMermaidGraph = true,
+      includeFileList = true,
+      topFileCount = 10,
+      includeSymbolDetails = true,
+      fileSectionSeparator = '---',
+      symbolDetailOptions,
+    } = options;
+    
+    const {
+      includeRelations = true,
+      includeLineNumber = true,
+      includeCodeSnippet = true,
+      maxRelationsToShow = 3,
+    } = symbolDetailOptions || {};
+
+    const fileNodes = [...nodes.values()].filter(attrs => attrs.type === 'file');
+    const sortedFiles = fileNodes
+      .sort((a, b) => getRank(b.id, ranks) - getRank(a.id, ranks));
+
+    let md = '';
+    if (customHeader) {
+      md += `${customHeader}\n\n`;
+    } else if (includeHeader) {
+      md += `# RepoGraph\n\n`;
+      md += `_Generated by RepoGraph on ${new Date().toISOString()}_\n\n`;
     }
 
-    it('should handle discoverer errors gracefully', async () => {
-      const errorDiscoverer: FileDiscoverer = async () => {
-        throw new Error('Discoverer failed');
-      };
+    if (includeOverview) {
+      md += `## 🚀 Project Overview\n\n`;
+      md += `This repository contains ${nodes.size} nodes (${sortedFiles.length} files).\n\n`;
+    }
 
-      const generator = createMapGenerator({
-        discover: errorDiscoverer,
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
+    if (includeMermaidGraph) {
+      md += `### Module Dependency Graph\n\n`;
+      md += generateMermaidGraph(rankedGraph);
+    }
+    
+    if (includeFileList && sortedFiles.length > 0) {
+      md += `### Top ${topFileCount} Most Important Files\n\n`;
+      md += `| Rank | File | Description |\n`;
+      md += `| :--- | :--- | :--- |\n`;
+      sortedFiles.slice(0, topFileCount).forEach((file, i) => {
+        md += `| ${i + 1} | \`${file.filePath}\` | Key module in the architecture. |\n`;
       });
+      md += `\n${fileSectionSeparator}\n\n`;
+    }
 
-      const outputPath = path.join(tempDir, 'error.md');
-      
-      await expect(generator({
-        root: tempDir,
-        output: outputPath
-      })).rejects.toThrow('Error in discover stage: Discoverer failed');
-    });
-
-    it('should handle analyzer errors gracefully', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const errorAnalyzer: Analyzer = async () => {
-        throw new Error('Analyzer failed');
-      };
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: errorAnalyzer,
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      });
-
-      const outputPath = path.join(tempDir, 'error.md');
-      
-      await expect(generator({
-        root: tempDir,
-        output: outputPath
-      })).rejects.toThrow('Error in analyze stage: Analyzer failed');
-    });
-
-    it('should handle ranker errors gracefully', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const errorRanker: Ranker = async () => {
-        throw new Error('Ranker failed');
-      };
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: errorRanker,
-        render: createMarkdownRenderer()
-      });
-
-      const outputPath = path.join(tempDir, 'error.md');
-      
-      await expect(generator({
-        root: tempDir,
-        output: outputPath
-      })).rejects.toThrow('Error in rank stage: Ranker failed');
-    });
-
-    it('should handle renderer errors gracefully', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const errorRenderer: Renderer = () => {
-        throw new Error('Renderer failed');
-      };
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: errorRenderer
-      });
-
-      const outputPath = path.join(tempDir, 'error.md');
-      
-      await expect(generator({
-        root: tempDir,
-        output: outputPath
-      })).rejects.toThrow('Error in render stage: Renderer failed');
-    });
-
-    it('should handle file write errors gracefully', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      });
-
-      // Try to write to an invalid path
-      const invalidOutputPath = '/root/cannot-write.md';
-      
-      await expect(generator({
-        root: tempDir,
-        output: invalidOutputPath
-      })).rejects.toThrow();
-    });
-  });
-
-  describe('API Behavior', () => {
-    it('should return a RepoGraphMap object when no output path is provided', async () => {
-      const files = { 'src/index.ts': 'export const a = 1;' };
-      await createTestFiles(tempDir, files);
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      });
-
-      const result = await generator({ root: tempDir });
-
-      expect(result).toBeDefined();
-      expect(result.graph).toBeDefined();
-      expect(result.markdown).toBeDefined();
-      expect(result.graph.nodes.size).toBeGreaterThan(0);
-      expect(typeof result.markdown).toBe('string');
-    });
-
-    it('should pass the correct, fully-formed RendererOptions down to the renderer', async () => {
-        let receivedOptions: any;
-        const trackingRenderer: Renderer = (graph, options) => {
-            receivedOptions = options;
-            return '';
-        };
-
-        const generator = createMapGenerator({
-            discover: async () => [],
-            analyze: async () => ({ nodes: new Map(), edges: [] }),
-            rank: async (g) => ({ ...g, ranks: new Map() }),
-            render: trackingRenderer
-        });
-
-        await generator({ root: tempDir, output: 'out.md', rendererOptions: { topFileCount: 5, noMermaid: true } });
+    if (includeSymbolDetails) {
+      md += `## 📂 File & Symbol Breakdown\n\n`;
+      for (const fileNode of sortedFiles) {
+        md += `### [\`${fileNode.filePath}\`](./${fileNode.filePath})\n\n`;
         
-        expect(receivedOptions.topFileCount).toBe(5);
-        expect(receivedOptions.noMermaid).toBe(true);
-    });
-  });
+        const symbolNodes = [...nodes.values()]
+          .filter(node => node.filePath === fileNode.filePath && node.type !== 'file')
+          .sort((a, b) => a.startLine - b.startLine);
 
-  describe('Component Interface Validation', () => {
-    it('should validate discoverer interface', () => {
-      const invalidDiscoverer = 'not a function';
+        if (symbolNodes.length > 0) {
+          for (const symbol of symbolNodes) {
+            const detailParts: string[] = [];
+            if (includeRelations) {
+              const outgoingEdges = rankedGraph.edges.filter(e => e.fromId === symbol.id);
+              if (outgoingEdges.length > 0) {
+                const edgeGroups = outgoingEdges.reduce((acc, edge) => {
+                  (acc[edge.type] = acc[edge.type] || []).push(edge);
+                  return acc;
+                }, {} as Record<CodeEdge['type'], CodeEdge[]>);
+                
+                const relationParts = [
+                  buildRelationString('inherits', edgeGroups.inherits || [], nodes),
+                  buildRelationString('implements', edgeGroups.implements || [], nodes),
+                  buildRelationString('calls', edgeGroups.calls || [], nodes, maxRelationsToShow),
+                ].filter((s): s is string => s !== null);
+                if (relationParts.length > 0) detailParts.push(`(${relationParts.join('; ')})`);
+              }
+            }
+            if (includeLineNumber) {
+              detailParts.push(`- _L${symbol.startLine}_`);
+            }
+
+            md += `- **\`${symbol.type} ${symbol.name}\`**${detailParts.length > 0 ? ` ${detailParts.join(' ')}` : ''}\n`;
+            
+            if (includeCodeSnippet && symbol.codeSnippet) {
+              // Use language from file extension for syntax highlighting if possible
+              const lang = fileNode.language || fileNode.filePath.split('.').pop() || '';
+              md += `  \`\`\`${lang}\n  ${symbol.codeSnippet}\n  \`\`\`\n`;
+            }
+          }
+        } else {
+            md += `_No symbols identified in this file._\n`
+        }
+        md += `\n${fileSectionSeparator}\n\n`;
+      }
+    }
+
+    return md;
+  };
+};
+````
+
+## File: src/composer.ts
+````typescript
+import path from 'node:path';
+import type { Analyzer, FileDiscoverer, Ranker, Renderer, RepoGraphMap } from './types.js';
+import { logger } from './utils/logger.util.js';
+import { writeFile } from './utils/fs.util.js';
+
+type MapGenerator = (config: {
+  readonly root: string;
+  readonly output?: string;
+  readonly include?: readonly string[];
+  readonly ignore?: readonly string[];
+  readonly noGitignore?: boolean;
+  readonly rendererOptions?: any;
+}) => Promise<RepoGraphMap>;
+
+/**
+ * A Higher-Order Function that takes pipeline functions as arguments and
+ * returns a fully configured `generate` function for creating a codemap.
+ * This is the core of RepoGraph's composability.
+ *
+ * @param pipeline An object containing implementations for each pipeline stage.
+ * @returns An asynchronous function to generate and write the codemap.
+ */
+export const createMapGenerator = (pipeline: {
+  readonly discover: FileDiscoverer;
+  readonly analyze: Analyzer;
+  readonly rank: Ranker;
+  readonly render: Renderer;
+}): MapGenerator => {
+  if (
+    !pipeline ||
+    typeof pipeline.discover !== 'function' ||
+    typeof pipeline.analyze !== 'function' ||
+    typeof pipeline.rank !== 'function' ||
+    typeof pipeline.render !== 'function'
+  ) {
+    throw new Error('createMapGenerator: A valid pipeline object with discover, analyze, rank, and render functions must be provided.');
+  }
+
+  return async (config) => {
+    const { root, output, include, ignore, noGitignore, rendererOptions } = config;
+
+    try {
+      logger.info('1/4 Discovering files...');
+      const files = await pipeline.discover({ root, include, ignore, noGitignore });
+      logger.info(`  -> Found ${files.length} files to analyze.`);
+
+      try {
+        logger.info('2/4 Analyzing code and building graph...');
+        const graph = await pipeline.analyze(files);
+        logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+        try {
+          logger.info('3/4 Ranking graph nodes...');
+          const rankedGraph = await pipeline.rank(graph);
+          logger.info('  -> Ranking complete.');
+
+          try {
+            logger.info('4/4 Rendering output...');
+            const markdown = pipeline.render(rankedGraph, rendererOptions);
+            logger.info('  -> Rendering complete.');
+
+            if (output) {
+              const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+              logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+              await writeFile(outputPath, markdown);
+              logger.info('  -> Report saved.');
+            }
+
+            return { graph: rankedGraph, markdown };
+          } catch (error) {
+            throw new Error(`Error in render stage: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith('Error in render stage:')) {
+            throw error;
+          }
+          throw new Error(`Error in rank stage: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      } catch (error) {
+        if (error instanceof Error && (error.message.startsWith('Error in rank stage:') || error.message.startsWith('Error in render stage:'))) {
+          throw error;
+        }
+        throw new Error(`Error in analyze stage: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && (error.message.startsWith('Error in analyze stage:') || error.message.startsWith('Error in rank stage:') || error.message.startsWith('Error in render stage:'))) {
+        throw error;
+      }
+      throw new Error(`Error in discover stage: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+};
+````
+
+## File: src/pipeline/discover.ts
+````typescript
+import { globby } from 'globby';
+import path from 'node:path';
+import Ignore from 'ignore';
+import type { FileContent, FileDiscoverer } from '../types.js';
+import { isDirectory, readFile } from '../utils/fs.util.js';
+import { FileSystemError } from '../utils/error.util.js';
+import { logger } from '../utils/logger.util.js';
+
+/**
+ * Creates the default file discoverer. It uses globby to find all files,
+ * respecting .gitignore patterns and custom include/exclude rules.
+ * @returns A FileDiscoverer function.
+ */
+export const createDefaultDiscoverer = (): FileDiscoverer => {
+  return async ({ root, include, ignore, noGitignore = false }) => {
+    try {
+      if (!(await isDirectory(root))) {
+        throw new FileSystemError('Root path is not a directory or does not exist', root);
+      }
+    } catch (e) {
+      throw e;
+    }
+    const patterns = include && include.length > 0 ? [...include] : ['**/*'];
+    
+    // Use the ignore package for proper gitignore handling
+    const ignoreFilter = Ignore();
+    
+    // Always ignore node_modules and .git
+    ignoreFilter.add('**/node_modules/**');
+    ignoreFilter.add('**/.git/**');
+    ignoreFilter.add('.gitignore');
+    
+    // Add .gitignore patterns if not disabled
+    if (!noGitignore) {
+      let gitignoreContent = '';
+      try {
+        gitignoreContent = await readFile(path.join(root, '.gitignore'));
+      } catch {
+        // .gitignore is optional, so we can ignore errors here.
+      }
+      if (gitignoreContent) {
+        ignoreFilter.add(gitignoreContent);
+      }
+    }
+    
+    // Add user-specified ignore patterns
+    if (ignore && ignore.length > 0) {
+      ignoreFilter.add(ignore.join('\n'));
+    }
+
+    // Use globby to find all files matching the include patterns
+    const relativePaths = await globby(patterns, {
+      cwd: root,
+      gitignore: false, // We handle gitignore patterns manually
+      dot: true,
+      absolute: false,
+      followSymbolicLinks: false, // Disable to prevent infinite loops
+      onlyFiles: true,
+    });
+    
+    // Filter the paths using the ignore package
+    const filteredPaths = relativePaths.filter(p => !ignoreFilter.ignores(p));
+
+    const fileContents = await Promise.all(
+      filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
+        try {
+          const absolutePath = path.join(root, relativePath);
+          const content = await readFile(absolutePath);
+          return { path: relativePath, content };
+        } catch (e) {
+          logger.debug(`Skipping file that could not be read: ${relativePath}`, e instanceof Error ? e.message : e);
+          return null;
+        }
+      })
+    );
+
+    return fileContents.filter((c): c is FileContent => c !== null);
+  };
+};
+````
+
+## File: src/index.ts
+````typescript
+#!/usr/bin/env bun
+
+import { logger } from './utils/logger.util.js';
+import { RepoGraphError } from './utils/error.util.js';
+// High-Level API for simple use cases
+import { generateMap as executeGenerateMap } from './high-level.js';
+import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
+
+export { generateMap } from './high-level.js';
+
+// Low-Level API for composition and advanced use cases
+export { createMapGenerator } from './composer.js';
+
+// Default pipeline component factories
+export { createDefaultDiscoverer } from './pipeline/discover.js';
+export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+export { createPageRanker, createGitRanker } from './pipeline/rank.js';
+export { createMarkdownRenderer } from './pipeline/render.js';
+
+// Core types for building custom components
+export type {
+  FileContent,
+  CodeNode,
+  CodeNodeType,
+  CodeEdge,
+  CodeGraph,
+  RankedCodeGraph,
+  RepoGraphMap,
+  RepoGraphOptions,
+  RendererOptions,
+  FileDiscoverer,
+  Analyzer,
+  Ranker,
+  Renderer,
+} from './types.js';
+
+// This section runs only when the script is executed directly from the CLI
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const isRunningDirectly = () => {
+  if (typeof process.argv[1] === 'undefined') return false;
+  const runningFile = path.resolve(process.argv[1]);
+  const currentFile = fileURLToPath(import.meta.url);
+  return runningFile === currentFile;
+};
+
+if (isRunningDirectly()) {
+  const args = process.argv.slice(2);
+
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Usage: repograph [root] [options]
+
+Arguments:
+  root                     The root directory of the repository to analyze. Defaults to the current working directory.
+
+Options:
+  -h, --help               Display this help message.
+  -v, --version            Display the version number.
+  --output <path>          Path to the output Markdown file. (default: "repograph.md")
+  --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
+  --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
+  --no-gitignore           Do not respect .gitignore files.
+  --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
+  --log-level <level>      Set the logging level. (default: "info", options: "silent", "error", "warn", "info", "debug")
+
+Output Formatting:
+  --no-header              Do not include the main "RepoGraph" header.
+  --no-overview            Do not include the project overview section.
+  --no-mermaid             Do not include the Mermaid dependency graph.
+  --no-file-list           Do not include the list of top-ranked files.
+  --no-symbol-details      Do not include the detailed file and symbol breakdown.
+  --top-file-count <num>   Set the number of files in the top list. (default: 10)
+  --file-section-separator <str> Custom separator for file sections. (default: "---")
+  --no-symbol-relations    Hide symbol relationship details (e.g., calls, implements).
+  --no-symbol-line-numbers Hide line numbers for symbols.
+  --no-symbol-snippets     Hide code snippets for symbols.
+  --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
+    `);
+    process.exit(0);
+  }
+
+  if (args.includes('--version') || args.includes('-v')) {
+    // In a real app, you'd get this from package.json
+    logger.info('0.1.0');
+    process.exit(0);
+  }
+
+  // We need a mutable version of the options to build it from arguments.
+  const options: {
+    root?: string;
+    output?: string;
+    include?: readonly string[];
+    ignore?: readonly string[];
+    noGitignore?: boolean;
+    rankingStrategy?: 'pagerank' | 'git-changes';
+    logLevel?: IRepoGraphOptions['logLevel'];
+    rendererOptions?: IRepoGraphOptions['rendererOptions'];
+  } = {};
+  const includePatterns: string[] = [];
+  const ignorePatterns: string[] = [];
+  // We need a mutable version of rendererOptions to build from CLI args
+  const rendererOptions: {
+    customHeader?: string;
+    includeHeader?: boolean;
+    includeOverview?: boolean;
+    includeMermaidGraph?: boolean;
+    includeFileList?: boolean;
+    topFileCount?: number;
+    includeSymbolDetails?: boolean;
+    fileSectionSeparator?: string;
+    symbolDetailOptions?: {
+      includeRelations?: boolean;
+      includeLineNumber?: boolean;
+      includeCodeSnippet?: boolean;
+      maxRelationsToShow?: number;
+    };
+  } = {};
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg) {
+      continue;
+    }
+    switch (arg) {
+      case '--output':
+        options.output = args[++i];
+        break;
+      case '--include':
+        includePatterns.push(args[++i] as string);
+        break;
+      case '--ignore':
+        ignorePatterns.push(args[++i] as string);
+        break;
+      case '--no-gitignore':
+        options.noGitignore = true;
+        break;
+      case '--ranking-strategy':
+        options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
+        break;
+      case '--log-level':
+        options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
+        break;
+      // --- Renderer Options ---
+      case '--no-header':
+        rendererOptions.includeHeader = false;
+        break;
+      case '--no-overview':
+        rendererOptions.includeOverview = false;
+        break;
+      case '--no-mermaid':
+        rendererOptions.includeMermaidGraph = false;
+        break;
+      case '--no-file-list':
+        rendererOptions.includeFileList = false;
+        break;
+      case '--no-symbol-details':
+        rendererOptions.includeSymbolDetails = false;
+        break;
+      case '--top-file-count':
+        rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
+        break;
+      case '--file-section-separator':
+        rendererOptions.fileSectionSeparator = args[++i];
+        break;
+      case '--no-symbol-relations':
+        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
+        break;
+      case '--no-symbol-line-numbers':
+        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
+        break;
+      case '--no-symbol-snippets':
+        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
+        break;
+      case '--max-relations-to-show':
+        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
+        break;
+      default:
+        if (!arg.startsWith('-')) {
+          options.root = arg;
+        }
+        break;
+    }
+  }
+
+  if (includePatterns.length > 0) {
+    options.include = includePatterns;
+  }
+  if (ignorePatterns.length > 0) {
+    options.ignore = ignorePatterns;
+  }
+  if (Object.keys(rendererOptions).length > 0) {
+    options.rendererOptions = rendererOptions;
+  }
+
+  const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
+
+  logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
+  executeGenerateMap(options)
+    .then(() => {
+      const relativePath = path.relative(process.cwd(), finalOutput);
+      logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
+    })
+    .catch((error: unknown) => {
+      if (error instanceof RepoGraphError) {
+        logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
+      } else {
+        logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
+      }
+      process.exit(1);
+    });
+}
+````
+
+## File: src/pipeline/rank.ts
+````typescript
+import pagerank from 'graphology-pagerank';
+import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
+import Graph from 'graphology';
+import { execSync } from 'node:child_process';
+import { logger } from '../utils/logger.util.js';
+
+/**
+ * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
+ * other important nodes will receive a higher rank.
+ * @returns A Ranker function.
+ */
+export const createPageRanker = (): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    // PageRank can only be computed on graphs with nodes.
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks: new Map() };
+    }
+
+    // Pagerank lib requires a graphology instance.
+    const simpleGraph = new Graph({ type: 'directed' });
+    for (const [nodeId, node] of graph.nodes) {
+      simpleGraph.addNode(nodeId, node);
+    }
+    for (const edge of graph.edges) {
+      if (!simpleGraph.hasEdge(edge.fromId, edge.toId)) {
+        simpleGraph.addDirectedEdge(edge.fromId, edge.toId);
+      }
+    }
+
+    const graphForRank = simpleGraph;
+    const ranksData = pagerank(graphForRank);
+    const ranks = new Map<string, number>();
+    for (const node in ranksData) {
+      ranks.set(node, ranksData[node] ?? 0);
+    }
+    return { ...graph, ranks };
+  };
+};
+
+/**
+ * Creates a ranker based on Git commit history. Files changed more frequently are considered
+ * more important. Requires Git to be installed.
+ * @returns A Ranker function.
+ */
+export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    const { maxCommits = 500 } = options;
+    const ranks = new Map<string, number>();
+
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks };
+    }
+
+    try {
+      const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
+      const output = execSync(command, { encoding: 'utf-8' });
+      const files = output.split('\n').filter(Boolean);
+
+      const changeCounts: Record<string, number> = {};
+      for (const file of files) {
+        changeCounts[file] = (changeCounts[file] || 0) + 1;
+      }
+
+      const maxChanges = Math.max(...Object.values(changeCounts), 1);
+
+      for (const [nodeId, attributes] of graph.nodes) {
+        // We only rank file nodes with this strategy
+        if (attributes.type === 'file') {
+          const count = changeCounts[attributes.filePath] ?? 0;
+          ranks.set(nodeId, count / maxChanges); // Normalize score
+        } else {
+          ranks.set(nodeId, 0);
+        }
+      }
+    } catch (e) {
+      // This is not a fatal error for the whole process, but this ranker cannot proceed.
+      logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
+      for (const [nodeId] of graph.nodes) {
+        ranks.set(nodeId, 0);
+      }
+    }
+
+    return { ...graph, ranks };
+  };
+};
+````
+
+## File: src/types.ts
+````typescript
+// Core Data Structures
+
+/** Represents a single file read from disk. Immutable. */
+export type FileContent = {
+  readonly path: string;
+  readonly content: string;
+};
+
+/** The type of a symbol identified in the code. */
+export type CodeNodeType =
+  | 'file'
+  | 'class'
+  | 'function'
+  | 'interface'
+  | 'variable'
+  | 'type'
+  | 'arrow_function'
+  | 'method'
+  | 'field'
+  | 'struct'
+  | 'enum'
+  | 'namespace'
+  | 'trait'
+  | 'impl'
+  | 'constructor'
+  | 'property'
+  | 'constant'
+  | 'static'
+  | 'union'
+  | 'template';
+
+/** Represents a single, identifiable symbol (or a file) in the code. Immutable. */
+export type CodeNode = {
+  readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
+  readonly type: CodeNodeType;
+  readonly name: string; // e.g., 'MyClass'
+  readonly filePath: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly language?: string; // For file nodes, the detected language
+  readonly codeSnippet?: string; // e.g., function signature
+};
+
+/** Represents a directed relationship between two CodeNodes. Immutable. */
+export type CodeEdge = {
+  readonly fromId: string; // ID of the source CodeNode
+  readonly toId: string;   // ID of the target CodeNode
+  readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
+};
+
+/** The complete, raw model of the repository's structure. Immutable. */
+export type CodeGraph = {
+  readonly nodes: ReadonlyMap<string, CodeNode>;
+  readonly edges: readonly CodeEdge[];
+};
+
+/** A CodeGraph with an added 'rank' score for each node. Immutable. */
+export type RankedCodeGraph = CodeGraph & {
+  readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
+};
+
+/** The output of a map generation process, containing the graph and rendered output. */
+export type RepoGraphMap = {
+  readonly graph: RankedCodeGraph;
+  readonly markdown: string;
+};
+
+// High-Level API Options
+
+/** Configuration for the final Markdown output. */
+export type RendererOptions = {
+  /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */
+  readonly customHeader?: string;
+  /** Include the default `RepoGraph` header. @default true */
+  readonly includeHeader?: boolean;
+  /** Include the project overview section. @default true */
+  readonly includeOverview?: boolean;
+  /** Include a Mermaid.js dependency graph. @default true */
+  readonly includeMermaidGraph?: boolean;
+  /** Include the list of top-ranked files. @default true */
+  readonly includeFileList?: boolean;
+  /** Number of files to show in the top list. @default 10 */
+  readonly topFileCount?: number;
+  /** Include detailed breakdowns for each symbol. @default true */
+  readonly includeSymbolDetails?: boolean;
+  /** String to use as a separator between file sections. @default '---' */
+  readonly fileSectionSeparator?: string;
+
+  /** Options for how individual symbols are rendered */
+  readonly symbolDetailOptions?: {
+    /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */
+    readonly includeRelations?: boolean;
+    /** Include the starting line number. @default true */
+    readonly includeLineNumber?: boolean;
+    /** Include the code snippet for the symbol. @default true */
+    readonly includeCodeSnippet?: boolean;
+    /** Max number of relations to show per type (e.g., 'calls'). @default 3 */
+    readonly maxRelationsToShow?: number;
+  };
+};
+
+/** Configuration options for the main `generateMap` function. */
+export type RepoGraphOptions = {
+  /** Root directory to analyze. @default process.cwd() */
+  readonly root?: string;
+  /** Output path for the Markdown file. @default './repograph.md' */
+  readonly output?: string;
+  /** Glob patterns for files to include. */
+  readonly include?: readonly string[];
+  /** Glob patterns for files to exclude. */
+  readonly ignore?: readonly string[];
+  /** Disables the use of .gitignore. @default false */
+  readonly noGitignore?: boolean;
+  /** The ranking strategy to use. @default 'pagerank' */
+  readonly rankingStrategy?: 'pagerank' | 'git-changes';
+  /** Configuration for the final Markdown output. */
+  readonly rendererOptions?: RendererOptions;
+  /** Logging level. @default 'info' */
+  readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
+};
+
+// Low-Level Functional Pipeline Contracts
+
+/** Discovers files and returns their content. */
+export type FileDiscoverer = (config: {
+  readonly root: string;
+  readonly include?: readonly string[];
+  readonly ignore?: readonly string[];
+  readonly noGitignore?: boolean;
+}) => Promise<readonly FileContent[]>;
+
+/** Analyzes file content and builds the dependency graph. */
+export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
+
+/** Ranks the nodes in a graph. */
+export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
+
+/** Renders a ranked graph into a string format. */
+export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions) => string;
+````
+
+## File: src/pipeline/analyze.ts
+````typescript
+import path from 'node:path';
+import { createParserForLanguage } from '../tree-sitter/languages.js';
+import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config.js';
+import type { Analyzer, CodeNode, CodeNodeType, FileContent, CodeEdge } from '../types.js';
+import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
+import { logger } from '../utils/logger.util.js';
+import { ParserError } from '../utils/error.util.js';
+
+// --- UTILITY FUNCTIONS ---
+
+const getNodeText = (node: TSNode, content: string): string => content.slice(node.startIndex, node.endIndex);
+const getLineFromIndex = (content: string, index: number): number => content.substring(0, index).split('\n').length;
+
+// --- LANGUAGE-SPECIFIC LOGIC ---
+
+type LanguageHandler = {
+  preProcessFile?: (file: FileContent, captures: TSMatch[]) => Record<string, any>;
+  shouldSkipSymbol: (node: TSNode, symbolType: CodeNodeType, langName: string) => boolean;
+  getSymbolNameNode: (declarationNode: TSNode, originalNode: TSNode) => TSNode | null;
+  processComplexSymbol?: (context: ProcessSymbolContext) => boolean;
+  resolveImport: (fromFile: string, importIdentifier: string, allFiles: string[]) => string | null;
+};
+
+type ProcessSymbolContext = {
+  nodes: Map<string, CodeNode>;
+  file: FileContent;
+  node: TSNode;
+  symbolType: CodeNodeType;
+  processedSymbols: Set<string>;
+  fileState: Record<string, any>;
+};
+
+const pythonHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    if (declarationNode.type === 'expression_statement') {
+      const assignmentNode = declarationNode.namedChild(0);
+      if (assignmentNode?.type === 'assignment') {
+        return assignmentNode.childForFieldName('left');
+      }
+    }
+    return declarationNode.childForFieldName('name');
+  },
+};
+
+const goLangHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    const nodeType = declarationNode.type;
+    if (['type_declaration', 'const_declaration', 'var_declaration'].includes(nodeType)) {
+      const spec = declarationNode.namedChild(0);
+      if (spec && ['type_spec', 'const_spec', 'var_spec'].includes(spec.type)) {
+        return spec.childForFieldName('name');
+      }
+    }
+    return declarationNode.childForFieldName('name');
+  },
+};
+
+const cLangHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    if (declarationNode.type === 'type_definition') {
+      const lastChild = declarationNode.namedChild(declarationNode.namedChildCount - 1);
+      if (lastChild?.type === 'type_identifier') return lastChild;
+    }
+    if (declarationNode.type === 'function_definition') {
+      const declarator = declarationNode.childForFieldName('declarator');
+      if (declarator?.type === 'function_declarator') {
+        const nameNode = declarator.childForFieldName('declarator');
+        if (nameNode?.type === 'identifier') return nameNode;
+      }
+    }
+    if (declarationNode.type === 'field_declaration') {
+      const declarator = declarationNode.childForFieldName('declarator');
+      if (declarator?.type === 'function_declarator') {
+        return declarator.childForFieldName('declarator');
+      }
+      return declarator;
+    }
+    return declarationNode.childForFieldName('name');
+  },
+};
+
+const tsLangHandler: Partial<LanguageHandler> = {
+  preProcessFile: (_file, captures) => {
+    const classNames = new Map<string, number>();
+    const duplicateClassNames = new Set<string>();
+    const seenClassNodes = new Set<number>();
+
+    for (const { name, node } of captures) {
+      if (name === 'class.definition') {
+        let classNode = node.type === 'export_statement' ? (node.namedChildren[0] ?? node) : node;
+        if (classNode.type === 'class_declaration' && !seenClassNodes.has(classNode.startIndex)) {
+          seenClassNodes.add(classNode.startIndex);
+          const nameNode = classNode.childForFieldName('name');
+          if (nameNode) {
+            const className = nameNode.text;
+            const count = classNames.get(className) || 0;
+            classNames.set(className, count + 1);
+            if (count + 1 > 1) duplicateClassNames.add(className);
+          }
+        }
+      }
+    }
+    return { duplicateClassNames };
+  },
+  shouldSkipSymbol: (node, symbolType, langName) => {
+    if (langName !== 'typescript') return false;
+    const valueNode = node.childForFieldName('value');
+    if (valueNode?.type !== 'arrow_function') return false;
+    return (symbolType === 'field' && node.type === 'public_field_definition') ||
+      (symbolType === 'variable' && node.type === 'variable_declarator');
+  },
+  getSymbolNameNode: (declarationNode, originalNode) => {
+    if (originalNode.type === 'variable_declarator' || originalNode.type === 'public_field_definition') { // Arrow function
+      return originalNode.childForFieldName('name');
+    }
+    if (declarationNode.type === 'export_statement') {
+      const lexicalDecl = declarationNode.namedChildren[0];
+      if (lexicalDecl?.type === 'lexical_declaration') {
+        const varDeclarator = lexicalDecl.namedChildren[0];
+        if (varDeclarator?.type === 'variable_declarator') {
+          return varDeclarator.childForFieldName('name');
+        }
+      }
+    }
+    return declarationNode.childForFieldName('name');
+  },
+  processComplexSymbol: ({ nodes, file, node, symbolType, processedSymbols, fileState }) => {
+    if (symbolType !== 'method' && symbolType !== 'field') return false;
+    const classParent = node.parent?.parent; // class_body -> class_declaration
+    if (classParent?.type === 'class_declaration') {
+      const classNameNode = classParent.childForFieldName('name');
+      if (classNameNode) {
+        const className = classNameNode.text;
+        const nameNode = node.childForFieldName('name');
+        // The check for duplicateClassNames is important to avoid ambiguity.
+        // We remove the dependency on checking if the class has been processed first,
+        // because the order of captures from tree-sitter is not guaranteed to be in source order.
+        // This makes the analysis more robust.
+        if (nameNode && !fileState['duplicateClassNames']?.has(className)) {
+          const methodName = nameNode.text;
+          const symbolName = `${className}.${methodName}`;
+          const symbolId = `${file.path}#${symbolName}`;
+          if (!processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
+            processedSymbols.add(symbolId);
+            nodes.set(symbolId, {
+              id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
+              startLine: getLineFromIndex(file.content, node.startIndex),
+              endLine: getLineFromIndex(file.content, node.endIndex),
+              codeSnippet: node.text?.split('{')[0]?.trim() || '',
+            });
+          }
+        }
+      }
+    }
+    return true;
+  },
+};
+
+const resolveImportFactory = (endings: string[], packageStyle: boolean = false) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+  const basedir = path.dirname(fromFile);
+  const resolvedPathAsIs = path.normalize(path.join(basedir, sourcePath));
+  if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
+
+  const parsedSourcePath = path.parse(sourcePath);
+  const basePath = path.normalize(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
+  for (const end of endings) {
+    const potentialPath = basePath + end;
+    if (allFiles.includes(potentialPath)) return potentialPath;
+  }
+  
+  if (packageStyle && sourcePath.includes('.')) {
+    const packagePath = sourcePath.replace(/\./g, '/');
+    for (const end of endings) {
+      const fileFromRoot = packagePath + end;
+      if (allFiles.includes(fileFromRoot)) return fileFromRoot;
+    }
+  }
+  return null;
+}
+
+const phpHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    if (declarationNode.type === 'namespace_definition') {
+      // For namespace definitions, get the namespace name node
+      const nameNode = declarationNode.childForFieldName('name');
+      return nameNode;
+    }
+    return declarationNode.childForFieldName('name');
+  },
+};
+
+const languageHandlers: Record<string, Partial<LanguageHandler>> = {
+  default: {
+    shouldSkipSymbol: () => false,
+    getSymbolNameNode: (declarationNode) => declarationNode.childForFieldName('name'),
+    resolveImport: (fromFile, sourcePath, allFiles) => {
+      const resolvedPathAsIs = path.normalize(path.join(path.dirname(fromFile), sourcePath));
+      return allFiles.includes(resolvedPathAsIs) ? resolvedPathAsIs : null;
+    }
+  },
+  typescript: {
+    ...tsLangHandler,
+    resolveImport: resolveImportFactory(['.ts', '.tsx', '/index.ts', '/index.tsx', '.js', '.jsx', '.mjs', '.cjs']),
+  },
+  javascript: {
+    resolveImport: resolveImportFactory(['.js', '.jsx', '/index.js', '/index.jsx', '.mjs', '.cjs']),
+  },
+  tsx: tsLangHandler,
+  python: { 
+    ...pythonHandler, 
+    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+      const basedir = path.dirname(fromFile);
       
-      expect(() => createMapGenerator({
-        discover: invalidDiscoverer as any,
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      })).toThrow();
-    });
-
-    it('should validate analyzer interface', () => {
-      const invalidAnalyzer = 'not a function';
+      // Handle relative imports (starting with .)
+      if (sourcePath.startsWith('.')) {
+        const relativePath = sourcePath.substring(1); // Remove leading dot
+        const resolvedPath = path.normalize(path.join(basedir, relativePath + '.py'));
+        if (allFiles.includes(resolvedPath)) return resolvedPath;
+      }
       
-      expect(() => createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: invalidAnalyzer as any,
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      })).toThrow();
-    });
-
-    it('should validate ranker interface', () => {
-      const invalidRanker = 'not a function';
+      // Handle absolute imports
+      return resolveImportFactory(['.py', '/__init__.py'])(fromFile, sourcePath, allFiles);
+    }
+  },
+  java: { resolveImport: resolveImportFactory(['.java'], true) },
+  csharp: { resolveImport: resolveImportFactory(['.cs'], true) },
+  php: { ...phpHandler, resolveImport: resolveImportFactory(['.php']) },
+  go: goLangHandler,
+  rust: {
+    ...goLangHandler,
+    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+      const basedir = path.dirname(fromFile);
       
-      expect(() => createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: invalidRanker as any,
-        render: createMarkdownRenderer()
-      })).toThrow();
-    });
-
-    it('should validate renderer interface', () => {
-      const invalidRenderer = 'not a function';
+      // Handle module paths like "utils" -> "utils.rs"
+      const resolvedPath = path.normalize(path.join(basedir, sourcePath + '.rs'));
+      if (allFiles.includes(resolvedPath)) return resolvedPath;
       
-      expect(() => createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: createPageRanker(),
-        render: invalidRenderer as any
-      })).toThrow();
+      // Handle mod.rs style imports
+      return resolveImportFactory(['.rs', '/mod.rs'])(fromFile, sourcePath, allFiles);
+    }
+  },
+  c: cLangHandler,
+  cpp: cLangHandler,
+};
+
+const getLangHandler = (langName: string): LanguageHandler => ({
+  ...languageHandlers['default'],
+  ...languageHandlers[langName],
+} as LanguageHandler);
+
+/**
+ * Creates the default Tree-sitter based analyzer. It parses files to find
+ * symbols (nodes) and their relationships (edges), constructing a CodeGraph.
+ * Supports multiple programming languages.
+ * @returns An Analyzer function.
+ */
+export const createTreeSitterAnalyzer = (): Analyzer => {
+  return async (files: readonly FileContent[]) => {
+    const nodes = new Map<string, CodeNode>();
+    const edges: CodeEdge[] = [];
+    const allFilePaths = files.map(f => f.path);
+
+    // Phase 1: Add all files as nodes
+    for (const file of files) {
+      const langConfig = getLanguageConfigForFile(file.path);
+      nodes.set(file.path, {
+        id: file.path, type: 'file', name: path.basename(file.path),
+        filePath: file.path, startLine: 1, endLine: file.content.split('\n').length,
+        language: langConfig?.name,
+      });
+    }
+
+    // Phase 2: Group files by language
+    const filesByLanguage = files.reduce((acc, file) => {
+      const langConfig = getLanguageConfigForFile(file.path);
+      if (langConfig) {
+        if (!acc.has(langConfig.name)) acc.set(langConfig.name, []);
+        acc.get(langConfig.name)!.push(file);
+      }
+      return acc;
+    }, new Map<string, FileContent[]>());
+
+    // Phase 3: Parse all files once
+    const fileParseData = new Map<string, { file: FileContent; captures: TSMatch[]; langConfig: LanguageConfig }>();
+    for (const [langName, langFiles] of filesByLanguage.entries()) {
+      const langConfig = getLanguageConfigForFile(langFiles[0]!.path);
+      if (!langConfig) continue;
+      try {
+        const parser = await createParserForLanguage(langConfig);
+        if (!parser.language) continue;
+        const query = new (await import('web-tree-sitter')).Query(parser.language, langConfig.query);
+        for (const file of langFiles) {
+          const tree = parser.parse(file.content);
+          if (tree) fileParseData.set(file.path, { file, captures: query.captures(tree.rootNode), langConfig });
+        }
+      } catch (error) {
+        logger.warn(new ParserError(`Failed to process ${langName} files`, langName, error));
+        // Continue processing other languages, don't let one language failure stop the entire analysis
+        continue;
+      }
+    }
+
+    // Phase 4: Process definitions for all files
+    for (const { file, captures, langConfig } of fileParseData.values()) {
+      processFileDefinitions({ nodes }, file, captures, langConfig);
+    }
+    
+    // Phase 5: Process relationships for all files
+    const resolver = new SymbolResolver(nodes, edges);
+    for (const { file, captures, langConfig } of fileParseData.values()) {
+      processFileRelationships({ nodes, edges }, file, captures, langConfig, resolver, allFilePaths);
+    }
+
+    return { nodes: Object.freeze(nodes), edges: Object.freeze(edges) };
+  };
+};
+
+/**
+ * Process symbol definitions for a single file.
+ */
+function processFileDefinitions(
+  graph: { nodes: Map<string, CodeNode> },
+  file: FileContent,
+  captures: TSMatch[],
+  langConfig: LanguageConfig
+): void {
+  const handler = getLangHandler(langConfig.name);
+  const fileState = handler.preProcessFile?.(file, captures) || {};
+  const processedSymbols = new Set<string>();
+
+  for (const { name, node } of captures) {
+    const parts = name.split('.');
+    if (parts[parts.length - 1] !== 'definition') continue;
+
+    const type = parts.slice(0, -1).join('.');
+    const symbolType = getSymbolTypeFromCapture(name, type);
+    if (!symbolType) continue;
+
+    processSymbol(
+      { ...graph, file, node, symbolType, processedSymbols, fileState },
+      langConfig
+    );
+  }
+}
+
+/**
+ * Process a single symbol definition.
+ */
+function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig): void {
+  const { nodes, file, node, symbolType, processedSymbols } = context;
+  const handler = getLangHandler(langConfig.name);
+
+  if (handler.shouldSkipSymbol(node, symbolType, langConfig.name)) return;
+  if (handler.processComplexSymbol?.(context)) return;
+
+  let declarationNode = node;
+  if (node.type === 'export_statement') {
+    declarationNode = node.namedChildren[0] ?? node;
+  }
+  
+  const nameNode = handler.getSymbolNameNode(declarationNode, node);
+  if (!nameNode) return;
+
+  const symbolName = nameNode.text;
+  const symbolId = `${file.path}#${symbolName}`;
+
+  if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
+    processedSymbols.add(symbolId);
+    nodes.set(symbolId, {
+      id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
+      startLine: getLineFromIndex(file.content, node.startIndex),
+      endLine: getLineFromIndex(file.content, node.endIndex),
+      codeSnippet: node.text?.split('{')[0]?.trim() || '',
     });
-  });
+  }
+}
 
-  describe('Pipeline Data Flow', () => {
-    it('should pass files from discoverer to analyzer', async () => {
-      const files = {
-        'src/a.ts': 'export const a = true;',
-        'src/b.ts': 'export const b = true;'
-      };
-      await createTestFiles(tempDir, files);
+/**
+ * Process relationships (imports, calls, inheritance) for a single file.
+ */
+function processFileRelationships(
+  graph: { nodes: Map<string, CodeNode>, edges: CodeEdge[] },
+  file: FileContent,
+  captures: TSMatch[],
+  langConfig: LanguageConfig,
+  resolver: SymbolResolver,
+  allFilePaths: string[]
+): void {
+  const handler = getLangHandler(langConfig.name);
+  for (const { name, node } of captures) {
+    const parts = name.split('.');
+    const type = parts.slice(0, -1).join('.');
+    const subtype = parts[parts.length - 1];
 
-      let discoveredFiles: readonly FileContent[] = [];
-      let analyzedFiles: readonly FileContent[] = [];
+    if (type === 'import' && subtype === 'source') {
+      const importIdentifier = getNodeText(node, file.content).replace(/['"`]/g, '');
+      const importedFilePath = handler.resolveImport(file.path, importIdentifier, allFilePaths);
+      if (importedFilePath && graph.nodes.has(importedFilePath)) {
+        const edge: CodeEdge = { fromId: file.path, toId: importedFilePath, type: 'imports' };
+        if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {
+          graph.edges.push(edge);
+        }
+      }
+      continue;
+    }
 
-      const trackingDiscoverer: FileDiscoverer = async (options) => {
-        const defaultDiscoverer = createDefaultDiscoverer();
-        discoveredFiles = await defaultDiscoverer(options);
-        return discoveredFiles;
-      };
+    if (subtype && ['inheritance', 'implementation', 'call'].includes(subtype)) {
+      const fromId = findEnclosingSymbolId(node, file, graph.nodes);
+      if (!fromId) continue;
+      const toName = getNodeText(node, file.content).replace(/<.*>$/, '');
+      const toNode = resolver.resolve(toName, file.path);
+      if (!toNode) continue;
+      
+      const edgeType = subtype === 'inheritance' ? 'inherits' : subtype === 'implementation' ? 'implements' : 'calls';
+      const edge: CodeEdge = { fromId, toId: toNode.id, type: edgeType };
+      if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {
+        graph.edges.push(edge);
+      }
+    }
+  }
+}
 
-      const trackingAnalyzer: Analyzer = async (files) => {
-        analyzedFiles = files;
-        const defaultAnalyzer = createTreeSitterAnalyzer();
-        return await defaultAnalyzer(files);
-      };
+/**
+ * Get symbol type from capture name and language.
+ */
+function getSymbolTypeFromCapture(captureName: string, type: string): CodeNodeType | null {
+  const baseMap = new Map<string, CodeNodeType>([
+    ['class', 'class'],
+    ['function', 'function'],
+    ['function.arrow', 'arrow_function'],
+    ['interface', 'interface'],
+    ['type', 'type'],
+    ['method', 'method'],
+    ['field', 'field'],
+    ['struct', 'struct'],
+    ['enum', 'enum'],
+    ['namespace', 'namespace'],
+    ['trait', 'trait'],
+    ['impl', 'impl'],
+    ['constructor', 'constructor'],
+    ['property', 'property'],
+    ['variable', 'variable'],
+    ['constant', 'constant'],
+    ['static', 'static'],
+    ['union', 'union'],
+    ['template', 'template'],
+  ]);
+  return baseMap.get(captureName) ?? baseMap.get(type) ?? null;
+}
 
-      const generator = createMapGenerator({
-        discover: trackingDiscoverer,
-        analyze: trackingAnalyzer,
-        rank: createPageRanker(),
-        render: createMarkdownRenderer()
-      });
+/**
+ * A best-effort symbol resolver to find the ID of a referenced symbol.
+ */
+class SymbolResolver {
+  constructor(
+    private nodes: ReadonlyMap<string, CodeNode>,
+    private edges: readonly CodeEdge[],
+  ) {}
 
-      const outputPath = path.join(tempDir, 'tracking.md');
-      await generator({
-        root: tempDir,
-        output: outputPath
-      });
+  resolve(symbolName: string, contextFile: string): CodeNode | null {
+    const sameFileId = `${contextFile}#${symbolName}`;
+    if (this.nodes.has(sameFileId)) return this.nodes.get(sameFileId)!;
 
-      expect(discoveredFiles.length).toBe(2);
-      expect(analyzedFiles.length).toBe(2);
-      expect(analyzedFiles).toEqual(discoveredFiles);
-    });
+    const importedFiles = this.edges.filter(e => e.fromId === contextFile && e.type === 'imports').map(e => e.toId);
+    for (const file of importedFiles) {
+      const importedId = `${file}#${symbolName}`;
+      if (this.nodes.has(importedId)) return this.nodes.get(importedId)!;
+    }
 
-    it('should pass graph from analyzer to ranker', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
+    for (const node of this.nodes.values()) {
+      if (node.name === symbolName && ['class', 'function', 'interface', 'struct', 'type', 'enum'].includes(node.type)) {
+        return node;
+      }
+    }
+    return null;
+  }
+}
 
-      let analyzedGraph: any;
-      let rankedGraph: any;
-
-      const trackingAnalyzer: Analyzer = async (files) => {
-        const defaultAnalyzer = createTreeSitterAnalyzer();
-        analyzedGraph = await defaultAnalyzer(files);
-        return analyzedGraph;
-      };
-
-      const trackingRanker: Ranker = async (graph) => {
-        rankedGraph = graph;
-        const defaultRanker = createPageRanker();
-        return await defaultRanker(graph);
-      };
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: trackingAnalyzer,
-        rank: trackingRanker,
-        render: createMarkdownRenderer()
-      });
-
-      const outputPath = path.join(tempDir, 'tracking.md');
-      await generator({
-        root: tempDir,
-        output: outputPath
-      });
-
-      expect(rankedGraph).toBe(analyzedGraph);
-    });
-
-    it('should pass ranked graph from ranker to renderer', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      let rankerOutput: any;
-      let rendererInput: any;
-
-      const trackingRanker: Ranker = async (graph) => {
-        const defaultRanker = createPageRanker();
-        rankerOutput = await defaultRanker(graph);
-        return rankerOutput;
-      };
-
-      const trackingRenderer: Renderer = (rankedGraph, options) => {
-        rendererInput = rankedGraph;
-        const defaultRenderer = createMarkdownRenderer();
-        return defaultRenderer(rankedGraph, options);
-      };
-
-      const generator = createMapGenerator({
-        discover: createDefaultDiscoverer(),
-        analyze: createTreeSitterAnalyzer(),
-        rank: trackingRanker,
-        render: trackingRenderer
-      });
-
-      const outputPath = path.join(tempDir, 'tracking.md');
-      await generator({
-        root: tempDir,
-        output: outputPath
-      });
-
-      expect(rendererInput).toBe(rankerOutput);
-    });
-  });
-});
+/**
+ * Traverses up the AST from a start node to find the enclosing symbol definition
+ * and returns its unique ID.
+ */
+function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: ReadonlyMap<string, CodeNode>): string | null {
+  let current: TSNode | null = startNode.parent;
+  while (current) {
+    const nameNode = current.childForFieldName('name');
+    if (nameNode) {
+      let symbolName = nameNode.text;
+      if (current.type === 'method_definition' || (current.type === 'public_field_definition' && !current.text.includes('=>'))) {
+        const classNode = current.parent?.parent; // class_body -> class_declaration
+        if (classNode?.type === 'class_declaration') {
+          symbolName = `${classNode.childForFieldName('name')?.text}.${symbolName}`;
+        }
+      }
+      const symbolId = `${file.path}#${symbolName}`;
+      if (nodes.has(symbolId)) return symbolId;
+    }
+    current = current.parent;
+  }
+  return file.path; // Fallback to file node
+}
 ````

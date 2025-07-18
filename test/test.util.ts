@@ -202,9 +202,12 @@ export const directoryExists = async (dirPath: string): Promise<boolean> => {
  */
 export const createSymlink = async (target: string, linkPath: string): Promise<void> => {
   try {
-    await fs.symlink(target, linkPath);
-  } catch {
-    // Ignore symlink creation errors (may not be supported on all platforms)
+    // Ensure the parent directory exists
+    await fs.mkdir(path.dirname(linkPath), { recursive: true });
+    await fs.symlink(target, linkPath, 'dir');
+  } catch (error) {
+    console.warn(`Failed to create symlink from ${linkPath} to ${target}:`, error.message);
+    throw error; // Don't silently ignore - the test should know if symlinks aren't supported
   }
 };
 

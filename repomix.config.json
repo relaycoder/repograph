@@ -22,13 +22,7 @@
       "includeDiffs": false
     }
   },
-  "include": [
-    "test/integration/multi-language.test.ts",
-    "test/unit/analyze.test.ts",
-    "test/unit/composer.test.ts",
-    "test/test.util.ts",
-    "README.md"
-  ],
+  "include": ["src", "README.md"],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,

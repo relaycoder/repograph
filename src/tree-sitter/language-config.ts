@@ -48,6 +48,10 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 
 (call_expression
   function: (identifier) @function.call)
+
+; Class inheritance and implementation patterns
+(extends_clause (identifier) @class.inheritance)
+(implements_clause (type_identifier) @class.implementation)
 `
   },
   {
@@ -70,6 +74,10 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
       (export_statement declaration: (enum_declaration)) @enum.definition
       (method_definition) @method.definition
       (public_field_definition) @field.definition
+      
+      ; Class inheritance and implementation patterns
+      (extends_clause (identifier) @class.inheritance)
+      (implements_clause (type_identifier) @class.implementation)
     `
   },
   {
@@ -78,7 +86,10 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
     wasmPath: 'tree-sitter-python/tree-sitter-python.wasm',
     query: `
 (import_statement) @import.statement
-(import_from_statement) @import.statement
+(import_from_statement
+  module_name: (relative_import) @import.source) @import.statement
+(import_from_statement
+  module_name: (dotted_name) @import.source) @import.statement
 
 (class_definition) @class.definition
 
@@ -95,6 +106,10 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 
 (expression_statement
   (assignment)) @variable.definition
+
+; Python inheritance patterns
+(class_definition
+  superclasses: (argument_list (identifier) @class.inheritance))
 `
   },
   {
@@ -102,7 +117,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
     extensions: ['.java'],
     wasmPath: 'tree-sitter-java/tree-sitter-java.wasm',
     query: `
-(import_declaration) @import.statement
+(import_declaration
+  (scoped_identifier) @import.source) @import.statement
 
 (class_declaration) @class.definition
 (interface_declaration) @interface.definition
@@ -112,6 +128,11 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (constructor_declaration) @constructor.definition
 
 (field_declaration) @field.definition
+
+; Java inheritance and implementation patterns
+(superclass (type_identifier) @class.inheritance)
+(super_interfaces (type_list (type_identifier) @class.implementation))
+
 `
   },
   {
@@ -175,7 +196,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
     extensions: ['.rs'],
     wasmPath: 'tree-sitter-rust/tree-sitter-rust.wasm',
     query: `
-(use_declaration) @import.statement
+(mod_item
+  name: (identifier) @import.source) @import.statement
 
 (function_item) @function.definition
 (impl_item) @impl.definition

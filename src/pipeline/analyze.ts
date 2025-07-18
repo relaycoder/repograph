@@ -206,14 +206,38 @@ const languageHandlers: Record<string, Partial<LanguageHandler>> = {
     resolveImport: resolveImportFactory(['.js', '.jsx', '/index.js', '/index.jsx', '.mjs', '.cjs']),
   },
   tsx: tsLangHandler,
-  python: { ...pythonHandler, resolveImport: resolveImportFactory(['.py', '/__init__.py']) },
+  python: { 
+    ...pythonHandler, 
+    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+      const basedir = path.dirname(fromFile);
+      
+      // Handle relative imports (starting with .)
+      if (sourcePath.startsWith('.')) {
+        const relativePath = sourcePath.substring(1); // Remove leading dot
+        const resolvedPath = path.normalize(path.join(basedir, relativePath + '.py'));
+        if (allFiles.includes(resolvedPath)) return resolvedPath;
+      }
+      
+      // Handle absolute imports
+      return resolveImportFactory(['.py', '/__init__.py'])(fromFile, sourcePath, allFiles);
+    }
+  },
   java: { resolveImport: resolveImportFactory(['.java'], true) },
   csharp: { resolveImport: resolveImportFactory(['.cs'], true) },
   php: { ...phpHandler, resolveImport: resolveImportFactory(['.php']) },
   go: goLangHandler,
   rust: {
     ...goLangHandler,
-    resolveImport: resolveImportFactory(['.rs', '/mod.rs']),
+    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+      const basedir = path.dirname(fromFile);
+      
+      // Handle module paths like "utils" -> "utils.rs"
+      const resolvedPath = path.normalize(path.join(basedir, sourcePath + '.rs'));
+      if (allFiles.includes(resolvedPath)) return resolvedPath;
+      
+      // Handle mod.rs style imports
+      return resolveImportFactory(['.rs', '/mod.rs'])(fromFile, sourcePath, allFiles);
+    }
   },
   c: cLangHandler,
   cpp: cLangHandler,

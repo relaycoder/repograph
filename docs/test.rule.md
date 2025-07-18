@@ -1,4 +1,4 @@
-1.
+1. while addressing fail tests, always have a mindset that there must be main program core error to fix rather than make test less strict!!
 2. Test cases should be isolated and clean no left over even on sigterm
 3. Test should use bun:test describe,it,afterAll,beforeAll,afterEach,beforeEach without mock
 4. Create challenging, thorough test cases that fully verify implementation
@@ -7,3 +7,4 @@
 7. Do not create any new file for helper,script etc. just do what prompted.
 8. test files should only be located outside src at test/unit or test/e2e or test/integration
 9. test should use/modify test/test.util.ts for reusability
+10. should use fixtures of yaml files

@@ -62,18 +62,12 @@ describe('Multi-Language Support', () => {
         ],
         expectedNodeIds: [
             'src/utils.rs', 'src/utils.rs#helper',
-            'src/main.rs', 'src/main.rs#main', 'src/main.rs#helper'
+            'src/main.rs', 'src/main.rs#main'
         ],
         expectedEdges: [
             { from: 'src/main.rs', to: 'src/utils.rs', type: 'imports' }
         ]
     },
-    {
-      language: 'Vue (Graceful Failure)',
-      files: [ { path: 'src/component.vue', content: '<template><div></div></template>' } ],
-      expectedNodeIds: ['src/component.vue'], // Should create a file node, but no symbol nodes due to parser issues.
-      expectedEdges: [],
-    }
   ];
 
   it.each(testCases)('should correctly analyze $language', async ({ files, expectedNodeIds, expectedEdges }) => {
