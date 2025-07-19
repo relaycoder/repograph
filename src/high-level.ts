@@ -41,12 +41,16 @@ export const generateMap = async (options: RepoGraphOptions = {}): Promise<void>
     render: createMarkdownRenderer(),
   });
 
-  await generator({
-    root: path.resolve(root),
-    output: output,
-    include: options.include,
-    ignore: options.ignore,
-    noGitignore: options.noGitignore,
-    rendererOptions: options.rendererOptions,
-  });
+  try {
+    await generator({
+      root: path.resolve(root),
+      output: output,
+      include: options.include,
+      ignore: options.ignore,
+      noGitignore: options.noGitignore,
+      rendererOptions: options.rendererOptions,
+    });
+  } catch (error) {
+    throw error; // Re-throw to ensure errors propagate properly
+  }
 };

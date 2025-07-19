@@ -1,3 +1,11 @@
+add bun test cases to verify intention of .relay\transactions\bf31f74a-4648-43e4-84d4-20a273180eb6.yml
+
+===
+
+fix `bun test` fail following done refactor, here is the report of the refactor .relay\transactions\bf31f74a-4648-43e4-84d4-20a273180eb6.yml █
+
+===
+
 please execute the scn-ts.report.md
 
 ===

@@ -62,8 +62,12 @@ export const createMapGenerator = (pipeline: {
             if (output) {
               const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
               logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
-              await writeFile(outputPath, markdown);
-              logger.info('  -> Report saved.');
+              try {
+                await writeFile(outputPath, markdown);
+                logger.info('  -> Report saved.');
+              } catch (error) {
+                throw new Error(`Failed to write output file: ${error instanceof Error ? error.message : String(error)}`);
+              }
             }
 
             return { graph: rankedGraph, markdown };

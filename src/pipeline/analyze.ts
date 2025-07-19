@@ -153,7 +153,7 @@ const tsLangHandler: Partial<LanguageHandler> = {
         }
       }
     }
-    return true;
+    return false;
   },
   parseParameters: (paramsNode: TSNode, content: string): { name: string; type?: string }[] => {
     const params: { name: string; type?: string }[] = [];
@@ -218,10 +218,62 @@ const languageHandlers: Record<string, Partial<LanguageHandler>> = {
   },
   typescript: {
     ...tsLangHandler,
-    resolveImport: resolveImportFactory(['.ts', '.tsx', '/index.ts', '/index.tsx', '.js', '.jsx', '.mjs', '.cjs']),
+    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+      const basedir = path.dirname(fromFile);
+      
+      // First try the path as-is
+      const resolvedPathAsIs = path.normalize(path.join(basedir, sourcePath));
+      if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
+      
+      // Parse the source path to handle extension-less imports
+      const parsedSourcePath = path.parse(sourcePath);
+      const basePath = path.normalize(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
+      
+      // Try common TypeScript extensions
+      const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
+      for (const ext of extensions) {
+        const potentialPath = basePath + ext;
+        if (allFiles.includes(potentialPath)) return potentialPath;
+      }
+      
+      // Try index files
+      const indexExtensions = ['/index.ts', '/index.tsx', '/index.js', '/index.jsx'];
+      for (const ext of indexExtensions) {
+        const potentialPath = basePath + ext;
+        if (allFiles.includes(potentialPath)) return potentialPath;
+      }
+      
+      return null;
+    },
   },
   javascript: {
-    resolveImport: resolveImportFactory(['.js', '.jsx', '/index.js', '/index.jsx', '.mjs', '.cjs']),
+    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+      const basedir = path.dirname(fromFile);
+      
+      // First try the path as-is
+      const resolvedPathAsIs = path.normalize(path.join(basedir, sourcePath));
+      if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
+      
+      // Parse the source path to handle extension-less imports
+      const parsedSourcePath = path.parse(sourcePath);
+      const basePath = path.normalize(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
+      
+      // Try common JavaScript extensions
+      const extensions = ['.js', '.jsx', '.mjs', '.cjs'];
+      for (const ext of extensions) {
+        const potentialPath = basePath + ext;
+        if (allFiles.includes(potentialPath)) return potentialPath;
+      }
+      
+      // Try index files
+      const indexExtensions = ['/index.js', '/index.jsx'];
+      for (const ext of indexExtensions) {
+        const potentialPath = basePath + ext;
+        if (allFiles.includes(potentialPath)) return potentialPath;
+      }
+      
+      return null;
+    },
   },
   tsx: tsLangHandler,
   python: { 
@@ -342,11 +394,13 @@ function processFileDefinitions(
   file: FileContent,
   captures: TSMatch[],
   langConfig: LanguageConfig
-): void {  
+): void {
+  
   const handler = getLangHandler(langConfig.name);
   const fileState = handler.preProcessFile?.(file, captures) || {};
   const processedSymbols = new Set<string>();
-  
+
+  
   const definitionCaptures = captures.filter(({ name }) => name.endsWith('.definition'));
   const otherCaptures = captures.filter(({ name }) => !name.endsWith('.definition'));
 
@@ -362,7 +416,8 @@ function processFileDefinitions(
 
     processSymbol(
       { ...graph, file, node, symbolType, processedSymbols, fileState },
-      langConfig,
+      langConfig
+,
       childCaptures
     );
   }
@@ -421,11 +476,11 @@ function processSymbol(
       startLine: getLineFromIndex(file.content, node.startIndex),
       endLine: getLineFromIndex(file.content, node.endIndex),
       codeSnippet: node.text?.split('{')[0]?.trim() || '',
-      isAsync: !!qualifiers['qualifier.async'],
-      isStatic: !!qualifiers['qualifier.static'],
-      visibility,
-      returnType,
-      parameters,
+      ...(qualifiers['qualifier.async'] && { isAsync: true }),
+      ...(qualifiers['qualifier.static'] && { isStatic: true }),
+      ...(visibility && { visibility }),
+      ...(returnType && { returnType }),
+      ...(parameters && { parameters }),
     });
   }
 }

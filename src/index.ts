@@ -47,6 +47,7 @@ const isRunningDirectly = () => {
 };
 
 if (isRunningDirectly()) {
+  (async () => {
   const args = process.argv.slice(2);
 
   if (args.includes('--help') || args.includes('-h')) {
@@ -198,17 +199,21 @@ Output Formatting:
   const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
 
   logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
-  executeGenerateMap(options)
-    .then(() => {
-      const relativePath = path.relative(process.cwd(), finalOutput);
-      logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
-    })
-    .catch((error: unknown) => {
-      if (error instanceof RepoGraphError) {
-        logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
-      } else {
-        logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
-      }
-      process.exit(1);
-    });
+  
+  try {
+    await executeGenerateMap(options);
+    const relativePath = path.relative(process.cwd(), finalOutput);
+    logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
+  } catch (error: unknown) {
+    if (error instanceof RepoGraphError) {
+      logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
+    } else {
+      logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
+    }
+    process.exit(1);
+  }
+  })().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
 }

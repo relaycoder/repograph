@@ -25,13 +25,13 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (export_statement declaration: (class_declaration)) @class.definition
 
 (function_declaration
-  (async)? @qualifier.async
+  ("async")? @qualifier.async
   parameters: (formal_parameters) @symbol.parameters
   return_type: (type_annotation)? @symbol.returnType
 ) @function.definition
 (export_statement
   declaration: (function_declaration
-    (async)? @qualifier.async
+    ("async")? @qualifier.async
     parameters: (formal_parameters) @symbol.parameters
     return_type: (type_annotation)? @symbol.returnType
   )
@@ -39,14 +39,14 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 
 (variable_declarator
   value: (arrow_function
-    (async)? @qualifier.async
+    ("async")? @qualifier.async
     parameters: (formal_parameters)? @symbol.parameters
     return_type: (type_annotation)? @symbol.returnType
   )
 ) @function.arrow.definition
 (public_field_definition
   value: (arrow_function
-    (async)? @qualifier.async
+    ("async")? @qualifier.async
     parameters: (formal_parameters)? @symbol.parameters
     return_type: (type_annotation)? @symbol.returnType
   )
@@ -55,7 +55,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   declaration: (lexical_declaration
     (variable_declarator
       value: (arrow_function
-        (async)? @qualifier.async
+        ("async")? @qualifier.async
         parameters: (formal_parameters)? @symbol.parameters
         return_type: (type_annotation)? @symbol.returnType
       )
@@ -75,7 +75,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (method_definition
   (accessibility_modifier)? @qualifier.visibility
   ("static")? @qualifier.static
-  (async)? @qualifier.async
+  ("async")? @qualifier.async
   parameters: (formal_parameters) @symbol.parameters
   return_type: (type_annotation)? @symbol.returnType
 ) @method.definition
@@ -107,13 +107,13 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
       (export_statement declaration: (class_declaration)) @class.definition
       
       (function_declaration
-        (async)? @qualifier.async
+        ("async")? @qualifier.async
         parameters: (formal_parameters) @symbol.parameters
         return_type: (type_annotation)? @symbol.returnType
       ) @function.definition
       (export_statement
         declaration: (function_declaration
-          (async)? @qualifier.async
+          ("async")? @qualifier.async
           parameters: (formal_parameters) @symbol.parameters
           return_type: (type_annotation)? @symbol.returnType
         )
@@ -121,14 +121,14 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 
       (variable_declarator
         value: (arrow_function
-          (async)? @qualifier.async
+          ("async")? @qualifier.async
           parameters: (formal_parameters)? @symbol.parameters
           return_type: (type_annotation)? @symbol.returnType
         )
       ) @function.arrow.definition
       (public_field_definition
         value: (arrow_function
-          (async)? @qualifier.async
+          ("async")? @qualifier.async
           parameters: (formal_parameters)? @symbol.parameters
           return_type: (type_annotation)? @symbol.returnType
         )
@@ -144,7 +144,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
       (method_definition
         (accessibility_modifier)? @qualifier.visibility
         ("static")? @qualifier.static
-        (async)? @qualifier.async
+        ("async")? @qualifier.async
         parameters: (formal_parameters) @symbol.parameters
         return_type: (type_annotation)? @symbol.returnType
       ) @method.definition

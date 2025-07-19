@@ -141,6 +141,6 @@ gitignore:
   - "*.log"
   - ".env"
 
-expected_nodes: 28
+expected_nodes: 40
 expected_files: 5
 expected_symbols: 23
