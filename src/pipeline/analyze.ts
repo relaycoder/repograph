@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createParserForLanguage } from '../tree-sitter/languages.js';
 import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config.js';
-import type { Analyzer, CodeNode, CodeNodeType, FileContent, CodeEdge } from '../types.js';
+import type { Analyzer, CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, CodeEdge } from '../types.js';
 import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
 import { logger } from '../utils/logger.util.js';
 import { ParserError } from '../utils/error.util.js';
@@ -18,6 +18,7 @@ type LanguageHandler = {
   shouldSkipSymbol: (node: TSNode, symbolType: CodeNodeType, langName: string) => boolean;
   getSymbolNameNode: (declarationNode: TSNode, originalNode: TSNode) => TSNode | null;
   processComplexSymbol?: (context: ProcessSymbolContext) => boolean;
+  parseParameters?: (paramsNode: TSNode, content: string) => { name: string; type?: string }[];
   resolveImport: (fromFile: string, importIdentifier: string, allFiles: string[]) => string | null;
 };
 
@@ -154,6 +155,23 @@ const tsLangHandler: Partial<LanguageHandler> = {
     }
     return true;
   },
+  parseParameters: (paramsNode: TSNode, content: string): { name: string; type?: string }[] => {
+    const params: { name: string; type?: string }[] = [];
+    // For TS, formal_parameters has required_parameter, optional_parameter children.
+    for (const child of paramsNode.namedChildren) {
+      if (child.type === 'required_parameter' || child.type === 'optional_parameter') {
+        const nameNode = child.childForFieldName('pattern');
+        const typeNode = child.childForFieldName('type');
+        if (nameNode) {
+          params.push({
+            name: getNodeText(nameNode, content),
+            type: typeNode ? getNodeText(typeNode, content).replace(/^:\s*/, '') : undefined,
+          });
+        }
+      }
+    }
+    return params;
+  },
 };
 
 const resolveImportFactory = (endings: string[], packageStyle: boolean = false) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
@@ -248,6 +266,7 @@ const getLangHandler = (langName: string): LanguageHandler => ({
   ...languageHandlers[langName],
 } as LanguageHandler);
 
+
 /**
  * Creates the default Tree-sitter based analyzer. It parses files to find
  * symbols (nodes) and their relationships (edges), constructing a CodeGraph.
@@ -323,22 +342,28 @@ function processFileDefinitions(
   file: FileContent,
   captures: TSMatch[],
   langConfig: LanguageConfig
-): void {
+): void {  
   const handler = getLangHandler(langConfig.name);
   const fileState = handler.preProcessFile?.(file, captures) || {};
   const processedSymbols = new Set<string>();
+  
+  const definitionCaptures = captures.filter(({ name }) => name.endsWith('.definition'));
+  const otherCaptures = captures.filter(({ name }) => !name.endsWith('.definition'));
 
-  for (const { name, node } of captures) {
+  for (const { name, node } of definitionCaptures) {
     const parts = name.split('.');
-    if (parts[parts.length - 1] !== 'definition') continue;
-
     const type = parts.slice(0, -1).join('.');
     const symbolType = getSymbolTypeFromCapture(name, type);
     if (!symbolType) continue;
 
+    const childCaptures = otherCaptures.filter(
+      (c) => c.node.startIndex >= node.startIndex && c.node.endIndex <= node.endIndex
+    );
+
     processSymbol(
       { ...graph, file, node, symbolType, processedSymbols, fileState },
-      langConfig
+      langConfig,
+      childCaptures
     );
   }
 }
@@ -346,7 +371,11 @@ function processFileDefinitions(
 /**
  * Process a single symbol definition.
  */
-function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig): void {
+function processSymbol(
+  context: ProcessSymbolContext,
+  langConfig: LanguageConfig,
+  childCaptures: TSMatch[]
+): void {
   const { nodes, file, node, symbolType, processedSymbols } = context;
   const handler = getLangHandler(langConfig.name);
 
@@ -354,7 +383,7 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
   if (handler.processComplexSymbol?.(context)) return;
 
   let declarationNode = node;
-  if (node.type === 'export_statement') {
+  if (node.type === 'export_statement' && node.namedChildCount > 0) {
     declarationNode = node.namedChildren[0] ?? node;
   }
   
@@ -366,11 +395,37 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
 
   if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
     processedSymbols.add(symbolId);
+
+    // --- NEW LOGIC TO EXTRACT QUALIFIERS ---
+    const qualifiers: { [key: string]: TSNode } = {};
+    for (const capture of childCaptures) {
+      qualifiers[capture.name] = capture.node;
+    }
+
+    const visibilityNode = qualifiers['qualifier.visibility'];
+    const visibility = visibilityNode
+      ? (getNodeText(visibilityNode, file.content) as CodeNodeVisibility)
+      : undefined;
+
+    const parametersNode = qualifiers['symbol.parameters'];
+    const parameters =
+      parametersNode && handler.parseParameters
+        ? handler.parseParameters(parametersNode, file.content)
+        : undefined;
+
+    const returnTypeNode = qualifiers['symbol.returnType'];
+    const returnType = returnTypeNode ? getNodeText(returnTypeNode, file.content).replace(/^:\s*/, '') : undefined;
+
     nodes.set(symbolId, {
       id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
       startLine: getLineFromIndex(file.content, node.startIndex),
       endLine: getLineFromIndex(file.content, node.endIndex),
       codeSnippet: node.text?.split('{')[0]?.trim() || '',
+      isAsync: !!qualifiers['qualifier.async'],
+      isStatic: !!qualifiers['qualifier.static'],
+      visibility,
+      returnType,
+      parameters,
     });
   }
 }

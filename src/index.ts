@@ -22,6 +22,7 @@ export type {
   FileContent,
   CodeNode,
   CodeNodeType,
+  CodeNodeVisibility,
   CodeEdge,
   CodeGraph,
   RankedCodeGraph,

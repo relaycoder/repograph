@@ -29,6 +29,9 @@ export type CodeNodeType =
   | 'union'
   | 'template';
 
+/** New type for access modifiers. */
+export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
+
 /** Represents a single, identifiable symbol (or a file) in the code. Immutable. */
 export type CodeNode = {
   readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
@@ -39,6 +42,18 @@ export type CodeNode = {
   readonly endLine: number;
   readonly language?: string; // For file nodes, the detected language
   readonly codeSnippet?: string; // e.g., function signature
+
+  // --- NEW FIELDS from scn-ts report ---
+  /** The access modifier of the symbol (e.g., public, private). Maps to SCN '+' or '-'. */
+  readonly visibility?: CodeNodeVisibility;
+  /** Whether the symbol (e.g., a function or method) is asynchronous. Maps to SCN '...'. */
+  readonly isAsync?: boolean;
+  /** Whether the symbol is a static member of a class/struct. */
+  readonly isStatic?: boolean;
+  /** The return type of a function/method, as a string. Maps to SCN '#(type)'. */
+  readonly returnType?: string;
+  /** An array of parameters for functions/methods. */
+  readonly parameters?: { name: string; type?: string }[];
 };
 
 /** Represents a directed relationship between two CodeNodes. Immutable. */

@@ -1,0 +1,607 @@
+uuid: bf31f74a-4648-43e4-84d4-20a273180eb6
+projectId: repograph
+createdAt: '2025-07-19T07:32:45.059Z'
+linesAdded: 174
+linesRemoved: 23
+gitCommitMsg: 'feat(analysis): enhance CodeNode with qualifiers for scn-ts'
+promptSummary: >-
+  Execute the changes outlined in the scn-ts.report.md to enhance the repograph
+  analysis engine.
+reasoning:
+  - >-
+    This is an excellent plan. Implementing the changes outlined in the
+    `scn-ts.report.md` will significantly enhance `repograph`'s capabilities as
+    a foundational code analysis engine. By enriching the `CodeGraph` with
+    detailed symbol qualifiers, `repograph` will be able to provide a much
+    richer dataset for tools like `scn-ts` to consume, all while maintaining a
+    clean separation of concerns.
+  - Here are the step-by-step modifications to execute this plan.
+  - '### Step 1: Enhance Data Structures'
+  - >-
+    First, I'll update `src/types.ts` to include the new `CodeNodeVisibility`
+    type and extend the `CodeNode` interface with the new fields for symbol
+    qualifiers as specified in the report.
+  - '### Step 2: Update Programmatic Exports'
+  - >-
+    To make the new `CodeNodeVisibility` type available to consumers of the
+    `repograph` library, I will export it from the main entry point,
+    `src/index.ts`.
+  - '### Step 3: Enhance Tree-sitter Queries'
+  - >-
+    Next, I'll update the Tree-sitter queries in
+    `src/tree-sitter/language-config.ts` for both TypeScript and TSX. These
+    changes will capture the additional semantic details like `async`, `static`,
+    visibility modifiers, parameters, and return types directly from the source
+    code, simplifying the analysis logic.
+  - '### Step 4: Update the Analyzer'
+  - >-
+    This is the core of the implementation. I'll refactor the analyzer in
+    `src/pipeline/analyze.ts` to use the new, more detailed queries. This
+    involves changing how symbols are processed to find and attach the qualifier
+    data (`isAsync`, `visibility`, `parameters`, etc.) to each `CodeNode`.
+  - >-
+    These changes successfully implement the plan, enriching the `repograph`
+    engine and preparing it for powerful integrations.
+operations:
+  - type: write
+    path: src/types.ts
+    content: >-
+      --- src/types.ts
+
+      +++ src/types.ts
+
+      @@ -23,17 +23,30 @@
+         | 'union'
+         | 'template';
+       
+      +/** New type for access modifiers. */
+
+      +export type CodeNodeVisibility = 'public' | 'private' | 'protected' |
+      'internal' | 'default';
+
+      +
+       /** Represents a single, identifiable symbol (or a file) in the code. Immutable. */
+       export type CodeNode = {
+         readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
+         readonly type: CodeNodeType;
+         readonly name: string; // e.g., 'MyClass'
+         readonly filePath: string;
+         readonly startLine: number;
+         readonly endLine: number;
+         readonly language?: string; // For file nodes, the detected language
+         readonly codeSnippet?: string; // e.g., function signature
+      +
+
+      +  // --- NEW FIELDS from scn-ts report ---
+
+      +  /** The access modifier of the symbol (e.g., public, private). Maps to
+      SCN '+' or '-'. */
+
+      +  readonly visibility?: CodeNodeVisibility;
+
+      +  /** Whether the symbol (e.g., a function or method) is asynchronous.
+      Maps to SCN '...'. */
+
+      +  readonly isAsync?: boolean;
+
+      +  /** Whether the symbol is a static member of a class/struct. */
+
+      +  readonly isStatic?: boolean;
+
+      +  /** The return type of a function/method, as a string. Maps to SCN
+      '#(type)'. */
+
+      +  readonly returnType?: string;
+
+      +  /** An array of parameters for functions/methods. */
+
+      +  readonly parameters?: { name: string; type?: string }[];
+       };
+       
+       /** Represents a directed relationship between two CodeNodes. Immutable. */
+    patchStrategy: new-unified
+  - type: write
+    path: src/index.ts
+    content: |-
+      --- src/index.ts
+      +++ src/index.ts
+      @@ -21,6 +21,7 @@
+         FileContent,
+         CodeNode,
+         CodeNodeType,
+      +  CodeNodeVisibility,
+         CodeEdge,
+         CodeGraph,
+         RankedCodeGraph,
+    patchStrategy: new-unified
+  - type: write
+    path: src/tree-sitter/language-config.ts
+    content: >-
+      <<<<<<< SEARCH
+          wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
+          query: `
+      (import_statement
+        source: (string) @import.source) @import.statement
+
+      (class_declaration) @class.definition
+
+      (export_statement declaration: (class_declaration)) @class.definition
+
+
+      (function_declaration) @function.definition
+
+      (export_statement declaration: (function_declaration))
+      @function.definition
+
+
+      (variable_declarator value: (arrow_function)) @function.arrow.definition
+
+      (public_field_definition value: (arrow_function))
+      @function.arrow.definition
+
+      (export_statement declaration: (lexical_declaration (variable_declarator
+      value: (arrow_function)))) @function.arrow.definition
+
+
+      (interface_declaration) @interface.definition
+
+      (export_statement declaration: (interface_declaration))
+      @interface.definition
+
+
+      (type_alias_declaration) @type.definition
+
+      (export_statement declaration: (type_alias_declaration)) @type.definition
+
+
+      (enum_declaration) @enum.definition
+
+      (export_statement declaration: (enum_declaration)) @enum.definition
+
+
+      (method_definition) @method.definition
+
+      (public_field_definition) @field.definition
+
+
+      (variable_declarator) @variable.definition
+
+      (export_statement declaration: (lexical_declaration
+      (variable_declarator))) @variable.definition
+
+
+      (call_expression
+        function: (identifier) @function.call)
+
+      ; Class inheritance and implementation patterns
+
+      (extends_clause (identifier) @class.inheritance)
+
+      (implements_clause (type_identifier) @class.implementation)
+
+      `
+
+      =======
+          wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
+          query: `
+      (import_statement
+        source: (string) @import.source) @import.statement
+
+      (class_declaration) @class.definition
+
+      (export_statement declaration: (class_declaration)) @class.definition
+
+
+      (function_declaration
+        (async)? @qualifier.async
+        parameters: (formal_parameters) @symbol.parameters
+        return_type: (type_annotation)? @symbol.returnType
+      ) @function.definition
+
+      (export_statement
+        declaration: (function_declaration
+          (async)? @qualifier.async
+          parameters: (formal_parameters) @symbol.parameters
+          return_type: (type_annotation)? @symbol.returnType
+        )
+      ) @function.definition
+
+
+      (variable_declarator
+        value: (arrow_function
+          (async)? @qualifier.async
+          parameters: (formal_parameters)? @symbol.parameters
+          return_type: (type_annotation)? @symbol.returnType
+        )
+      ) @function.arrow.definition
+
+      (public_field_definition
+        value: (arrow_function
+          (async)? @qualifier.async
+          parameters: (formal_parameters)? @symbol.parameters
+          return_type: (type_annotation)? @symbol.returnType
+        )
+      ) @function.arrow.definition
+
+      (export_statement
+        declaration: (lexical_declaration
+          (variable_declarator
+            value: (arrow_function
+              (async)? @qualifier.async
+              parameters: (formal_parameters)? @symbol.parameters
+              return_type: (type_annotation)? @symbol.returnType
+            )
+          )
+        )
+      ) @function.arrow.definition
+
+
+      (interface_declaration) @interface.definition
+
+      (export_statement declaration: (interface_declaration))
+      @interface.definition
+
+
+      (type_alias_declaration) @type.definition
+
+      (export_statement declaration: (type_alias_declaration)) @type.definition
+
+
+      (enum_declaration) @enum.definition
+
+      (export_statement declaration: (enum_declaration)) @enum.definition
+
+
+      (method_definition
+        (accessibility_modifier)? @qualifier.visibility
+        ("static")? @qualifier.static
+        (async)? @qualifier.async
+        parameters: (formal_parameters) @symbol.parameters
+        return_type: (type_annotation)? @symbol.returnType
+      ) @method.definition
+
+
+      (public_field_definition
+        (accessibility_modifier)? @qualifier.visibility
+        ("static")? @qualifier.static
+        type: (type_annotation)? @symbol.returnType
+      ) @field.definition
+
+
+      (variable_declarator) @variable.definition
+
+      (export_statement declaration: (lexical_declaration
+      (variable_declarator))) @variable.definition
+
+
+      (call_expression
+        function: (identifier) @function.call)
+
+      ; Class inheritance and implementation patterns
+
+      (extends_clause (identifier) @class.inheritance)
+
+      (implements_clause (type_identifier) @class.implementation)
+
+      `
+
+      >>>>>>> REPLACE
+
+      <<<<<<< SEARCH
+          wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
+          query: `
+            (import_statement source: (string) @import.source) @import.statement
+            (class_declaration) @class.definition
+            (export_statement declaration: (class_declaration)) @class.definition
+            (function_declaration) @function.definition
+            (export_statement declaration: (function_declaration)) @function.definition
+            (variable_declarator value: (arrow_function)) @function.arrow.definition
+            (public_field_definition value: (arrow_function)) @function.arrow.definition
+            (interface_declaration) @interface.definition
+            (export_statement declaration: (interface_declaration)) @interface.definition
+            (type_alias_declaration) @type.definition
+            (export_statement declaration: (type_alias_declaration)) @type.definition
+            (enum_declaration) @enum.definition
+            (export_statement declaration: (enum_declaration)) @enum.definition
+            (method_definition) @method.definition
+            (public_field_definition) @field.definition
+            
+            ; Class inheritance and implementation patterns
+            (extends_clause (identifier) @class.inheritance)
+            (implements_clause (type_identifier) @class.implementation)
+          `
+      =======
+          wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
+          query: `
+            (import_statement source: (string) @import.source) @import.statement
+            (class_declaration) @class.definition
+            (export_statement declaration: (class_declaration)) @class.definition
+            
+            (function_declaration
+              (async)? @qualifier.async
+              parameters: (formal_parameters) @symbol.parameters
+              return_type: (type_annotation)? @symbol.returnType
+            ) @function.definition
+            (export_statement
+              declaration: (function_declaration
+                (async)? @qualifier.async
+                parameters: (formal_parameters) @symbol.parameters
+                return_type: (type_annotation)? @symbol.returnType
+              )
+            ) @function.definition
+
+            (variable_declarator
+              value: (arrow_function
+                (async)? @qualifier.async
+                parameters: (formal_parameters)? @symbol.parameters
+                return_type: (type_annotation)? @symbol.returnType
+              )
+            ) @function.arrow.definition
+            (public_field_definition
+              value: (arrow_function
+                (async)? @qualifier.async
+                parameters: (formal_parameters)? @symbol.parameters
+                return_type: (type_annotation)? @symbol.returnType
+              )
+            ) @function.arrow.definition
+
+            (interface_declaration) @interface.definition
+            (export_statement declaration: (interface_declaration)) @interface.definition
+            (type_alias_declaration) @type.definition
+            (export_statement declaration: (type_alias_declaration)) @type.definition
+            (enum_declaration) @enum.definition
+            (export_statement declaration: (enum_declaration)) @enum.definition
+
+            (method_definition
+              (accessibility_modifier)? @qualifier.visibility
+              ("static")? @qualifier.static
+              (async)? @qualifier.async
+              parameters: (formal_parameters) @symbol.parameters
+              return_type: (type_annotation)? @symbol.returnType
+            ) @method.definition
+
+            (public_field_definition
+              (accessibility_modifier)? @qualifier.visibility
+              ("static")? @qualifier.static
+              type: (type_annotation)? @symbol.returnType
+            ) @field.definition
+            
+            ; Class inheritance and implementation patterns
+            (extends_clause (identifier) @class.inheritance)
+            (implements_clause (type_identifier) @class.implementation)
+          `
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+  - type: write
+    path: src/pipeline/analyze.ts
+    content: >-
+      --- src/pipeline/analyze.ts
+
+      +++ src/pipeline/analyze.ts
+
+      @@ -2,7 +2,7 @@
+       import { createParserForLanguage } from '../tree-sitter/languages.js';
+       import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config.js';
+      -import type { Analyzer, CodeNode, CodeNodeType, FileContent, CodeEdge }
+      from '../types.js';
+
+      +import type { Analyzer, CodeNode, CodeNodeType, CodeNodeVisibility,
+      FileContent, CodeEdge } from '../types.js';
+       import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
+       import { logger } from '../utils/logger.util.js';
+       import { ParserError } from '../utils/error.util.js';
+      @@ -16,6 +16,7 @@
+         shouldSkipSymbol: (node: TSNode, symbolType: CodeNodeType, langName: string) => boolean;
+         getSymbolNameNode: (declarationNode: TSNode, originalNode: TSNode) => TSNode | null;
+         processComplexSymbol?: (context: ProcessSymbolContext) => boolean;
+      +  parseParameters?: (paramsNode: TSNode, content: string) => { name:
+      string; type?: string }[];
+         resolveImport: (fromFile: string, importIdentifier: string, allFiles: string[]) => string | null;
+       };
+       
+      @@ -102,6 +103,22 @@
+             }
+           }
+           return true;
+      +  },
+
+      +  parseParameters: (paramsNode: TSNode, content: string): { name: string;
+      type?: string }[] => {
+
+      +    const params: { name: string; type?: string }[] = [];
+
+      +    // For TS, formal_parameters has required_parameter,
+      optional_parameter children.
+
+      +    for (const child of paramsNode.namedChildren) {
+
+      +      if (child.type === 'required_parameter' || child.type ===
+      'optional_parameter') {
+
+      +        const nameNode = child.childForFieldName('pattern');
+
+      +        const typeNode = child.childForFieldName('type');
+
+      +        if (nameNode) {
+
+      +          params.push({
+
+      +            name: getNodeText(nameNode, content),
+
+      +            type: typeNode ? getNodeText(typeNode,
+      content).replace(/^:\s*/, '') : undefined,
+
+      +          });
+
+      +        }
+
+      +      }
+
+      +    }
+
+      +    return params;
+         },
+       };
+       
+      @@ -148,6 +165,7 @@
+         ...languageHandlers['default'],
+         ...languageHandlers[langName],
+       } as LanguageHandler);
+      +
+       
+       /**
+        * Creates the default Tree-sitter based analyzer. It parses files to find
+      @@ -204,49 +222,81 @@
+         file: FileContent,
+         captures: TSMatch[],
+         langConfig: LanguageConfig
+      -): void {
+
+      +): void {  
+         const handler = getLangHandler(langConfig.name);
+         const fileState = handler.preProcessFile?.(file, captures) || {};
+         const processedSymbols = new Set<string>();
+      -
+
+      -  for (const { name, node } of captures) {
+
+      +  
+
+      +  const definitionCaptures = captures.filter(({ name }) =>
+      name.endsWith('.definition'));
+
+      +  const otherCaptures = captures.filter(({ name }) =>
+      !name.endsWith('.definition'));
+
+      +
+
+      +  for (const { name, node } of definitionCaptures) {
+           const parts = name.split('.');
+      -    if (parts[parts.length - 1] !== 'definition') continue;
+
+      -
+           const type = parts.slice(0, -1).join('.');
+           const symbolType = getSymbolTypeFromCapture(name, type);
+           if (!symbolType) continue;
+       
+      +    const childCaptures = otherCaptures.filter(
+
+      +      (c) => c.node.startIndex >= node.startIndex && c.node.endIndex <=
+      node.endIndex
+
+      +    );
+
+      +
+           processSymbol(
+             { ...graph, file, node, symbolType, processedSymbols, fileState },
+      -      langConfig
+
+      +      langConfig,
+
+      +      childCaptures
+           );
+         }
+       }
+       
+       /**
+        * Process a single symbol definition.
+        */
+      -function processSymbol(context: ProcessSymbolContext, langConfig:
+      LanguageConfig): void {
+
+      +function processSymbol(
+
+      +  context: ProcessSymbolContext,
+
+      +  langConfig: LanguageConfig,
+
+      +  childCaptures: TSMatch[]
+
+      +): void {
+         const { nodes, file, node, symbolType, processedSymbols } = context;
+         const handler = getLangHandler(langConfig.name);
+       
+         if (handler.shouldSkipSymbol(node, symbolType, langConfig.name)) return;
+         if (handler.processComplexSymbol?.(context)) return;
+       
+         let declarationNode = node;
+      -  if (node.type === 'export_statement') {
+
+      +  if (node.type === 'export_statement' && node.namedChildCount > 0) {
+           declarationNode = node.namedChildren[0] ?? node;
+         }
+         
+         const nameNode = handler.getSymbolNameNode(declarationNode, node);
+         if (!nameNode) return;
+       
+         const symbolName = nameNode.text;
+         const symbolId = `${file.path}#${symbolName}`;
+       
+         if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
+           processedSymbols.add(symbolId);
+      +
+
+      +    // --- NEW LOGIC TO EXTRACT QUALIFIERS ---
+
+      +    const qualifiers: { [key: string]: TSNode } = {};
+
+      +    for (const capture of childCaptures) {
+
+      +      qualifiers[capture.name] = capture.node;
+
+      +    }
+
+      +
+
+      +    const visibilityNode = qualifiers['qualifier.visibility'];
+
+      +    const visibility = visibilityNode
+
+      +      ? (getNodeText(visibilityNode, file.content) as CodeNodeVisibility)
+
+      +      : undefined;
+
+      +
+
+      +    const parametersNode = qualifiers['symbol.parameters'];
+
+      +    const parameters =
+
+      +      parametersNode && handler.parseParameters
+
+      +        ? handler.parseParameters(parametersNode, file.content)
+
+      +        : undefined;
+
+      +
+
+      +    const returnTypeNode = qualifiers['symbol.returnType'];
+
+      +    const returnType = returnTypeNode ? getNodeText(returnTypeNode,
+      file.content).replace(/^:\s*/, '') : undefined;
+
+      +
+           nodes.set(symbolId, {
+             id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
+             startLine: getLineFromIndex(file.content, node.startIndex),
+             endLine: getLineFromIndex(file.content, node.endIndex),
+             codeSnippet: node.text?.split('{')[0]?.trim() || '',
+      +      isAsync: !!qualifiers['qualifier.async'],
+
+      +      isStatic: !!qualifiers['qualifier.static'],
+
+      +      visibility,
+
+      +      returnType,
+
+      +      parameters,
+           });
+         }
+       }
+    patchStrategy: new-unified
+snapshot:
+  src/types.ts: "// Core Data Structures\r\n\r\n/** Represents a single file read from disk. Immutable. */\r\nexport type FileContent = {\r\n  readonly path: string;\r\n  readonly content: string;\r\n};\r\n\r\n/** The type of a symbol identified in the code. */\r\nexport type CodeNodeType =\r\n  | 'file'\r\n  | 'class'\r\n  | 'function'\r\n  | 'interface'\r\n  | 'variable'\r\n  | 'type'\r\n  | 'arrow_function'\r\n  | 'method'\r\n  | 'field'\r\n  | 'struct'\r\n  | 'enum'\r\n  | 'namespace'\r\n  | 'trait'\r\n  | 'impl'\r\n  | 'constructor'\r\n  | 'property'\r\n  | 'constant'\r\n  | 'static'\r\n  | 'union'\r\n  | 'template';\r\n\r\n/** Represents a single, identifiable symbol (or a file) in the code. Immutable. */\r\nexport type CodeNode = {\r\n  readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')\r\n  readonly type: CodeNodeType;\r\n  readonly name: string; // e.g., 'MyClass'\r\n  readonly filePath: string;\r\n  readonly startLine: number;\r\n  readonly endLine: number;\r\n  readonly language?: string; // For file nodes, the detected language\r\n  readonly codeSnippet?: string; // e.g., function signature\r\n};\r\n\r\n/** Represents a directed relationship between two CodeNodes. Immutable. */\r\nexport type CodeEdge = {\r\n  readonly fromId: string; // ID of the source CodeNode\r\n  readonly toId: string;   // ID of the target CodeNode\r\n  readonly type: 'imports' | 'calls' | 'inherits' | 'implements';\r\n};\r\n\r\n/** The complete, raw model of the repository's structure. Immutable. */\r\nexport type CodeGraph = {\r\n  readonly nodes: ReadonlyMap<string, CodeNode>;\r\n  readonly edges: readonly CodeEdge[];\r\n};\r\n\r\n/** A CodeGraph with an added 'rank' score for each node. Immutable. */\r\nexport type RankedCodeGraph = CodeGraph & {\r\n  readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID\r\n};\r\n\r\n/** The output of a map generation process, containing the graph and rendered output. */\r\nexport type RepoGraphMap = {\r\n  readonly graph: RankedCodeGraph;\r\n  readonly markdown: string;\r\n};\r\n\r\n// High-Level API Options\r\n\r\n/** Configuration for the final Markdown output. */\r\nexport type RendererOptions = {\r\n  /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */\r\n  readonly customHeader?: string;\r\n  /** Include the default `RepoGraph` header. @default true */\r\n  readonly includeHeader?: boolean;\r\n  /** Include the project overview section. @default true */\r\n  readonly includeOverview?: boolean;\r\n  /** Include a Mermaid.js dependency graph. @default true */\r\n  readonly includeMermaidGraph?: boolean;\r\n  /** Include the list of top-ranked files. @default true */\r\n  readonly includeFileList?: boolean;\r\n  /** Number of files to show in the top list. @default 10 */\r\n  readonly topFileCount?: number;\r\n  /** Include detailed breakdowns for each symbol. @default true */\r\n  readonly includeSymbolDetails?: boolean;\r\n  /** String to use as a separator between file sections. @default '---' */\r\n  readonly fileSectionSeparator?: string;\r\n\r\n  /** Options for how individual symbols are rendered */\r\n  readonly symbolDetailOptions?: {\r\n    /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */\r\n    readonly includeRelations?: boolean;\r\n    /** Include the starting line number. @default true */\r\n    readonly includeLineNumber?: boolean;\r\n    /** Include the code snippet for the symbol. @default true */\r\n    readonly includeCodeSnippet?: boolean;\r\n    /** Max number of relations to show per type (e.g., 'calls'). @default 3 */\r\n    readonly maxRelationsToShow?: number;\r\n  };\r\n};\r\n\r\n/** Configuration options for the main `generateMap` function. */\r\nexport type RepoGraphOptions = {\r\n  /** Root directory to analyze. @default process.cwd() */\r\n  readonly root?: string;\r\n  /** Output path for the Markdown file. @default './repograph.md' */\r\n  readonly output?: string;\r\n  /** Glob patterns for files to include. */\r\n  readonly include?: readonly string[];\r\n  /** Glob patterns for files to exclude. */\r\n  readonly ignore?: readonly string[];\r\n  /** Disables the use of .gitignore. @default false */\r\n  readonly noGitignore?: boolean;\r\n  /** The ranking strategy to use. @default 'pagerank' */\r\n  readonly rankingStrategy?: 'pagerank' | 'git-changes';\r\n  /** Configuration for the final Markdown output. */\r\n  readonly rendererOptions?: RendererOptions;\r\n  /** Logging level. @default 'info' */\r\n  readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';\r\n};\r\n\r\n// Low-Level Functional Pipeline Contracts\r\n\r\n/** Discovers files and returns their content. */\r\nexport type FileDiscoverer = (config: {\r\n  readonly root: string;\r\n  readonly include?: readonly string[];\r\n  readonly ignore?: readonly string[];\r\n  readonly noGitignore?: boolean;\r\n}) => Promise<readonly FileContent[]>;\r\n\r\n/** Analyzes file content and builds the dependency graph. */\r\nexport type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;\r\n\r\n/** Ranks the nodes in a graph. */\r\nexport type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;\r\n\r\n/** Renders a ranked graph into a string format. */\r\nexport type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions) => string;"
+  src/index.ts: "#!/usr/bin/env bun\r\n\r\nimport { logger } from './utils/logger.util.js';\r\nimport { RepoGraphError } from './utils/error.util.js';\r\n// High-Level API for simple use cases\r\nimport { generateMap as executeGenerateMap } from './high-level.js';\r\nimport type { RepoGraphOptions as IRepoGraphOptions } from './types.js';\r\n\r\nexport { generateMap } from './high-level.js';\r\n\r\n// Low-Level API for composition and advanced use cases\r\nexport { createMapGenerator } from './composer.js';\r\n\r\n// Default pipeline component factories\r\nexport { createDefaultDiscoverer } from './pipeline/discover.js';\r\nexport { createTreeSitterAnalyzer } from './pipeline/analyze.js';\r\nexport { createPageRanker, createGitRanker } from './pipeline/rank.js';\r\nexport { createMarkdownRenderer } from './pipeline/render.js';\r\n\r\n// Core types for building custom components\r\nexport type {\r\n  FileContent,\r\n  CodeNode,\r\n  CodeNodeType,\r\n  CodeEdge,\r\n  CodeGraph,\r\n  RankedCodeGraph,\r\n  RepoGraphMap,\r\n  RepoGraphOptions,\r\n  RendererOptions,\r\n  FileDiscoverer,\r\n  Analyzer,\r\n  Ranker,\r\n  Renderer,\r\n} from './types.js';\r\n\r\n// This section runs only when the script is executed directly from the CLI\r\nimport { fileURLToPath } from 'node:url';\r\nimport path from 'node:path';\r\n\r\nconst isRunningDirectly = () => {\r\n  if (typeof process.argv[1] === 'undefined') return false;\r\n  const runningFile = path.resolve(process.argv[1]);\r\n  const currentFile = fileURLToPath(import.meta.url);\r\n  return runningFile === currentFile;\r\n};\r\n\r\nif (isRunningDirectly()) {\r\n  const args = process.argv.slice(2);\r\n\r\n  if (args.includes('--help') || args.includes('-h')) {\r\n    console.log(`\r\nUsage: repograph [root] [options]\r\n\r\nArguments:\r\n  root                     The root directory of the repository to analyze. Defaults to the current working directory.\r\n\r\nOptions:\r\n  -h, --help               Display this help message.\r\n  -v, --version            Display the version number.\r\n  --output <path>          Path to the output Markdown file. (default: \"repograph.md\")\r\n  --include <pattern>      Glob pattern for files to include. Can be specified multiple times.\r\n  --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.\r\n  --no-gitignore           Do not respect .gitignore files.\r\n  --ranking-strategy <name> The ranking strategy to use. (default: \"pagerank\", options: \"pagerank\", \"git-changes\")\r\n  --log-level <level>      Set the logging level. (default: \"info\", options: \"silent\", \"error\", \"warn\", \"info\", \"debug\")\r\n\r\nOutput Formatting:\r\n  --no-header              Do not include the main \"RepoGraph\" header.\r\n  --no-overview            Do not include the project overview section.\r\n  --no-mermaid             Do not include the Mermaid dependency graph.\r\n  --no-file-list           Do not include the list of top-ranked files.\r\n  --no-symbol-details      Do not include the detailed file and symbol breakdown.\r\n  --top-file-count <num>   Set the number of files in the top list. (default: 10)\r\n  --file-section-separator <str> Custom separator for file sections. (default: \"---\")\r\n  --no-symbol-relations    Hide symbol relationship details (e.g., calls, implements).\r\n  --no-symbol-line-numbers Hide line numbers for symbols.\r\n  --no-symbol-snippets     Hide code snippets for symbols.\r\n  --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)\r\n    `);\r\n    process.exit(0);\r\n  }\r\n\r\n  if (args.includes('--version') || args.includes('-v')) {\r\n    // In a real app, you'd get this from package.json\r\n    logger.info('0.1.0');\r\n    process.exit(0);\r\n  }\r\n\r\n  // We need a mutable version of the options to build it from arguments.\r\n  const options: {\r\n    root?: string;\r\n    output?: string;\r\n    include?: readonly string[];\r\n    ignore?: readonly string[];\r\n    noGitignore?: boolean;\r\n    rankingStrategy?: 'pagerank' | 'git-changes';\r\n    logLevel?: IRepoGraphOptions['logLevel'];\r\n    rendererOptions?: IRepoGraphOptions['rendererOptions'];\r\n  } = {};\r\n  const includePatterns: string[] = [];\r\n  const ignorePatterns: string[] = [];\r\n  // We need a mutable version of rendererOptions to build from CLI args\r\n  const rendererOptions: {\r\n    customHeader?: string;\r\n    includeHeader?: boolean;\r\n    includeOverview?: boolean;\r\n    includeMermaidGraph?: boolean;\r\n    includeFileList?: boolean;\r\n    topFileCount?: number;\r\n    includeSymbolDetails?: boolean;\r\n    fileSectionSeparator?: string;\r\n    symbolDetailOptions?: {\r\n      includeRelations?: boolean;\r\n      includeLineNumber?: boolean;\r\n      includeCodeSnippet?: boolean;\r\n      maxRelationsToShow?: number;\r\n    };\r\n  } = {};\r\n\r\n  for (let i = 0; i < args.length; i++) {\r\n    const arg = args[i];\r\n    if (!arg) {\r\n      continue;\r\n    }\r\n    switch (arg) {\r\n      case '--output':\r\n        options.output = args[++i];\r\n        break;\r\n      case '--include':\r\n        includePatterns.push(args[++i] as string);\r\n        break;\r\n      case '--ignore':\r\n        ignorePatterns.push(args[++i] as string);\r\n        break;\r\n      case '--no-gitignore':\r\n        options.noGitignore = true;\r\n        break;\r\n      case '--ranking-strategy':\r\n        options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];\r\n        break;\r\n      case '--log-level':\r\n        options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];\r\n        break;\r\n      // --- Renderer Options ---\r\n      case '--no-header':\r\n        rendererOptions.includeHeader = false;\r\n        break;\r\n      case '--no-overview':\r\n        rendererOptions.includeOverview = false;\r\n        break;\r\n      case '--no-mermaid':\r\n        rendererOptions.includeMermaidGraph = false;\r\n        break;\r\n      case '--no-file-list':\r\n        rendererOptions.includeFileList = false;\r\n        break;\r\n      case '--no-symbol-details':\r\n        rendererOptions.includeSymbolDetails = false;\r\n        break;\r\n      case '--top-file-count':\r\n        rendererOptions.topFileCount = parseInt(args[++i] as string, 10);\r\n        break;\r\n      case '--file-section-separator':\r\n        rendererOptions.fileSectionSeparator = args[++i];\r\n        break;\r\n      case '--no-symbol-relations':\r\n        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };\r\n        break;\r\n      case '--no-symbol-line-numbers':\r\n        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };\r\n        break;\r\n      case '--no-symbol-snippets':\r\n        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };\r\n        break;\r\n      case '--max-relations-to-show':\r\n        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };\r\n        break;\r\n      default:\r\n        if (!arg.startsWith('-')) {\r\n          options.root = arg;\r\n        }\r\n        break;\r\n    }\r\n  }\r\n\r\n  if (includePatterns.length > 0) {\r\n    options.include = includePatterns;\r\n  }\r\n  if (ignorePatterns.length > 0) {\r\n    options.ignore = ignorePatterns;\r\n  }\r\n  if (Object.keys(rendererOptions).length > 0) {\r\n    options.rendererOptions = rendererOptions;\r\n  }\r\n\r\n  const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');\r\n\r\n  logger.info(`Starting RepoGraph analysis for \"${path.resolve(options.root || process.cwd())}\"...`);\r\n  executeGenerateMap(options)\r\n    .then(() => {\r\n      const relativePath = path.relative(process.cwd(), finalOutput);\r\n      logger.info(`\\n✅ Success! RepoGraph map saved to ${relativePath}`);\r\n    })\r\n    .catch((error: unknown) => {\r\n      if (error instanceof RepoGraphError) {\r\n        logger.error(`\\n❌ Error generating RepoGraph map: ${error.message}`);\r\n      } else {\r\n        logger.error('\\n❌ An unknown error occurred while generating the RepoGraph map.', error);\r\n      }\r\n      process.exit(1);\r\n    });\r\n}"
+  src/pipeline/analyze.ts: "import path from 'node:path';\r\nimport { createParserForLanguage } from '../tree-sitter/languages.js';\r\nimport { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config.js';\r\nimport type { Analyzer, CodeNode, CodeNodeType, FileContent, CodeEdge } from '../types.js';\r\nimport type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';\r\nimport { logger } from '../utils/logger.util.js';\r\nimport { ParserError } from '../utils/error.util.js';\r\n\r\n// --- UTILITY FUNCTIONS ---\r\n\r\nconst getNodeText = (node: TSNode, content: string): string => content.slice(node.startIndex, node.endIndex);\r\nconst getLineFromIndex = (content: string, index: number): number => content.substring(0, index).split('\\n').length;\r\n\r\n// --- LANGUAGE-SPECIFIC LOGIC ---\r\n\r\ntype LanguageHandler = {\r\n  preProcessFile?: (file: FileContent, captures: TSMatch[]) => Record<string, any>;\r\n  shouldSkipSymbol: (node: TSNode, symbolType: CodeNodeType, langName: string) => boolean;\r\n  getSymbolNameNode: (declarationNode: TSNode, originalNode: TSNode) => TSNode | null;\r\n  processComplexSymbol?: (context: ProcessSymbolContext) => boolean;\r\n  resolveImport: (fromFile: string, importIdentifier: string, allFiles: string[]) => string | null;\r\n};\r\n\r\ntype ProcessSymbolContext = {\r\n  nodes: Map<string, CodeNode>;\r\n  file: FileContent;\r\n  node: TSNode;\r\n  symbolType: CodeNodeType;\r\n  processedSymbols: Set<string>;\r\n  fileState: Record<string, any>;\r\n};\r\n\r\nconst pythonHandler: Partial<LanguageHandler> = {\r\n  getSymbolNameNode: (declarationNode: TSNode) => {\r\n    if (declarationNode.type === 'expression_statement') {\r\n      const assignmentNode = declarationNode.namedChild(0);\r\n      if (assignmentNode?.type === 'assignment') {\r\n        return assignmentNode.childForFieldName('left');\r\n      }\r\n    }\r\n    return declarationNode.childForFieldName('name');\r\n  },\r\n};\r\n\r\nconst goLangHandler: Partial<LanguageHandler> = {\r\n  getSymbolNameNode: (declarationNode: TSNode) => {\r\n    const nodeType = declarationNode.type;\r\n    if (['type_declaration', 'const_declaration', 'var_declaration'].includes(nodeType)) {\r\n      const spec = declarationNode.namedChild(0);\r\n      if (spec && ['type_spec', 'const_spec', 'var_spec'].includes(spec.type)) {\r\n        return spec.childForFieldName('name');\r\n      }\r\n    }\r\n    return declarationNode.childForFieldName('name');\r\n  },\r\n};\r\n\r\nconst cLangHandler: Partial<LanguageHandler> = {\r\n  getSymbolNameNode: (declarationNode: TSNode) => {\r\n    if (declarationNode.type === 'type_definition') {\r\n      const lastChild = declarationNode.namedChild(declarationNode.namedChildCount - 1);\r\n      if (lastChild?.type === 'type_identifier') return lastChild;\r\n    }\r\n    if (declarationNode.type === 'function_definition') {\r\n      const declarator = declarationNode.childForFieldName('declarator');\r\n      if (declarator?.type === 'function_declarator') {\r\n        const nameNode = declarator.childForFieldName('declarator');\r\n        if (nameNode?.type === 'identifier') return nameNode;\r\n      }\r\n    }\r\n    if (declarationNode.type === 'field_declaration') {\r\n      const declarator = declarationNode.childForFieldName('declarator');\r\n      if (declarator?.type === 'function_declarator') {\r\n        return declarator.childForFieldName('declarator');\r\n      }\r\n      return declarator;\r\n    }\r\n    return declarationNode.childForFieldName('name');\r\n  },\r\n};\r\n\r\nconst tsLangHandler: Partial<LanguageHandler> = {\r\n  preProcessFile: (_file, captures) => {\r\n    const classNames = new Map<string, number>();\r\n    const duplicateClassNames = new Set<string>();\r\n    const seenClassNodes = new Set<number>();\r\n\r\n    for (const { name, node } of captures) {\r\n      if (name === 'class.definition') {\r\n        let classNode = node.type === 'export_statement' ? (node.namedChildren[0] ?? node) : node;\r\n        if (classNode.type === 'class_declaration' && !seenClassNodes.has(classNode.startIndex)) {\r\n          seenClassNodes.add(classNode.startIndex);\r\n          const nameNode = classNode.childForFieldName('name');\r\n          if (nameNode) {\r\n            const className = nameNode.text;\r\n            const count = classNames.get(className) || 0;\r\n            classNames.set(className, count + 1);\r\n            if (count + 1 > 1) duplicateClassNames.add(className);\r\n          }\r\n        }\r\n      }\r\n    }\r\n    return { duplicateClassNames };\r\n  },\r\n  shouldSkipSymbol: (node, symbolType, langName) => {\r\n    if (langName !== 'typescript') return false;\r\n    const valueNode = node.childForFieldName('value');\r\n    if (valueNode?.type !== 'arrow_function') return false;\r\n    return (symbolType === 'field' && node.type === 'public_field_definition') ||\r\n      (symbolType === 'variable' && node.type === 'variable_declarator');\r\n  },\r\n  getSymbolNameNode: (declarationNode, originalNode) => {\r\n    if (originalNode.type === 'variable_declarator' || originalNode.type === 'public_field_definition') { // Arrow function\r\n      return originalNode.childForFieldName('name');\r\n    }\r\n    if (declarationNode.type === 'export_statement') {\r\n      const lexicalDecl = declarationNode.namedChildren[0];\r\n      if (lexicalDecl?.type === 'lexical_declaration') {\r\n        const varDeclarator = lexicalDecl.namedChildren[0];\r\n        if (varDeclarator?.type === 'variable_declarator') {\r\n          return varDeclarator.childForFieldName('name');\r\n        }\r\n      }\r\n    }\r\n    return declarationNode.childForFieldName('name');\r\n  },\r\n  processComplexSymbol: ({ nodes, file, node, symbolType, processedSymbols, fileState }) => {\r\n    if (symbolType !== 'method' && symbolType !== 'field') return false;\r\n    const classParent = node.parent?.parent; // class_body -> class_declaration\r\n    if (classParent?.type === 'class_declaration') {\r\n      const classNameNode = classParent.childForFieldName('name');\r\n      if (classNameNode) {\r\n        const className = classNameNode.text;\r\n        const nameNode = node.childForFieldName('name');\r\n        // The check for duplicateClassNames is important to avoid ambiguity.\r\n        // We remove the dependency on checking if the class has been processed first,\r\n        // because the order of captures from tree-sitter is not guaranteed to be in source order.\r\n        // This makes the analysis more robust.\r\n        if (nameNode && !fileState['duplicateClassNames']?.has(className)) {\r\n          const methodName = nameNode.text;\r\n          const symbolName = `${className}.${methodName}`;\r\n          const symbolId = `${file.path}#${symbolName}`;\r\n          if (!processedSymbols.has(symbolId) && !nodes.has(symbolId)) {\r\n            processedSymbols.add(symbolId);\r\n            nodes.set(symbolId, {\r\n              id: symbolId, type: symbolType, name: symbolName, filePath: file.path,\r\n              startLine: getLineFromIndex(file.content, node.startIndex),\r\n              endLine: getLineFromIndex(file.content, node.endIndex),\r\n              codeSnippet: node.text?.split('{')[0]?.trim() || '',\r\n            });\r\n          }\r\n        }\r\n      }\r\n    }\r\n    return true;\r\n  },\r\n};\r\n\r\nconst resolveImportFactory = (endings: string[], packageStyle: boolean = false) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {\r\n  const basedir = path.dirname(fromFile);\r\n  const resolvedPathAsIs = path.normalize(path.join(basedir, sourcePath));\r\n  if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;\r\n\r\n  const parsedSourcePath = path.parse(sourcePath);\r\n  const basePath = path.normalize(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));\r\n  for (const end of endings) {\r\n    const potentialPath = basePath + end;\r\n    if (allFiles.includes(potentialPath)) return potentialPath;\r\n  }\r\n  \r\n  if (packageStyle && sourcePath.includes('.')) {\r\n    const packagePath = sourcePath.replace(/\\./g, '/');\r\n    for (const end of endings) {\r\n      const fileFromRoot = packagePath + end;\r\n      if (allFiles.includes(fileFromRoot)) return fileFromRoot;\r\n    }\r\n  }\r\n  return null;\r\n}\r\n\r\nconst phpHandler: Partial<LanguageHandler> = {\r\n  getSymbolNameNode: (declarationNode: TSNode) => {\r\n    if (declarationNode.type === 'namespace_definition') {\r\n      // For namespace definitions, get the namespace name node\r\n      const nameNode = declarationNode.childForFieldName('name');\r\n      return nameNode;\r\n    }\r\n    return declarationNode.childForFieldName('name');\r\n  },\r\n};\r\n\r\nconst languageHandlers: Record<string, Partial<LanguageHandler>> = {\r\n  default: {\r\n    shouldSkipSymbol: () => false,\r\n    getSymbolNameNode: (declarationNode) => declarationNode.childForFieldName('name'),\r\n    resolveImport: (fromFile, sourcePath, allFiles) => {\r\n      const resolvedPathAsIs = path.normalize(path.join(path.dirname(fromFile), sourcePath));\r\n      return allFiles.includes(resolvedPathAsIs) ? resolvedPathAsIs : null;\r\n    }\r\n  },\r\n  typescript: {\r\n    ...tsLangHandler,\r\n    resolveImport: resolveImportFactory(['.ts', '.tsx', '/index.ts', '/index.tsx', '.js', '.jsx', '.mjs', '.cjs']),\r\n  },\r\n  javascript: {\r\n    resolveImport: resolveImportFactory(['.js', '.jsx', '/index.js', '/index.jsx', '.mjs', '.cjs']),\r\n  },\r\n  tsx: tsLangHandler,\r\n  python: { \r\n    ...pythonHandler, \r\n    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {\r\n      const basedir = path.dirname(fromFile);\r\n      \r\n      // Handle relative imports (starting with .)\r\n      if (sourcePath.startsWith('.')) {\r\n        const relativePath = sourcePath.substring(1); // Remove leading dot\r\n        const resolvedPath = path.normalize(path.join(basedir, relativePath + '.py'));\r\n        if (allFiles.includes(resolvedPath)) return resolvedPath;\r\n      }\r\n      \r\n      // Handle absolute imports\r\n      return resolveImportFactory(['.py', '/__init__.py'])(fromFile, sourcePath, allFiles);\r\n    }\r\n  },\r\n  java: { resolveImport: resolveImportFactory(['.java'], true) },\r\n  csharp: { resolveImport: resolveImportFactory(['.cs'], true) },\r\n  php: { ...phpHandler, resolveImport: resolveImportFactory(['.php']) },\r\n  go: goLangHandler,\r\n  rust: {\r\n    ...goLangHandler,\r\n    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {\r\n      const basedir = path.dirname(fromFile);\r\n      \r\n      // Handle module paths like \"utils\" -> \"utils.rs\"\r\n      const resolvedPath = path.normalize(path.join(basedir, sourcePath + '.rs'));\r\n      if (allFiles.includes(resolvedPath)) return resolvedPath;\r\n      \r\n      // Handle mod.rs style imports\r\n      return resolveImportFactory(['.rs', '/mod.rs'])(fromFile, sourcePath, allFiles);\r\n    }\r\n  },\r\n  c: cLangHandler,\r\n  cpp: cLangHandler,\r\n};\r\n\r\nconst getLangHandler = (langName: string): LanguageHandler => ({\r\n  ...languageHandlers['default'],\r\n  ...languageHandlers[langName],\r\n} as LanguageHandler);\r\n\r\n/**\r\n * Creates the default Tree-sitter based analyzer. It parses files to find\r\n * symbols (nodes) and their relationships (edges), constructing a CodeGraph.\r\n * Supports multiple programming languages.\r\n * @returns An Analyzer function.\r\n */\r\nexport const createTreeSitterAnalyzer = (): Analyzer => {\r\n  return async (files: readonly FileContent[]) => {\r\n    const nodes = new Map<string, CodeNode>();\r\n    const edges: CodeEdge[] = [];\r\n    const allFilePaths = files.map(f => f.path);\r\n\r\n    // Phase 1: Add all files as nodes\r\n    for (const file of files) {\r\n      const langConfig = getLanguageConfigForFile(file.path);\r\n      nodes.set(file.path, {\r\n        id: file.path, type: 'file', name: path.basename(file.path),\r\n        filePath: file.path, startLine: 1, endLine: file.content.split('\\n').length,\r\n        language: langConfig?.name,\r\n      });\r\n    }\r\n\r\n    // Phase 2: Group files by language\r\n    const filesByLanguage = files.reduce((acc, file) => {\r\n      const langConfig = getLanguageConfigForFile(file.path);\r\n      if (langConfig) {\r\n        if (!acc.has(langConfig.name)) acc.set(langConfig.name, []);\r\n        acc.get(langConfig.name)!.push(file);\r\n      }\r\n      return acc;\r\n    }, new Map<string, FileContent[]>());\r\n\r\n    // Phase 3: Parse all files once\r\n    const fileParseData = new Map<string, { file: FileContent; captures: TSMatch[]; langConfig: LanguageConfig }>();\r\n    for (const [langName, langFiles] of filesByLanguage.entries()) {\r\n      const langConfig = getLanguageConfigForFile(langFiles[0]!.path);\r\n      if (!langConfig) continue;\r\n      try {\r\n        const parser = await createParserForLanguage(langConfig);\r\n        if (!parser.language) continue;\r\n        const query = new (await import('web-tree-sitter')).Query(parser.language, langConfig.query);\r\n        for (const file of langFiles) {\r\n          const tree = parser.parse(file.content);\r\n          if (tree) fileParseData.set(file.path, { file, captures: query.captures(tree.rootNode), langConfig });\r\n        }\r\n      } catch (error) {\r\n        logger.warn(new ParserError(`Failed to process ${langName} files`, langName, error));\r\n        // Continue processing other languages, don't let one language failure stop the entire analysis\r\n        continue;\r\n      }\r\n    }\r\n\r\n    // Phase 4: Process definitions for all files\r\n    for (const { file, captures, langConfig } of fileParseData.values()) {\r\n      processFileDefinitions({ nodes }, file, captures, langConfig);\r\n    }\r\n    \r\n    // Phase 5: Process relationships for all files\r\n    const resolver = new SymbolResolver(nodes, edges);\r\n    for (const { file, captures, langConfig } of fileParseData.values()) {\r\n      processFileRelationships({ nodes, edges }, file, captures, langConfig, resolver, allFilePaths);\r\n    }\r\n\r\n    return { nodes: Object.freeze(nodes), edges: Object.freeze(edges) };\r\n  };\r\n};\r\n\r\n/**\r\n * Process symbol definitions for a single file.\r\n */\r\nfunction processFileDefinitions(\r\n  graph: { nodes: Map<string, CodeNode> },\r\n  file: FileContent,\r\n  captures: TSMatch[],\r\n  langConfig: LanguageConfig\r\n): void {\r\n  const handler = getLangHandler(langConfig.name);\r\n  const fileState = handler.preProcessFile?.(file, captures) || {};\r\n  const processedSymbols = new Set<string>();\r\n\r\n  for (const { name, node } of captures) {\r\n    const parts = name.split('.');\r\n    if (parts[parts.length - 1] !== 'definition') continue;\r\n\r\n    const type = parts.slice(0, -1).join('.');\r\n    const symbolType = getSymbolTypeFromCapture(name, type);\r\n    if (!symbolType) continue;\r\n\r\n    processSymbol(\r\n      { ...graph, file, node, symbolType, processedSymbols, fileState },\r\n      langConfig\r\n    );\r\n  }\r\n}\r\n\r\n/**\r\n * Process a single symbol definition.\r\n */\r\nfunction processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig): void {\r\n  const { nodes, file, node, symbolType, processedSymbols } = context;\r\n  const handler = getLangHandler(langConfig.name);\r\n\r\n  if (handler.shouldSkipSymbol(node, symbolType, langConfig.name)) return;\r\n  if (handler.processComplexSymbol?.(context)) return;\r\n\r\n  let declarationNode = node;\r\n  if (node.type === 'export_statement') {\r\n    declarationNode = node.namedChildren[0] ?? node;\r\n  }\r\n  \r\n  const nameNode = handler.getSymbolNameNode(declarationNode, node);\r\n  if (!nameNode) return;\r\n\r\n  const symbolName = nameNode.text;\r\n  const symbolId = `${file.path}#${symbolName}`;\r\n\r\n  if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {\r\n    processedSymbols.add(symbolId);\r\n    nodes.set(symbolId, {\r\n      id: symbolId, type: symbolType, name: symbolName, filePath: file.path,\r\n      startLine: getLineFromIndex(file.content, node.startIndex),\r\n      endLine: getLineFromIndex(file.content, node.endIndex),\r\n      codeSnippet: node.text?.split('{')[0]?.trim() || '',\r\n    });\r\n  }\r\n}\r\n\r\n/**\r\n * Process relationships (imports, calls, inheritance) for a single file.\r\n */\r\nfunction processFileRelationships(\r\n  graph: { nodes: Map<string, CodeNode>, edges: CodeEdge[] },\r\n  file: FileContent,\r\n  captures: TSMatch[],\r\n  langConfig: LanguageConfig,\r\n  resolver: SymbolResolver,\r\n  allFilePaths: string[]\r\n): void {\r\n  const handler = getLangHandler(langConfig.name);\r\n  for (const { name, node } of captures) {\r\n    const parts = name.split('.');\r\n    const type = parts.slice(0, -1).join('.');\r\n    const subtype = parts[parts.length - 1];\r\n\r\n    if (type === 'import' && subtype === 'source') {\r\n      const importIdentifier = getNodeText(node, file.content).replace(/['\"`]/g, '');\r\n      const importedFilePath = handler.resolveImport(file.path, importIdentifier, allFilePaths);\r\n      if (importedFilePath && graph.nodes.has(importedFilePath)) {\r\n        const edge: CodeEdge = { fromId: file.path, toId: importedFilePath, type: 'imports' };\r\n        if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {\r\n          graph.edges.push(edge);\r\n        }\r\n      }\r\n      continue;\r\n    }\r\n\r\n    if (subtype && ['inheritance', 'implementation', 'call'].includes(subtype)) {\r\n      const fromId = findEnclosingSymbolId(node, file, graph.nodes);\r\n      if (!fromId) continue;\r\n      const toName = getNodeText(node, file.content).replace(/<.*>$/, '');\r\n      const toNode = resolver.resolve(toName, file.path);\r\n      if (!toNode) continue;\r\n      \r\n      const edgeType = subtype === 'inheritance' ? 'inherits' : subtype === 'implementation' ? 'implements' : 'calls';\r\n      const edge: CodeEdge = { fromId, toId: toNode.id, type: edgeType };\r\n      if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {\r\n        graph.edges.push(edge);\r\n      }\r\n    }\r\n  }\r\n}\r\n\r\n/**\r\n * Get symbol type from capture name and language.\r\n */\r\nfunction getSymbolTypeFromCapture(captureName: string, type: string): CodeNodeType | null {\r\n  const baseMap = new Map<string, CodeNodeType>([\r\n    ['class', 'class'],\r\n    ['function', 'function'],\r\n    ['function.arrow', 'arrow_function'],\r\n    ['interface', 'interface'],\r\n    ['type', 'type'],\r\n    ['method', 'method'],\r\n    ['field', 'field'],\r\n    ['struct', 'struct'],\r\n    ['enum', 'enum'],\r\n    ['namespace', 'namespace'],\r\n    ['trait', 'trait'],\r\n    ['impl', 'impl'],\r\n    ['constructor', 'constructor'],\r\n    ['property', 'property'],\r\n    ['variable', 'variable'],\r\n    ['constant', 'constant'],\r\n    ['static', 'static'],\r\n    ['union', 'union'],\r\n    ['template', 'template'],\r\n  ]);\r\n  return baseMap.get(captureName) ?? baseMap.get(type) ?? null;\r\n}\r\n\r\n/**\r\n * A best-effort symbol resolver to find the ID of a referenced symbol.\r\n */\r\nclass SymbolResolver {\r\n  constructor(\r\n    private nodes: ReadonlyMap<string, CodeNode>,\r\n    private edges: readonly CodeEdge[],\r\n  ) {}\r\n\r\n  resolve(symbolName: string, contextFile: string): CodeNode | null {\r\n    const sameFileId = `${contextFile}#${symbolName}`;\r\n    if (this.nodes.has(sameFileId)) return this.nodes.get(sameFileId)!;\r\n\r\n    const importedFiles = this.edges.filter(e => e.fromId === contextFile && e.type === 'imports').map(e => e.toId);\r\n    for (const file of importedFiles) {\r\n      const importedId = `${file}#${symbolName}`;\r\n      if (this.nodes.has(importedId)) return this.nodes.get(importedId)!;\r\n    }\r\n\r\n    for (const node of this.nodes.values()) {\r\n      if (node.name === symbolName && ['class', 'function', 'interface', 'struct', 'type', 'enum'].includes(node.type)) {\r\n        return node;\r\n      }\r\n    }\r\n    return null;\r\n  }\r\n}\r\n\r\n/**\r\n * Traverses up the AST from a start node to find the enclosing symbol definition\r\n * and returns its unique ID.\r\n */\r\nfunction findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: ReadonlyMap<string, CodeNode>): string | null {\r\n  let current: TSNode | null = startNode.parent;\r\n  while (current) {\r\n    const nameNode = current.childForFieldName('name');\r\n    if (nameNode) {\r\n      let symbolName = nameNode.text;\r\n      if (current.type === 'method_definition' || (current.type === 'public_field_definition' && !current.text.includes('=>'))) {\r\n        const classNode = current.parent?.parent; // class_body -> class_declaration\r\n        if (classNode?.type === 'class_declaration') {\r\n          symbolName = `${classNode.childForFieldName('name')?.text}.${symbolName}`;\r\n        }\r\n      }\r\n      const symbolId = `${file.path}#${symbolName}`;\r\n      if (nodes.has(symbolId)) return symbolId;\r\n    }\r\n    current = current.parent;\r\n  }\r\n  return file.path; // Fallback to file node\r\n}"
+  src/tree-sitter/language-config.ts: "import type { Language } from 'web-tree-sitter';\r\n\r\nexport interface LanguageConfig {\r\n  name: string;\r\n  extensions: string[];\r\n  wasmPath: string;\r\n  query: string;\r\n}\r\n\r\nexport interface LoadedLanguage {\r\n  config: LanguageConfig;\r\n  language: Language;\r\n}\r\n\r\nexport const LANGUAGE_CONFIGS: LanguageConfig[] = [\r\n  {\r\n    name: 'typescript',\r\n    extensions: ['.ts', '.js', '.mjs', '.cjs'],\r\n    wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',\r\n    query: `\r\n(import_statement\r\n  source: (string) @import.source) @import.statement\r\n\r\n(class_declaration) @class.definition\r\n(export_statement declaration: (class_declaration)) @class.definition\r\n\r\n(function_declaration) @function.definition\r\n(export_statement declaration: (function_declaration)) @function.definition\r\n\r\n(variable_declarator value: (arrow_function)) @function.arrow.definition\r\n(public_field_definition value: (arrow_function)) @function.arrow.definition\r\n(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition\r\n\r\n(interface_declaration) @interface.definition\r\n(export_statement declaration: (interface_declaration)) @interface.definition\r\n\r\n(type_alias_declaration) @type.definition\r\n(export_statement declaration: (type_alias_declaration)) @type.definition\r\n\r\n(enum_declaration) @enum.definition\r\n(export_statement declaration: (enum_declaration)) @enum.definition\r\n\r\n(method_definition) @method.definition\r\n(public_field_definition) @field.definition\r\n\r\n(variable_declarator) @variable.definition\r\n(export_statement declaration: (lexical_declaration (variable_declarator))) @variable.definition\r\n\r\n(call_expression\r\n  function: (identifier) @function.call)\r\n\r\n; Class inheritance and implementation patterns\r\n(extends_clause (identifier) @class.inheritance)\r\n(implements_clause (type_identifier) @class.implementation)\r\n`\r\n  },\r\n  {\r\n    name: 'tsx',\r\n    extensions: ['.tsx', '.jsx'],\r\n    wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',\r\n    query: `\r\n      (import_statement source: (string) @import.source) @import.statement\r\n      (class_declaration) @class.definition\r\n      (export_statement declaration: (class_declaration)) @class.definition\r\n      (function_declaration) @function.definition\r\n      (export_statement declaration: (function_declaration)) @function.definition\r\n      (variable_declarator value: (arrow_function)) @function.arrow.definition\r\n      (public_field_definition value: (arrow_function)) @function.arrow.definition\r\n      (interface_declaration) @interface.definition\r\n      (export_statement declaration: (interface_declaration)) @interface.definition\r\n      (type_alias_declaration) @type.definition\r\n      (export_statement declaration: (type_alias_declaration)) @type.definition\r\n      (enum_declaration) @enum.definition\r\n      (export_statement declaration: (enum_declaration)) @enum.definition\r\n      (method_definition) @method.definition\r\n      (public_field_definition) @field.definition\r\n      \r\n      ; Class inheritance and implementation patterns\r\n      (extends_clause (identifier) @class.inheritance)\r\n      (implements_clause (type_identifier) @class.implementation)\r\n    `\r\n  },\r\n  {\r\n    name: 'python',\r\n    extensions: ['.py', '.pyw'],\r\n    wasmPath: 'tree-sitter-python/tree-sitter-python.wasm',\r\n    query: `\r\n(import_statement) @import.statement\r\n(import_from_statement\r\n  module_name: (relative_import) @import.source) @import.statement\r\n(import_from_statement\r\n  module_name: (dotted_name) @import.source) @import.statement\r\n\r\n(class_definition) @class.definition\r\n\r\n(function_definition) @function.definition\r\n\r\n(decorated_definition\r\n  (function_definition)) @function.definition\r\n\r\n(decorated_definition\r\n  (class_definition)) @class.definition\r\n\r\n(class_definition\r\n  body: (block (function_definition) @method.definition))\r\n\r\n(expression_statement\r\n  (assignment)) @variable.definition\r\n\r\n; Python inheritance patterns\r\n(class_definition\r\n  superclasses: (argument_list (identifier) @class.inheritance))\r\n`\r\n  },\r\n  {\r\n    name: 'java',\r\n    extensions: ['.java'],\r\n    wasmPath: 'tree-sitter-java/tree-sitter-java.wasm',\r\n    query: `\r\n(import_declaration\r\n  (scoped_identifier) @import.source) @import.statement\r\n\r\n(class_declaration) @class.definition\r\n(interface_declaration) @interface.definition\r\n(enum_declaration) @enum.definition\r\n\r\n(method_declaration) @method.definition\r\n(constructor_declaration) @constructor.definition\r\n\r\n(field_declaration) @field.definition\r\n\r\n; Java inheritance and implementation patterns\r\n(superclass (type_identifier) @class.inheritance)\r\n(super_interfaces (type_list (type_identifier) @class.implementation))\r\n\r\n`\r\n  },\r\n  {\r\n    name: 'cpp',\r\n    extensions: ['.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx'],\r\n    wasmPath: 'tree-sitter-cpp/tree-sitter-cpp.wasm',\r\n    query: `\r\n(preproc_include) @import.statement\r\n\r\n(function_definition) @function.definition\r\n(declaration\r\n  declarator: (function_declarator)) @function.declaration\r\n\r\n(class_specifier) @class.definition\r\n(struct_specifier) @struct.definition\r\n(union_specifier) @union.definition\r\n(enum_specifier) @enum.definition\r\n\r\n(namespace_definition) @namespace.definition\r\n\r\n(template_declaration) @template.definition\r\n\r\n(function_definition declarator: (qualified_identifier)) @method.definition\r\n(field_declaration declarator: (function_declarator)) @method.definition\r\n(field_declaration) @field.definition\r\n`\r\n  },\r\n  {\r\n    name: 'c',\r\n    extensions: ['.c'],\r\n    wasmPath: 'tree-sitter-c/tree-sitter-c.wasm',\r\n    query: `\r\n(preproc_include) @import.statement\r\n\r\n(function_definition) @function.definition\r\n(declaration declarator: (function_declarator)) @function.declaration\r\n(struct_specifier) @struct.definition\r\n(union_specifier) @union.definition\r\n(enum_specifier) @enum.definition\r\n(type_definition) @type.definition\r\n`\r\n  },\r\n  {\r\n    name: 'go',\r\n    extensions: ['.go'],\r\n    wasmPath: 'tree-sitter-go/tree-sitter-go.wasm',\r\n    query: `\r\n(import_declaration) @import.statement\r\n\r\n(function_declaration) @function.definition\r\n(method_declaration) @method.definition\r\n\r\n(type_declaration) @type.definition\r\n\r\n(var_declaration) @variable.definition\r\n(const_declaration) @constant.definition\r\n`\r\n  },\r\n  {\r\n    name: 'rust',\r\n    extensions: ['.rs'],\r\n    wasmPath: 'tree-sitter-rust/tree-sitter-rust.wasm',\r\n    query: `\r\n(mod_item\r\n  name: (identifier) @import.source) @import.statement\r\n\r\n(function_item) @function.definition\r\n(impl_item) @impl.definition\r\n\r\n(struct_item) @struct.definition\r\n(enum_item) @enum.definition\r\n(trait_item) @trait.definition\r\n(function_signature_item) @method.definition\r\n\r\n(type_item) @type.definition\r\n(const_item) @constant.definition\r\n(static_item) @static.definition\r\n\r\n(function_signature_item) @function.declaration\r\n`\r\n  },\r\n  {\r\n    name: 'csharp',\r\n    extensions: ['.cs'],\r\n    wasmPath: 'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm',\r\n    query: `\r\n(using_directive) @import.statement\r\n\r\n(class_declaration) @class.definition\r\n(interface_declaration) @interface.definition\r\n(struct_declaration) @struct.definition\r\n(enum_declaration) @enum.definition\r\n\r\n(method_declaration) @method.definition\r\n(constructor_declaration) @constructor.definition\r\n\r\n(field_declaration) @field.definition\r\n(property_declaration) @property.definition\r\n\r\n(namespace_declaration) @namespace.definition\r\n`\r\n  },\r\n  {\r\n    name: 'php',\r\n    extensions: ['.php'],\r\n    wasmPath: 'tree-sitter-php/tree-sitter-php.wasm',\r\n    query: `\r\n      (namespace_definition) @namespace.definition\r\n      (class_declaration) @class.definition\r\n      (function_definition) @function.definition\r\n      (method_declaration) @method.definition\r\n    `\r\n  },\r\n  {\r\n    name: 'ruby',\r\n    extensions: ['.rb'],\r\n    wasmPath: 'tree-sitter-ruby/tree-sitter-ruby.wasm',\r\n    query: `\r\n      (module) @module.definition\r\n      (class) @class.definition\r\n      (method) @method.definition\r\n      (singleton_method) @method.definition\r\n    `\r\n  },\r\n  {\r\n    name: 'solidity',\r\n    extensions: ['.sol'],\r\n    wasmPath: 'tree-sitter-solidity/tree-sitter-solidity.wasm',\r\n    query: `\r\n      (contract_declaration) @class.definition\r\n      (function_definition) @function.definition\r\n      (event_definition) @enum.definition\r\n    `\r\n  },\r\n  {\r\n    name: 'swift',\r\n    extensions: ['.swift'],\r\n    wasmPath: 'tree-sitter-swift/tree-sitter-swift.wasm',\r\n    query: `\r\n      (class_declaration) @class.definition\r\n      (protocol_declaration) @trait.definition\r\n      (function_declaration) @function.definition\r\n      (protocol_function_declaration) @function.definition\r\n      (property_declaration) @field.definition\r\n    `\r\n  },\r\n  {\r\n    name: 'vue',\r\n    extensions: ['.vue'],\r\n    wasmPath: 'tree-sitter-vue/tree-sitter-vue.wasm',\r\n    query: `\r\n      (script_element .\r\n        [\r\n          (lexical_declaration (variable_declarator)) @variable.definition\r\n          (function_declaration) @function.definition\r\n        ])\r\n`\r\n  }\r\n];\r\n\r\n/**\r\n * Get the language configuration for a given file extension\r\n */\r\nexport function getLanguageConfigForFile(filePath: string): LanguageConfig | null {\r\n  const extension = filePath.substring(filePath.lastIndexOf('.'));\r\n  \r\n  for (const config of LANGUAGE_CONFIGS) {\r\n    if (config.extensions.includes(extension)) {\r\n      return config;\r\n    }\r\n  }\r\n  \r\n  return null;\r\n}\r\n\r\n/**\r\n * Get all supported file extensions\r\n */\r\nexport function getSupportedExtensions(): string[] {\r\n  return LANGUAGE_CONFIGS.flatMap(config => config.extensions);\r\n}"
+approved: true

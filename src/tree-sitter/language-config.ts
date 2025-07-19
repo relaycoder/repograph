@@ -24,12 +24,44 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (class_declaration) @class.definition
 (export_statement declaration: (class_declaration)) @class.definition
 
-(function_declaration) @function.definition
-(export_statement declaration: (function_declaration)) @function.definition
+(function_declaration
+  (async)? @qualifier.async
+  parameters: (formal_parameters) @symbol.parameters
+  return_type: (type_annotation)? @symbol.returnType
+) @function.definition
+(export_statement
+  declaration: (function_declaration
+    (async)? @qualifier.async
+    parameters: (formal_parameters) @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.definition
 
-(variable_declarator value: (arrow_function)) @function.arrow.definition
-(public_field_definition value: (arrow_function)) @function.arrow.definition
-(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
+(variable_declarator
+  value: (arrow_function
+    (async)? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+(public_field_definition
+  value: (arrow_function
+    (async)? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      value: (arrow_function
+        (async)? @qualifier.async
+        parameters: (formal_parameters)? @symbol.parameters
+        return_type: (type_annotation)? @symbol.returnType
+      )
+    )
+  )
+) @function.arrow.definition
 
 (interface_declaration) @interface.definition
 (export_statement declaration: (interface_declaration)) @interface.definition
@@ -40,8 +72,19 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (enum_declaration) @enum.definition
 (export_statement declaration: (enum_declaration)) @enum.definition
 
-(method_definition) @method.definition
-(public_field_definition) @field.definition
+(method_definition
+  (accessibility_modifier)? @qualifier.visibility
+  ("static")? @qualifier.static
+  (async)? @qualifier.async
+  parameters: (formal_parameters) @symbol.parameters
+  return_type: (type_annotation)? @symbol.returnType
+) @method.definition
+
+(public_field_definition
+  (accessibility_modifier)? @qualifier.visibility
+  ("static")? @qualifier.static
+  type: (type_annotation)? @symbol.returnType
+) @field.definition
 
 (variable_declarator) @variable.definition
 (export_statement declaration: (lexical_declaration (variable_declarator))) @variable.definition
@@ -62,18 +105,55 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
       (import_statement source: (string) @import.source) @import.statement
       (class_declaration) @class.definition
       (export_statement declaration: (class_declaration)) @class.definition
-      (function_declaration) @function.definition
-      (export_statement declaration: (function_declaration)) @function.definition
-      (variable_declarator value: (arrow_function)) @function.arrow.definition
-      (public_field_definition value: (arrow_function)) @function.arrow.definition
+      
+      (function_declaration
+        (async)? @qualifier.async
+        parameters: (formal_parameters) @symbol.parameters
+        return_type: (type_annotation)? @symbol.returnType
+      ) @function.definition
+      (export_statement
+        declaration: (function_declaration
+          (async)? @qualifier.async
+          parameters: (formal_parameters) @symbol.parameters
+          return_type: (type_annotation)? @symbol.returnType
+        )
+      ) @function.definition
+
+      (variable_declarator
+        value: (arrow_function
+          (async)? @qualifier.async
+          parameters: (formal_parameters)? @symbol.parameters
+          return_type: (type_annotation)? @symbol.returnType
+        )
+      ) @function.arrow.definition
+      (public_field_definition
+        value: (arrow_function
+          (async)? @qualifier.async
+          parameters: (formal_parameters)? @symbol.parameters
+          return_type: (type_annotation)? @symbol.returnType
+        )
+      ) @function.arrow.definition
+
       (interface_declaration) @interface.definition
       (export_statement declaration: (interface_declaration)) @interface.definition
       (type_alias_declaration) @type.definition
       (export_statement declaration: (type_alias_declaration)) @type.definition
       (enum_declaration) @enum.definition
       (export_statement declaration: (enum_declaration)) @enum.definition
-      (method_definition) @method.definition
-      (public_field_definition) @field.definition
+
+      (method_definition
+        (accessibility_modifier)? @qualifier.visibility
+        ("static")? @qualifier.static
+        (async)? @qualifier.async
+        parameters: (formal_parameters) @symbol.parameters
+        return_type: (type_annotation)? @symbol.returnType
+      ) @method.definition
+
+      (public_field_definition
+        (accessibility_modifier)? @qualifier.visibility
+        ("static")? @qualifier.static
+        type: (type_annotation)? @symbol.returnType
+      ) @field.definition
       
       ; Class inheritance and implementation patterns
       (extends_clause (identifier) @class.inheritance)

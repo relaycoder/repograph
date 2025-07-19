@@ -1,3 +1,7 @@
+please execute the scn-ts.report.md
+
+===
+
 what are needed to be prepare for repograph so that scn-ts can use repograph programmatic api as fundamental building block while to keep repograph out of scn concern. give me the analysis report
 
 ===
