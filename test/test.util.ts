@@ -206,7 +206,11 @@ export const createSymlink = async (target: string, linkPath: string): Promise<v
     await fs.mkdir(path.dirname(linkPath), { recursive: true });
     await fs.symlink(target, linkPath, 'dir');
   } catch (error) {
-    console.warn(`Failed to create symlink from ${linkPath} to ${target}:`, error.message);
+    if (error instanceof Error) {
+      console.warn(`Failed to create symlink from ${linkPath} to ${target}:`, error.message);
+    } else {
+      console.warn(`Failed to create symlink from ${linkPath} to ${target}:`, String(error));
+    }
     throw error; // Don't silently ignore - the test should know if symlinks aren't supported
   }
 };

@@ -59,7 +59,7 @@ describe('File Discoverer: createDefaultDiscoverer()', () => {
 
       expect(discoveredPaths).toEqual(expectedPaths);
     } catch (error) {
-      if (error.message.includes('EPERM') || error.message.includes('operation not permitted')) {
+      if (error instanceof Error && (error.message.includes('EPERM') || error.message.includes('operation not permitted'))) {
         console.warn('Skipping symlink test: insufficient permissions to create symlinks');
         return; // Skip this test on systems without symlink permissions
       }
@@ -87,7 +87,7 @@ describe('File Discoverer: createDefaultDiscoverer()', () => {
           'sub/child.ts',
       ].sort());
     } catch (error) {
-      if (error.message.includes('EPERM') || error.message.includes('operation not permitted')) {
+      if (error instanceof Error && (error.message.includes('EPERM') || error.message.includes('operation not permitted'))) {
         console.warn('Skipping symlink test: insufficient permissions to create symlinks');
         return; // Skip this test on systems without symlink permissions
       }

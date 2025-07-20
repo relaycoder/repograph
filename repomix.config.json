@@ -23,9 +23,9 @@
     }
   },
   "include": [
-    "src",
-    "docs/scn-ts.report.md"
-    // "README.md"
+    "src/pipeline/analyze.ts",
+    "test/unit/discover.test.ts",
+    "test/test.util.ts"
   ],
   "ignore": {
     "useGitignore": true,

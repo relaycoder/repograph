@@ -10,6 +10,7 @@ import { ParserError } from '../utils/error.util.js';
 
 const getNodeText = (node: TSNode, content: string): string => content.slice(node.startIndex, node.endIndex);
 const getLineFromIndex = (content: string, index: number): number => content.substring(0, index).split('\n').length;
+const normalizePath = (p: string): string => p.replace(/\\/g, '/');
 
 // --- LANGUAGE-SPECIFIC LOGIC ---
 
@@ -159,7 +160,7 @@ const tsLangHandler: Partial<LanguageHandler> = {
     const params: { name: string; type?: string }[] = [];
     // For TS, formal_parameters has required_parameter, optional_parameter children.
     for (const child of paramsNode.namedChildren) {
-      if (child.type === 'required_parameter' || child.type === 'optional_parameter') {
+      if (child && (child.type === 'required_parameter' || child.type === 'optional_parameter')) {
         const nameNode = child.childForFieldName('pattern');
         const typeNode = child.childForFieldName('type');
         if (nameNode) {
@@ -174,27 +175,54 @@ const tsLangHandler: Partial<LanguageHandler> = {
   },
 };
 
+const createModuleResolver = (extensions: string[]) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+  const basedir = normalizePath(path.dirname(fromFile));
+  const importPath = normalizePath(path.join(basedir, sourcePath));
+
+  // Case 1: Path needs an extension or has the wrong one (e.g., .js for .ts)
+  const parsedPath = path.parse(importPath);
+  const basePath = normalizePath(path.join(parsedPath.dir, parsedPath.name));
+  for (const ext of extensions) {
+      const potentialFile = basePath + ext;
+      if (allFiles.includes(potentialFile)) {
+          return potentialFile;
+      }
+  }
+  
+  // Case 2: Path is a directory with an index file
+  for (const ext of extensions) {
+      const potentialIndexFile = normalizePath(path.join(importPath, 'index' + ext));
+      if (allFiles.includes(potentialIndexFile)) {
+          return potentialIndexFile;
+      }
+  }
+
+  if (allFiles.includes(importPath)) return importPath;
+
+  return null;      
+};
+
 const resolveImportFactory = (endings: string[], packageStyle: boolean = false) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-  const basedir = path.dirname(fromFile);
-  const resolvedPathAsIs = path.normalize(path.join(basedir, sourcePath));
+  const basedir = normalizePath(path.dirname(fromFile));
+  const resolvedPathAsIs = normalizePath(path.join(basedir, sourcePath));
   if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
 
   const parsedSourcePath = path.parse(sourcePath);
-  const basePath = path.normalize(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
+  const basePath = normalizePath(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
   for (const end of endings) {
     const potentialPath = basePath + end;
     if (allFiles.includes(potentialPath)) return potentialPath;
   }
   
   if (packageStyle && sourcePath.includes('.')) {
-    const packagePath = sourcePath.replace(/\./g, '/');
+    const packagePath = normalizePath(sourcePath.replace(/\./g, '/'));
     for (const end of endings) {
       const fileFromRoot = packagePath + end;
       if (allFiles.includes(fileFromRoot)) return fileFromRoot;
     }
   }
   return null;
-}
+};
 
 const phpHandler: Partial<LanguageHandler> = {
   getSymbolNameNode: (declarationNode: TSNode) => {
@@ -218,73 +246,35 @@ const languageHandlers: Record<string, Partial<LanguageHandler>> = {
   },
   typescript: {
     ...tsLangHandler,
-    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-      const basedir = path.dirname(fromFile);
-      
-      // First try the path as-is
-      const resolvedPathAsIs = path.normalize(path.join(basedir, sourcePath));
-      if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
-      
-      // Parse the source path to handle extension-less imports
-      const parsedSourcePath = path.parse(sourcePath);
-      const basePath = path.normalize(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
-      
-      // Try common TypeScript extensions
-      const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
-      for (const ext of extensions) {
-        const potentialPath = basePath + ext;
-        if (allFiles.includes(potentialPath)) return potentialPath;
-      }
-      
-      // Try index files
-      const indexExtensions = ['/index.ts', '/index.tsx', '/index.js', '/index.jsx'];
-      for (const ext of indexExtensions) {
-        const potentialPath = basePath + ext;
-        if (allFiles.includes(potentialPath)) return potentialPath;
-      }
-      
-      return null;
-    },
+    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']),
   },
   javascript: {
-    resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-      const basedir = path.dirname(fromFile);
-      
-      // First try the path as-is
-      const resolvedPathAsIs = path.normalize(path.join(basedir, sourcePath));
-      if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
-      
-      // Parse the source path to handle extension-less imports
-      const parsedSourcePath = path.parse(sourcePath);
-      const basePath = path.normalize(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
-      
-      // Try common JavaScript extensions
-      const extensions = ['.js', '.jsx', '.mjs', '.cjs'];
-      for (const ext of extensions) {
-        const potentialPath = basePath + ext;
-        if (allFiles.includes(potentialPath)) return potentialPath;
-      }
-      
-      // Try index files
-      const indexExtensions = ['/index.js', '/index.jsx'];
-      for (const ext of indexExtensions) {
-        const potentialPath = basePath + ext;
-        if (allFiles.includes(potentialPath)) return potentialPath;
-      }
-      
-      return null;
-    },
+    resolveImport: createModuleResolver(['.js', '.jsx', '.mjs', '.cjs']),
   },
-  tsx: tsLangHandler,
+  tsx: {
+    ...tsLangHandler,
+    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']),
+  },
   python: { 
     ...pythonHandler, 
     resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-      const basedir = path.dirname(fromFile);
-      
+      const basedir = normalizePath(path.dirname(fromFile));
+
       // Handle relative imports (starting with .)
       if (sourcePath.startsWith('.')) {
-        const relativePath = sourcePath.substring(1); // Remove leading dot
-        const resolvedPath = path.normalize(path.join(basedir, relativePath + '.py'));
+        const dots = sourcePath.match(/^\.+/)?.[0] ?? '';
+        const level = dots.length;
+        const modulePath = sourcePath.substring(level).replace(/\./g, '/');
+
+        let currentDir = basedir;
+        for (let i = 1; i < level; i++) {
+          currentDir = path.dirname(currentDir);
+        }
+
+        const targetPyFile = normalizePath(path.join(currentDir, modulePath) + '.py');
+        if (allFiles.includes(targetPyFile)) return targetPyFile;
+        
+        const resolvedPath = normalizePath(path.join(currentDir, modulePath, '__init__.py'));
         if (allFiles.includes(resolvedPath)) return resolvedPath;
       }
       
@@ -299,10 +289,10 @@ const languageHandlers: Record<string, Partial<LanguageHandler>> = {
   rust: {
     ...goLangHandler,
     resolveImport: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-      const basedir = path.dirname(fromFile);
+      const basedir = normalizePath(path.dirname(fromFile));
       
       // Handle module paths like "utils" -> "utils.rs"
-      const resolvedPath = path.normalize(path.join(basedir, sourcePath + '.rs'));
+      const resolvedPath = normalizePath(path.join(basedir, sourcePath + '.rs'));
       if (allFiles.includes(resolvedPath)) return resolvedPath;
       
       // Handle mod.rs style imports
@@ -329,11 +319,11 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
   return async (files: readonly FileContent[]) => {
     const nodes = new Map<string, CodeNode>();
     const edges: CodeEdge[] = [];
-    const allFilePaths = files.map(f => f.path);
+    const allFilePaths = files.map(f => normalizePath(f.path));
 
     // Phase 1: Add all files as nodes
     for (const file of files) {
-      const langConfig = getLanguageConfigForFile(file.path);
+      const langConfig = getLanguageConfigForFile(normalizePath(file.path));
       nodes.set(file.path, {
         id: file.path, type: 'file', name: path.basename(file.path),
         filePath: file.path, startLine: 1, endLine: file.content.split('\n').length,
@@ -343,7 +333,7 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
 
     // Phase 2: Group files by language
     const filesByLanguage = files.reduce((acc, file) => {
-      const langConfig = getLanguageConfigForFile(file.path);
+      const langConfig = getLanguageConfigForFile(normalizePath(file.path));
       if (langConfig) {
         if (!acc.has(langConfig.name)) acc.set(langConfig.name, []);
         acc.get(langConfig.name)!.push(file);
@@ -354,7 +344,7 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
     // Phase 3: Parse all files once
     const fileParseData = new Map<string, { file: FileContent; captures: TSMatch[]; langConfig: LanguageConfig }>();
     for (const [langName, langFiles] of filesByLanguage.entries()) {
-      const langConfig = getLanguageConfigForFile(langFiles[0]!.path);
+      const langConfig = getLanguageConfigForFile(normalizePath(langFiles[0]!.path));
       if (!langConfig) continue;
       try {
         const parser = await createParserForLanguage(langConfig);
@@ -373,13 +363,13 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
 
     // Phase 4: Process definitions for all files
     for (const { file, captures, langConfig } of fileParseData.values()) {
-      processFileDefinitions({ nodes }, file, captures, langConfig);
+      processFileDefinitions({ nodes }, { ...file, path: normalizePath(file.path) }, captures, langConfig);
     }
     
     // Phase 5: Process relationships for all files
     const resolver = new SymbolResolver(nodes, edges);
     for (const { file, captures, langConfig } of fileParseData.values()) {
-      processFileRelationships({ nodes, edges }, file, captures, langConfig, resolver, allFilePaths);
+      processFileRelationships({ nodes, edges }, { ...file, path: normalizePath(file.path) }, captures, langConfig, resolver, allFilePaths);
     }
 
     return { nodes: Object.freeze(nodes), edges: Object.freeze(edges) };
