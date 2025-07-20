@@ -1,6 +1,10 @@
+update readme for correct url https://www.npmjs.com/package/repograph and https://github.com/relaycoder/repograph
+
+=== last
+
 publish npm
 
-=== now
+===
 
 following this changes, please update the readme.md. give me full readme.md content
 
@@ -22,7 +26,7 @@ please execute the scn-ts.report.md
 
 ===
 
-what are needed to be prepare for repograph so that scn-ts can use repograph programmatic api as fundamental building block while to keep repograph out of scn concern. give me the analysis report
+what are needed to be prepare for repograph so that scn-ts can use repograph programmatic api as fundamental building block while to keep repograph out of scn concern. give me the analysis report. do not give me any code
 
 ===
 

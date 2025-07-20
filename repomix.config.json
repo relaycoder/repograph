@@ -22,11 +22,7 @@
       "includeDiffs": false
     }
   },
-  "include": [
-    "src/pipeline/analyze.ts",
-    "test/unit/discover.test.ts",
-    "test/test.util.ts"
-  ],
+  "include": ["package.json", "src"],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,
