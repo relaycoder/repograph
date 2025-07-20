@@ -29,6 +29,7 @@ Whether you're onboarding new engineers, planning a large-scale refactor, or eve
 | :--- | :--- |
 | **🧠 Multi-Language Semantic Analysis** | Uses **Tree-sitter** to parse your code with deep understanding, identifying not just files, but classes, functions, methods, and their relationships. |
 | **⭐ Intelligent Ranking Algorithms** | Go beyond file names. Rank code by importance using **PageRank** (centrality) or **Git Hot-Spots** (change frequency) to immediately find what matters. |
+| **🎯 Rich Symbol Qualifiers** | Extract detailed metadata including visibility modifiers, async/static qualifiers, parameter types, and return types for enhanced code analysis. |
 | **🎨 Rich Markdown Reports** | Generates a comprehensive `repograph.md` file with a project overview, dependency graphs, ranked file lists, and detailed symbol breakdowns. |
 | **📊 Automatic Mermaid.js Graphs** | Visualize your module dependencies with an automatically generated, easy-to-read Mermaid diagram right in your report. |
 | **🧩 Composable Pipeline API** | A fully functional, composable API allows you to replace or extend any part of the pipeline: **Discover → Analyze → Rank → Render**. |
@@ -40,6 +41,7 @@ Whether you're onboarding new engineers, planning a large-scale refactor, or eve
 -   **Master Code Navigation:** Understand how components are interconnected, making it easier to trace logic and predict the impact of changes.
 -   **Prioritize Refactoring:** Identify highly-central but frequently changed files—prime candidates for refactoring and stabilization.
 -   **Enhance AI Context:** Feed a structured, ranked, and semantically-rich overview of your codebase to LLMs for vastly improved code generation, analysis, and Q&A.
+-   **Power Advanced Tooling:** Rich symbol qualifiers enable integration with sophisticated code analysis tools like `scn-ts` for enhanced visualization and understanding.
 -   **Streamline Architectural Reviews:** Get a high-level, data-driven view of your system's architecture to facilitate design discussions.
 
 ## 📸 Gallery: Example Output
@@ -114,6 +116,37 @@ yarn global add repograph
 # Using pnpm
 pnpm add -g repograph
 ```
+
+## 🎯 Enhanced Symbol Analysis
+
+RepoGraph v0.1.1+ includes rich semantic analysis that extracts detailed symbol qualifiers, making it perfect for integration with advanced code analysis tools:
+
+### Symbol Qualifiers Extracted
+
+- **Visibility Modifiers**: `public`, `private`, `protected`, `internal`, `default`
+- **Function Qualifiers**: `async`, `static`
+- **Type Information**: Parameter types, return types
+- **Parameter Details**: Names and types for all function parameters
+
+### Example: TypeScript Analysis
+
+```typescript
+export class UserService {
+  public async getUser(id: string): Promise<User> {
+    return await this.repository.findById(id);
+  }
+
+  private static validateEmail(email: string): boolean {
+    return email.includes('@');
+  }
+}
+```
+
+RepoGraph extracts:
+- `getUser`: `visibility: 'public'`, `isAsync: true`, `returnType: 'Promise<User>'`, `parameters: [{ name: 'id', type: 'string' }]`
+- `validateEmail`: `visibility: 'private'`, `isStatic: true`, `returnType: 'boolean'`, `parameters: [{ name: 'email', type: 'string' }]`
+
+This rich metadata enables sophisticated integrations with tools like `scn-ts` for enhanced code visualization and AI-powered analysis.
 
 ## 🛠️ Usage
 
@@ -285,6 +318,39 @@ RepoGraph processes your code in four distinct, composable stages:
 4.  **`🎨 Render`**
     -   Receives the `RankedCodeGraph` and rendering options.
     -   Generates the final, human-readable Markdown output, including the summary, Mermaid graph, and detailed breakdowns.
+
+## 📋 API Types
+
+### Enhanced CodeNode Interface
+
+The core `CodeNode` type has been enhanced with rich symbol qualifiers:
+
+```typescript
+export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
+
+export type CodeNode = {
+  readonly id: string;           // Unique identifier
+  readonly type: CodeNodeType;   // Symbol type (class, function, etc.)
+  readonly name: string;         // Symbol name
+  readonly filePath: string;     // File location
+  readonly startLine: number;    // Starting line number
+  readonly endLine: number;      // Ending line number
+  readonly language?: string;    // Programming language
+  readonly codeSnippet?: string; // Code preview
+  
+  // Enhanced symbol qualifiers (v0.1.1+)
+  readonly visibility?: CodeNodeVisibility;  // Access modifier
+  readonly isAsync?: boolean;                // Async function/method
+  readonly isStatic?: boolean;               // Static member
+  readonly returnType?: string;              // Function return type
+  readonly parameters?: Array<{              // Function parameters
+    name: string;
+    type?: string;
+  }>;
+};
+```
+
+These qualifiers enable sophisticated integrations with code analysis tools and provide rich semantic information for AI-powered workflows.
 
 ## 🌐 Supported Languages
 
