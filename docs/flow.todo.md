@@ -1,6 +1,10 @@
+please execute the report comprehensively docs/scn-ts-2.report.md
+
+===
+
 update readme for correct url https://www.npmjs.com/package/repograph and https://github.com/relaycoder/repograph
 
-=== last
+===
 
 publish npm
 

@@ -27,7 +27,9 @@ export type CodeNodeType =
   | 'constant'
   | 'static'
   | 'union'
-  | 'template';
+  | 'template'
+  | 'html_element'
+  | 'css_rule';
 
 /** New type for access modifiers. */
 export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
@@ -54,6 +56,16 @@ export type CodeNode = {
   readonly returnType?: string;
   /** An array of parameters for functions/methods. */
   readonly parameters?: { name: string; type?: string }[];
+  /** Whether a function is known to throw exceptions. Maps to SCN '!' */
+  readonly canThrow?: boolean;
+  /** Whether a function is believed to be pure. Maps to SCN 'o' */
+  readonly isPure?: boolean;
+  /** For UI nodes, the HTML tag name (e.g., 'div'). */
+  readonly htmlTag?: string;
+  /** For UI nodes, a map of attributes. */
+  readonly attributes?: ReadonlyMap<string, string>;
+  /** For CSS nodes, the full selector. */
+  readonly cssSelector?: string;
 };
 
 /** Represents a directed relationship between two CodeNodes. Immutable. */

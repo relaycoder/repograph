@@ -22,7 +22,12 @@
       "includeDiffs": false
     }
   },
-  "include": ["package.json", "src"],
+  "include": [
+    "package.json",
+    "src/types.ts",
+    "src/tree-sitter/language-config.ts",
+    "src/pipeline/analyze.ts"
+  ],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,

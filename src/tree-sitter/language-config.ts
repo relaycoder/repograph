@@ -92,6 +92,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (call_expression
   function: (identifier) @function.call)
 
+(throw_statement) @qualifier.throws
+
 ; Class inheritance and implementation patterns
 (extends_clause (identifier) @class.inheritance)
 (implements_clause (type_identifier) @class.implementation)
@@ -102,63 +104,91 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
     extensions: ['.tsx', '.jsx'],
     wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
     query: `
-      (import_statement source: (string) @import.source) @import.statement
-      (class_declaration) @class.definition
-      (export_statement declaration: (class_declaration)) @class.definition
-      
-      (function_declaration
+(import_statement
+  source: (string) @import.source) @import.statement
+
+(class_declaration) @class.definition
+(export_statement declaration: (class_declaration)) @class.definition
+
+(function_declaration
+  ("async")? @qualifier.async
+  parameters: (formal_parameters) @symbol.parameters
+  return_type: (type_annotation)? @symbol.returnType
+) @function.definition
+(export_statement
+  declaration: (function_declaration
+    ("async")? @qualifier.async
+    parameters: (formal_parameters) @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.definition
+
+(variable_declarator
+  value: (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+(public_field_definition
+  value: (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      value: (arrow_function
         ("async")? @qualifier.async
-        parameters: (formal_parameters) @symbol.parameters
+        parameters: (formal_parameters)? @symbol.parameters
         return_type: (type_annotation)? @symbol.returnType
-      ) @function.definition
-      (export_statement
-        declaration: (function_declaration
-          ("async")? @qualifier.async
-          parameters: (formal_parameters) @symbol.parameters
-          return_type: (type_annotation)? @symbol.returnType
-        )
-      ) @function.definition
+      )
+    )
+  )
+) @function.arrow.definition
 
-      (variable_declarator
-        value: (arrow_function
-          ("async")? @qualifier.async
-          parameters: (formal_parameters)? @symbol.parameters
-          return_type: (type_annotation)? @symbol.returnType
-        )
-      ) @function.arrow.definition
-      (public_field_definition
-        value: (arrow_function
-          ("async")? @qualifier.async
-          parameters: (formal_parameters)? @symbol.parameters
-          return_type: (type_annotation)? @symbol.returnType
-        )
-      ) @function.arrow.definition
+(interface_declaration) @interface.definition
+(export_statement declaration: (interface_declaration)) @interface.definition
 
-      (interface_declaration) @interface.definition
-      (export_statement declaration: (interface_declaration)) @interface.definition
-      (type_alias_declaration) @type.definition
-      (export_statement declaration: (type_alias_declaration)) @type.definition
-      (enum_declaration) @enum.definition
-      (export_statement declaration: (enum_declaration)) @enum.definition
+(type_alias_declaration) @type.definition
+(export_statement declaration: (type_alias_declaration)) @type.definition
 
-      (method_definition
-        (accessibility_modifier)? @qualifier.visibility
-        ("static")? @qualifier.static
-        ("async")? @qualifier.async
-        parameters: (formal_parameters) @symbol.parameters
-        return_type: (type_annotation)? @symbol.returnType
-      ) @method.definition
+(enum_declaration) @enum.definition
+(export_statement declaration: (enum_declaration)) @enum.definition
 
-      (public_field_definition
-        (accessibility_modifier)? @qualifier.visibility
-        ("static")? @qualifier.static
-        type: (type_annotation)? @symbol.returnType
-      ) @field.definition
-      
-      ; Class inheritance and implementation patterns
-      (extends_clause (identifier) @class.inheritance)
-      (implements_clause (type_identifier) @class.implementation)
-    `
+(method_definition
+  (accessibility_modifier)? @qualifier.visibility
+  ("static")? @qualifier.static
+  ("async")? @qualifier.async
+  parameters: (formal_parameters) @symbol.parameters
+  return_type: (type_annotation)? @symbol.returnType
+) @method.definition
+
+(public_field_definition
+  (accessibility_modifier)? @qualifier.visibility
+  ("static")? @qualifier.static
+  type: (type_annotation)? @symbol.returnType
+) @field.definition
+
+(variable_declarator) @variable.definition
+(export_statement declaration: (lexical_declaration (variable_declarator))) @variable.definition
+
+(call_expression
+  function: (identifier) @function.call)
+
+(throw_statement) @qualifier.throws
+
+; Class inheritance and implementation patterns
+(extends_clause (identifier) @class.inheritance)
+(implements_clause (type_identifier) @class.implementation)
+
+; JSX/TSX specific
+(jsx_opening_element
+  name: (_) @html.tag
+) @html.element.definition
+`
   },
   {
     name: 'python',
@@ -187,6 +217,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (expression_statement
   (assignment)) @variable.definition
 
+(raise_statement) @qualifier.throws
+
 ; Python inheritance patterns
 (class_definition
   superclasses: (argument_list (identifier) @class.inheritance))
@@ -204,10 +236,15 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (interface_declaration) @interface.definition
 (enum_declaration) @enum.definition
 
-(method_declaration) @method.definition
+(method_declaration
+  (modifiers (modifier "static")?) @qualifier.static
+) @method.definition
+
 (constructor_declaration) @constructor.definition
 
 (field_declaration) @field.definition
+
+(throw_statement) @qualifier.throws
 
 ; Java inheritance and implementation patterns
 (superclass (type_identifier) @class.inheritance)
@@ -238,6 +275,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (function_definition declarator: (qualified_identifier)) @method.definition
 (field_declaration declarator: (function_declarator)) @method.definition
 (field_declaration) @field.definition
+
+(throw_expression) @qualifier.throws
 `
   },
   {
@@ -313,6 +352,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (property_declaration) @property.definition
 
 (namespace_declaration) @namespace.definition
+
+(throw_statement) @qualifier.throws
 `
   },
   {
@@ -369,7 +410,23 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
           (lexical_declaration (variable_declarator)) @variable.definition
           (function_declaration) @function.definition
         ])
+
+      (element
+        (start_tag
+          (tag_name) @html.tag
+        )
+      ) @html.element.definition
 `
+  },
+  {
+    name: 'css',
+    extensions: ['.css'],
+    wasmPath: 'tree-sitter-css/tree-sitter-css.wasm',
+    query: `
+      (rule_set
+        selectors: (selectors) @css.selector
+      ) @css.rule.definition
+    `
   }
 ];
 

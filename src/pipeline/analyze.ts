@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createParserForLanguage } from '../tree-sitter/languages.js';
 import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config.js';
-import type { Analyzer, CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, CodeEdge } from '../types.js';
+import type { Analyzer, CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, CodeEdge, RepoGraphMap } from '../types.js';
 import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
 import { logger } from '../utils/logger.util.js';
 import { ParserError } from '../utils/error.util.js';
@@ -432,25 +432,37 @@ function processSymbol(
     declarationNode = node.namedChildren[0] ?? node;
   }
   
-  const nameNode = handler.getSymbolNameNode(declarationNode, node);
+  // --- NEW LOGIC TO EXTRACT QUALIFIERS & UI identifiers ---
+  const qualifiers: { [key: string]: TSNode } = {};
+  for (const capture of childCaptures) {
+    qualifiers[capture.name] = capture.node;
+  }
+
+  const nameNode = handler.getSymbolNameNode(declarationNode, node) 
+    || qualifiers['html.tag'] 
+    || qualifiers['css.selector'];
+
   if (!nameNode) return;
 
-  const symbolName = nameNode.text;
-  const symbolId = `${file.path}#${symbolName}`;
+  let symbolName = nameNode.text;
+  let symbolId = `${file.path}#${symbolName}`;
+
+  // HTML elements of the same type aren't unique, so we add a line number to the ID.
+  if (symbolType === 'html_element') {
+    symbolId = `${file.path}#${symbolName}:${nameNode.startPosition.row + 1}`;
+  }
 
   if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
     processedSymbols.add(symbolId);
-
-    // --- NEW LOGIC TO EXTRACT QUALIFIERS ---
-    const qualifiers: { [key: string]: TSNode } = {};
-    for (const capture of childCaptures) {
-      qualifiers[capture.name] = capture.node;
-    }
 
     const visibilityNode = qualifiers['qualifier.visibility'];
     const visibility = visibilityNode
       ? (getNodeText(visibilityNode, file.content) as CodeNodeVisibility)
       : undefined;
+    
+    const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
+    const isHtmlElement = symbolType === 'html_element';
+    const isCssRule = symbolType === 'css_rule';
 
     const parametersNode = qualifiers['symbol.parameters'];
     const parameters =
@@ -471,6 +483,9 @@ function processSymbol(
       ...(visibility && { visibility }),
       ...(returnType && { returnType }),
       ...(parameters && { parameters }),
+      ...(canThrow && { canThrow: true }),
+      ...(isHtmlElement && { htmlTag: symbolName }),
+      ...(isCssRule && { cssSelector: symbolName }),
     });
   }
 }
@@ -539,6 +554,8 @@ function getSymbolTypeFromCapture(captureName: string, type: string): CodeNodeTy
     ['impl', 'impl'],
     ['constructor', 'constructor'],
     ['property', 'property'],
+    ['html.element', 'html_element'],
+    ['css.rule', 'css_rule'],
     ['variable', 'variable'],
     ['constant', 'constant'],
     ['static', 'static'],

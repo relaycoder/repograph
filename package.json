@@ -42,6 +42,7 @@
     "js-yaml": "^4.1.0",
     "tree-sitter-c": "^0.24.1",
     "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-css": "^0.20.0",
     "tree-sitter-cpp": "^0.23.4",
     "tree-sitter-go": "^0.23.4",
     "tree-sitter-java": "^0.23.5",
@@ -74,15 +75,15 @@
     "bun",
     "functional-programming"
   ],
-  "author": "Your Name <you@example.com>",
+  "author": "RelayCoder <you@example.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/repograph.git"
+    "url": "https://github.com/relaycoder/repograph.git"
   },
-  "homepage": "https://github.com/your-username/repograph#readme",
+  "homepage": "https://github.com/relaycoder/repograph#readme",
   "bugs": {
-    "url": "https://github.com/your-username/repograph/issues"
+    "url": "https://github.com/relaycoder/repograph/issues"
   },
   "engines": {
     "node": ">=18.0.0",
