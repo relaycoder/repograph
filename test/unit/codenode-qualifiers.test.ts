@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
 import { createTreeSitterAnalyzer } from '../../src/pipeline/analyze.js';
-import type { FileContent, CodeNodeVisibility } from '../../src/types.js';
+import type { FileContent } from '../../src/types.js';
 import {
   createTempDir,
   cleanupTempDir,

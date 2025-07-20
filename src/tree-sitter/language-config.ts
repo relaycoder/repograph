@@ -237,7 +237,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (enum_declaration) @enum.definition
 
 (method_declaration
-  (modifiers (modifier "static")?) @qualifier.static
+  (modifiers)? @qualifier.modifiers
 ) @method.definition
 
 (constructor_declaration) @constructor.definition
@@ -424,7 +424,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
     wasmPath: 'tree-sitter-css/tree-sitter-css.wasm',
     query: `
       (rule_set
-        selectors: (selectors) @css.selector
+        (selectors) @css.selector
       ) @css.rule.definition
     `
   }

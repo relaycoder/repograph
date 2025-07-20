@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createParserForLanguage } from '../tree-sitter/languages.js';
 import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config.js';
-import type { Analyzer, CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, CodeEdge, RepoGraphMap } from '../types.js';
+import type { Analyzer, CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, CodeEdge } from '../types.js';
 import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
 import { logger } from '../utils/logger.util.js';
 import { ParserError } from '../utils/error.util.js';

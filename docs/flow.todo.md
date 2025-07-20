@@ -1,3 +1,7 @@
+add bun test cases to verify intention of  .relay/transactions/d669e46a-7204-4171-893f-5ca9b5c2a16d.yml make sure to understand current test pattern
+
+===
+
 please execute the report comprehensively docs/scn-ts-2.report.md
 
 ===
