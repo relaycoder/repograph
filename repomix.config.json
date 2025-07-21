@@ -1,43 +1,45 @@
-// {
-//   "$schema": "https://repomix.com/schemas/latest/schema.json",
-//   "input": {
-//     "maxFileSize": 52428800
-//   },
-//   "output": {
-//     "filePath": "docs/repomix-output.md",
-//     "style": "markdown",
-//     "parsableStyle": true,
-//     "fileSummary": false,
-//     "directoryStructure": true,
-//     "files": true,
-//     "removeComments": false,
-//     "removeEmptyLines": false,
-//     "compress": false,
-//     "topFilesLength": 5,
-//     "showLineNumbers": false,
-//     "copyToClipboard": true,
-//     "git": {
-//       "sortByChanges": true,
-//       "sortByChangesMaxCommits": 100,
-//       "includeDiffs": false
-//     }
-//   },
-//   "include": [
-//     "package.json",
-//     "tsconfig.json",
-//     "tsconfig.build.json",
-//     "src"
-//     // "docs/scn-ts-2.report.md"
-//   ],
-//   "ignore": {
-//     "useGitignore": true,
-//     "useDefaultPatterns": true,
-//     "customPatterns": []
-//   },
-//   "security": {
-//     "enableSecurityCheck": true
-//   },
-//   "tokenCount": {
-//     "encoding": "o200k_base"
-//   }
-// }
+{
+  "$schema": "https://repomix.com/schemas/latest/schema.json",
+  "input": {
+    "maxFileSize": 52428800
+  },
+  "output": {
+    "filePath": "docs/repomix-output.md",
+    "style": "markdown",
+    "parsableStyle": true,
+    "fileSummary": false,
+    "directoryStructure": true,
+    "files": true,
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "compress": false,
+    "topFilesLength": 5,
+    "showLineNumbers": false,
+    "copyToClipboard": true,
+    "git": {
+      "sortByChanges": true,
+      "sortByChangesMaxCommits": 100,
+      "includeDiffs": false
+    }
+  },
+  "include": [
+    "package.json",
+    "tsconfig.json",
+    "tsconfig.build.json",
+    "README.md",
+    "docs/scn.readme.md"
+    // "src"
+    // "docs/scn-ts-2.report.md"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": []
+  },
+  "security": {
+    "enableSecurityCheck": true
+  },
+  "tokenCount": {
+    "encoding": "o200k_base"
+  }
+}

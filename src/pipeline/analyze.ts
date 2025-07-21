@@ -473,11 +473,14 @@ function processSymbol(
     const returnTypeNode = qualifiers['symbol.returnType'];
     const returnType = returnTypeNode ? getNodeText(returnTypeNode, file.content).replace(/^:\s*/, '') : undefined;
 
+    const snippetWithEquals = file.content.slice(nameNode.endIndex, node.endIndex).replace(/^{/, '').trim();
+    const codeSnippet = snippetWithEquals.startsWith('=') ? snippetWithEquals.substring(1).trim() : snippetWithEquals;
+
     nodes.set(symbolId, {
       id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
       startLine: getLineFromIndex(file.content, node.startIndex),
       endLine: getLineFromIndex(file.content, node.endIndex),
-      codeSnippet: node.text?.split('{')[0]?.trim() || '',
+      codeSnippet,
       ...(qualifiers['qualifier.async'] && { isAsync: true }),
       ...(qualifiers['qualifier.static'] && { isStatic: true }),
       ...(visibility && { visibility }),

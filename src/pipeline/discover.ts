@@ -49,15 +49,20 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       ignoreFilter.add(ignore.join('\n'));
     }
 
-    // Use globby to find all files matching the include patterns
-    const relativePaths = await globby(patterns, {
+    // Use globby to find all files matching the include patterns.
+    // Globby might return absolute paths if the patterns are absolute. We ensure
+    // all paths are absolute first, then make them relative to the root for
+    // consistent processing, which is required by the `ignore` package.
+    const foundPaths = await globby(patterns, {
       cwd: root,
       gitignore: false, // We handle gitignore patterns manually
       dot: true,
-      absolute: false,
+      absolute: true,
       followSymbolicLinks: true,
       onlyFiles: true,
     });
+
+    const relativePaths = foundPaths.map(p => path.relative(root, p).replace(/\\/g, '/'));
 
     // Filter out files that would cause symlink cycles
     const visitedRealPaths = new Set<string>();
@@ -77,7 +82,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       }
     }
     
-    // Filter the paths using the ignore package
+    // Filter the paths using the ignore package. Paths are now guaranteed to be relative.
     const filteredPaths = safeRelativePaths.filter(p => !ignoreFilter.ignores(p));
 
     const fileContents = await Promise.all(
