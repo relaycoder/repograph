@@ -12,6 +12,32 @@ const getNodeText = (node: TSNode, content: string): string => content.slice(nod
 const getLineFromIndex = (content: string, index: number): number => content.substring(0, index).split('\n').length;
 const normalizePath = (p: string): string => p.replace(/\\/g, '/');
 
+const getCssIntents = (ruleNode: TSNode, content: string): readonly ('layout' | 'typography' | 'appearance')[] => {
+  const intents = new Set<'layout' | 'typography' | 'appearance'>();
+  const layoutProps = /^(display|position|flex|grid|width|height|margin|padding|transform|align-|justify-)/;
+  const typographyProps = /^(font|text-|line-height|letter-spacing|word-spacing)/;
+  const appearanceProps = /^(background|border|box-shadow|opacity|color|fill|stroke|cursor)/;
+
+  const block = ruleNode.childForFieldName('body') ?? ruleNode.namedChildren.find(c => c.type === 'block');
+  
+  if (block) {
+    for (const declaration of block.namedChildren) {
+      if (declaration.type === 'declaration') {
+        // In CSS tree-sitter, the property name is a 'property_name' node
+        const propNode = declaration.namedChildren.find(c => c.type === 'property_name');
+        if (propNode) {
+          const propName = getNodeText(propNode, content);
+          if (layoutProps.test(propName)) intents.add('layout');
+          if (typographyProps.test(propName)) intents.add('typography');
+          if (appearanceProps.test(propName)) intents.add('appearance');
+        }
+      }
+    }
+  }
+  
+  return Array.from(intents).sort();
+};
+
 // --- LANGUAGE-SPECIFIC LOGIC ---
 
 type LanguageHandler = {
@@ -284,14 +310,14 @@ const languageHandlers: Record<string, Partial<LanguageHandler>> = {
   },
   typescript: {
     ...tsLangHandler,
-    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']),
+    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
   },
   javascript: {
     resolveImport: createModuleResolver(['.js', '.jsx', '.mjs', '.cjs']),
   },
   tsx: {
     ...tsLangHandler,
-    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']),
+    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
   },
   python: { 
     ...pythonHandler, 
@@ -495,9 +521,21 @@ function processSymbol(
     qualifiers[capture.name] = capture.node;
   }
 
-  const nameNode = handler.getSymbolNameNode(declarationNode, node) 
+  let nameNode = handler.getSymbolNameNode(declarationNode, node) 
     || qualifiers['html.tag'] 
     || qualifiers['css.selector'];
+
+  // For CSS rules, extract selector from the rule_set node
+  if (symbolType === 'css_rule' && !nameNode) {
+    const selectorsNode = node.childForFieldName('selectors') || node.namedChildren.find(c => c.type === 'selectors');
+    if (selectorsNode) {
+      // Get the first selector from the selectors list
+      const firstSelector = selectorsNode.namedChildren[0];
+      if (firstSelector) {
+        nameNode = firstSelector;
+      }
+    }
+  }
 
   if (!nameNode) return;
 
@@ -520,6 +558,9 @@ function processSymbol(
     const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
     const isHtmlElement = symbolType === 'html_element';
     const isCssRule = symbolType === 'css_rule';
+    
+    const cssIntents = isCssRule ? getCssIntents(node, file.content) : undefined;
+    
 
     const parametersNode = qualifiers['symbol.parameters'];
     const parameters =
@@ -561,6 +602,7 @@ function processSymbol(
       ...(canThrow && { canThrow: true }),
       ...(isHtmlElement && { htmlTag: symbolName }),
       ...(isCssRule && { cssSelector: symbolName }),
+      ...(cssIntents && { cssIntents }),
     });
   }
 }
@@ -589,6 +631,29 @@ function processFileRelationships(
         const edge: CodeEdge = { fromId: file.path, toId: importedFilePath, type: 'imports' };
         if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
           graph.edges.push(edge);
+        }
+      }
+      continue;
+    }
+
+    if (name === 'css.class.reference' || name === 'css.id.reference') {
+      const fromId = findEnclosingSymbolId(node, file, graph.nodes);
+      if (!fromId) continue;
+
+      const fromNode = graph.nodes.get(fromId);
+      if (fromNode?.type !== 'html_element') continue;
+
+      const text = getNodeText(node, file.content).replace(/['"`]/g, '');
+      const prefix = name === 'css.id.reference' ? '#' : '.';
+      const selectors = (prefix === '.') ? text.split(' ').filter(Boolean).map(s => '.' + s) : [prefix + text];
+
+      for (const selector of selectors) {
+        const toNode = Array.from(graph.nodes.values()).find(n => n.type === 'css_rule' && n.cssSelector === selector);
+        if (toNode) {
+          const edge: CodeEdge = { fromId, toId: toNode.id, type: 'calls' };
+          if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {
+            graph.edges.push(edge);
+          }
         }
       }
       continue;
@@ -691,6 +756,17 @@ class SymbolResolver {
 function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: ReadonlyMap<string, CodeNode>): string | null {
   let current: TSNode | null = startNode.parent;
   while (current) {
+    // For JSX elements, look for jsx_opening_element first
+    if (current.type === 'jsx_opening_element') {
+      const tagNameNode = current.childForFieldName('name');
+      if (tagNameNode) {
+        const tagName = tagNameNode.text;
+        const lineNumber = tagNameNode.startPosition.row + 1;
+        const symbolId = `${file.path}#${tagName}:${lineNumber}`;
+        if (nodes.has(symbolId)) return symbolId;
+      }
+    }
+    
     const nameNode = current.childForFieldName('name');
     if (nameNode) {
       let symbolName = nameNode.text;

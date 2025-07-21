@@ -117,28 +117,33 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (export_statement declaration: (class_declaration)) @class.definition
 
 (function_declaration
-  ("async")? @qualifier.async
   parameters: (formal_parameters) @symbol.parameters
   return_type: (type_annotation)? @symbol.returnType
 ) @function.definition
 (export_statement
   declaration: (function_declaration
-    ("async")? @qualifier.async
     parameters: (formal_parameters) @symbol.parameters
     return_type: (type_annotation)? @symbol.returnType
   )
 ) @function.definition
 
+(function_declaration
+  "async" @qualifier.async
+) @function.definition
+(export_statement
+  declaration: (function_declaration
+    "async" @qualifier.async
+  )
+) @function.definition
+
 (variable_declarator
   value: (arrow_function
-    ("async")? @qualifier.async
     parameters: (formal_parameters)? @symbol.parameters
     return_type: (type_annotation)? @symbol.returnType
   )
 ) @function.arrow.definition
 (public_field_definition
   value: (arrow_function
-    ("async")? @qualifier.async
     parameters: (formal_parameters)? @symbol.parameters
     return_type: (type_annotation)? @symbol.returnType
   )
@@ -147,9 +152,28 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   declaration: (lexical_declaration
     (variable_declarator
       value: (arrow_function
-        ("async")? @qualifier.async
         parameters: (formal_parameters)? @symbol.parameters
         return_type: (type_annotation)? @symbol.returnType
+      )
+    )
+  )
+) @function.arrow.definition
+
+(variable_declarator
+  value: (arrow_function
+    "async" @qualifier.async
+  )
+) @function.arrow.definition
+(public_field_definition
+  value: (arrow_function
+    "async" @qualifier.async
+  )
+) @function.arrow.definition
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      value: (arrow_function
+        "async" @qualifier.async
       )
     )
   )
@@ -169,17 +193,32 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (ambient_declaration (module) @namespace.definition)
 
 (method_definition
-  (accessibility_modifier)? @qualifier.visibility
-  ("static")? @qualifier.static
-  ("async")? @qualifier.async
   parameters: (formal_parameters) @symbol.parameters
   return_type: (type_annotation)? @symbol.returnType
 ) @method.definition
 
+(method_definition
+  (accessibility_modifier) @qualifier.visibility
+) @method.definition
+
+(method_definition
+  "static" @qualifier.static
+) @method.definition
+
+(method_definition
+  "async" @qualifier.async
+) @method.definition
+
 (public_field_definition
-  (accessibility_modifier)? @qualifier.visibility
-  ("static")? @qualifier.static
   type: (type_annotation)? @symbol.returnType
+) @field.definition
+
+(public_field_definition
+  (accessibility_modifier) @qualifier.visibility
+) @field.definition
+
+(public_field_definition
+  "static" @qualifier.static
 ) @field.definition
 
 (variable_declarator) @variable.definition
@@ -200,6 +239,18 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (jsx_opening_element
   name: (_) @html.tag
 ) @html.element.definition
+
+; className="...": capture string content for CSS class lookups
+(jsx_attribute
+  (property_identifier) @_p
+  (string) @css.class.reference
+  (#eq? @_p "className"))
+
+; id="...": capture string content for CSS ID lookups
+(jsx_attribute
+  (property_identifier) @_p
+  (string) @css.id.reference
+  (#eq? @_p "id"))
 `
   },
   {
@@ -435,9 +486,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
     extensions: ['.css'],
     wasmPath: 'tree-sitter-css/tree-sitter-css.wasm',
     query: `
-      (rule_set
-        (selectors) @css.selector
-      ) @css.rule.definition
+      (rule_set) @css.rule.definition
     `
   }
 ];
