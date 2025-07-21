@@ -21,6 +21,8 @@ src/
   index.ts
   types.ts
 package.json
+tsconfig.build.json
+tsconfig.json
 ```
 
 # Files
@@ -96,6 +98,39 @@ export const isDirectory = async (filePath: string): Promise<boolean> => {
 };
 ````
 
+## File: tsconfig.build.json
+````json
+{
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "noEmit": false,
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitAny": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "typeRoots": ["./node_modules/@types", "./src/types"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"]
+}
+````
+
 ## File: src/types/graphology-pagerank.d.ts
 ````typescript
 declare module 'graphology-pagerank' {
@@ -165,6 +200,43 @@ const createLogger = (): Logger => {
 };
 
 export const logger = createLogger();
+````
+
+## File: tsconfig.json
+````json
+{
+  "compilerOptions": {
+    // Environment setup & latest features
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowJs": true,
+
+    // Bundler mode
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+    // Best practices
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+
+    // Some stricter flags (disabled by default)
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitAny": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    // Type roots
+    "typeRoots": ["./node_modules/@types", "./src/types", "./test/**/*"]
+  }
+}
 ````
 
 ## File: src/tree-sitter/languages.ts
@@ -331,14 +403,68 @@ export function getAllLanguageConfigs(): LanguageConfig[] {
 
 ## File: src/high-level.ts
 ````typescript
-import { createMapGenerator } from './composer.js';
 import { createDefaultDiscoverer } from './pipeline/discover.js';
 import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
 import { createPageRanker, createGitRanker } from './pipeline/rank.js';
 import { createMarkdownRenderer } from './pipeline/render.js';
-import type { RepoGraphOptions, Ranker } from './types.js';
+import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
 import path from 'node:path';
 import { logger } from './utils/logger.util.js';
+import { writeFile } from './utils/fs.util.js';
+import { RepoGraphError } from './utils/error.util.js';
+
+const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pagerank'): Ranker => {
+  if (rankingStrategy === 'git-changes') {
+    return createGitRanker();
+  }
+  if (rankingStrategy === 'pagerank') {
+    return createPageRanker();
+  }
+  throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+};
+
+/**
+ * A mid-level API for programmatically generating and receiving the code graph
+ * without rendering it to a file. Ideal for integration with other tools.
+ *
+ * @param options The configuration object for generating the map.
+ * @returns The generated `RankedCodeGraph`.
+ */
+export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
+  const {
+    root = process.cwd(),
+    logLevel = 'info',
+    include,
+    ignore,
+    noGitignore,
+  } = options;
+
+  if (logLevel) {
+    logger.setLevel(logLevel);
+  }
+
+  try {
+    const ranker = selectRanker(options.rankingStrategy);
+
+    logger.info('1/3 Discovering files...');
+    const discoverer = createDefaultDiscoverer();
+    const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+    logger.info(`  -> Found ${files.length} files to analyze.`);
+
+    logger.info('2/3 Analyzing code and building graph...');
+    const analyzer = createTreeSitterAnalyzer();
+    const graph = await analyzer(files);
+    logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+    logger.info('3/3 Ranking graph nodes...');
+    const rankedGraph = await ranker(graph);
+    logger.info('  -> Ranking complete.');
+
+    return rankedGraph;
+  } catch (error) {
+    throw new RepoGraphError(`Failed to analyze project`, error);
+  }
+};
 
 /**
  * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
@@ -350,41 +476,25 @@ export const generateMap = async (options: RepoGraphOptions = {}): Promise<void>
   const {
     root = process.cwd(),
     output = './repograph.md',
-    rankingStrategy = 'pagerank',
-    logLevel = 'info',
   } = options;
 
-  if (logLevel) {
-    logger.setLevel(logLevel);
-  }
-
-  let ranker: Ranker;
-  if (rankingStrategy === 'git-changes') {
-    ranker = createGitRanker();
-  } else if (rankingStrategy === 'pagerank') {
-    ranker = createPageRanker();
-  } else {
-    throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
-  }
-
-  const generator = createMapGenerator({
-    discover: createDefaultDiscoverer(),
-    analyze: createTreeSitterAnalyzer(),
-    rank: ranker,
-    render: createMarkdownRenderer(),
-  });
-
   try {
-    await generator({
-      root: path.resolve(root),
-      output: output,
-      include: options.include,
-      ignore: options.ignore,
-      noGitignore: options.noGitignore,
-      rendererOptions: options.rendererOptions,
-    });
+    // We get the full ranked graph first
+    const rankedGraph = await analyzeProject(options);
+
+    logger.info('4/4 Rendering output...');
+    const renderer = createMarkdownRenderer();
+    const markdown = renderer(rankedGraph, options.rendererOptions);
+    logger.info('  -> Rendering complete.');
+
+    const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+    logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+    await writeFile(outputPath, markdown);
+    logger.info('  -> Report saved.');
   } catch (error) {
-    throw error; // Re-throw to ensure errors propagate properly
+    // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+    throw error;
   }
 };
 ````
@@ -550,406 +660,6 @@ export const createMarkdownRenderer = (): Renderer => {
 };
 ````
 
-## File: src/tree-sitter/language-config.ts
-````typescript
-import type { Language } from 'web-tree-sitter';
-
-export interface LanguageConfig {
-  name: string;
-  extensions: string[];
-  wasmPath: string;
-  query: string;
-}
-
-export interface LoadedLanguage {
-  config: LanguageConfig;
-  language: Language;
-}
-
-export const LANGUAGE_CONFIGS: LanguageConfig[] = [
-  {
-    name: 'typescript',
-    extensions: ['.ts', '.js', '.mjs', '.cjs'],
-    wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
-    query: `
-(import_statement
-  source: (string) @import.source) @import.statement
-
-(class_declaration) @class.definition
-(export_statement declaration: (class_declaration)) @class.definition
-
-(function_declaration
-  ("async")? @qualifier.async
-  parameters: (formal_parameters) @symbol.parameters
-  return_type: (type_annotation)? @symbol.returnType
-) @function.definition
-(export_statement
-  declaration: (function_declaration
-    ("async")? @qualifier.async
-    parameters: (formal_parameters) @symbol.parameters
-    return_type: (type_annotation)? @symbol.returnType
-  )
-) @function.definition
-
-(variable_declarator
-  value: (arrow_function
-    ("async")? @qualifier.async
-    parameters: (formal_parameters)? @symbol.parameters
-    return_type: (type_annotation)? @symbol.returnType
-  )
-) @function.arrow.definition
-(public_field_definition
-  value: (arrow_function
-    ("async")? @qualifier.async
-    parameters: (formal_parameters)? @symbol.parameters
-    return_type: (type_annotation)? @symbol.returnType
-  )
-) @function.arrow.definition
-(export_statement
-  declaration: (lexical_declaration
-    (variable_declarator
-      value: (arrow_function
-        ("async")? @qualifier.async
-        parameters: (formal_parameters)? @symbol.parameters
-        return_type: (type_annotation)? @symbol.returnType
-      )
-    )
-  )
-) @function.arrow.definition
-
-(interface_declaration) @interface.definition
-(export_statement declaration: (interface_declaration)) @interface.definition
-
-(type_alias_declaration) @type.definition
-(export_statement declaration: (type_alias_declaration)) @type.definition
-
-(enum_declaration) @enum.definition
-(export_statement declaration: (enum_declaration)) @enum.definition
-
-(method_definition
-  (accessibility_modifier)? @qualifier.visibility
-  ("static")? @qualifier.static
-  ("async")? @qualifier.async
-  parameters: (formal_parameters) @symbol.parameters
-  return_type: (type_annotation)? @symbol.returnType
-) @method.definition
-
-(public_field_definition
-  (accessibility_modifier)? @qualifier.visibility
-  ("static")? @qualifier.static
-  type: (type_annotation)? @symbol.returnType
-) @field.definition
-
-(variable_declarator) @variable.definition
-(export_statement declaration: (lexical_declaration (variable_declarator))) @variable.definition
-
-(call_expression
-  function: (identifier) @function.call)
-
-; Class inheritance and implementation patterns
-(extends_clause (identifier) @class.inheritance)
-(implements_clause (type_identifier) @class.implementation)
-`
-  },
-  {
-    name: 'tsx',
-    extensions: ['.tsx', '.jsx'],
-    wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
-    query: `
-      (import_statement source: (string) @import.source) @import.statement
-      (class_declaration) @class.definition
-      (export_statement declaration: (class_declaration)) @class.definition
-      
-      (function_declaration
-        ("async")? @qualifier.async
-        parameters: (formal_parameters) @symbol.parameters
-        return_type: (type_annotation)? @symbol.returnType
-      ) @function.definition
-      (export_statement
-        declaration: (function_declaration
-          ("async")? @qualifier.async
-          parameters: (formal_parameters) @symbol.parameters
-          return_type: (type_annotation)? @symbol.returnType
-        )
-      ) @function.definition
-
-      (variable_declarator
-        value: (arrow_function
-          ("async")? @qualifier.async
-          parameters: (formal_parameters)? @symbol.parameters
-          return_type: (type_annotation)? @symbol.returnType
-        )
-      ) @function.arrow.definition
-      (public_field_definition
-        value: (arrow_function
-          ("async")? @qualifier.async
-          parameters: (formal_parameters)? @symbol.parameters
-          return_type: (type_annotation)? @symbol.returnType
-        )
-      ) @function.arrow.definition
-
-      (interface_declaration) @interface.definition
-      (export_statement declaration: (interface_declaration)) @interface.definition
-      (type_alias_declaration) @type.definition
-      (export_statement declaration: (type_alias_declaration)) @type.definition
-      (enum_declaration) @enum.definition
-      (export_statement declaration: (enum_declaration)) @enum.definition
-
-      (method_definition
-        (accessibility_modifier)? @qualifier.visibility
-        ("static")? @qualifier.static
-        ("async")? @qualifier.async
-        parameters: (formal_parameters) @symbol.parameters
-        return_type: (type_annotation)? @symbol.returnType
-      ) @method.definition
-
-      (public_field_definition
-        (accessibility_modifier)? @qualifier.visibility
-        ("static")? @qualifier.static
-        type: (type_annotation)? @symbol.returnType
-      ) @field.definition
-      
-      ; Class inheritance and implementation patterns
-      (extends_clause (identifier) @class.inheritance)
-      (implements_clause (type_identifier) @class.implementation)
-    `
-  },
-  {
-    name: 'python',
-    extensions: ['.py', '.pyw'],
-    wasmPath: 'tree-sitter-python/tree-sitter-python.wasm',
-    query: `
-(import_statement) @import.statement
-(import_from_statement
-  module_name: (relative_import) @import.source) @import.statement
-(import_from_statement
-  module_name: (dotted_name) @import.source) @import.statement
-
-(class_definition) @class.definition
-
-(function_definition) @function.definition
-
-(decorated_definition
-  (function_definition)) @function.definition
-
-(decorated_definition
-  (class_definition)) @class.definition
-
-(class_definition
-  body: (block (function_definition) @method.definition))
-
-(expression_statement
-  (assignment)) @variable.definition
-
-; Python inheritance patterns
-(class_definition
-  superclasses: (argument_list (identifier) @class.inheritance))
-`
-  },
-  {
-    name: 'java',
-    extensions: ['.java'],
-    wasmPath: 'tree-sitter-java/tree-sitter-java.wasm',
-    query: `
-(import_declaration
-  (scoped_identifier) @import.source) @import.statement
-
-(class_declaration) @class.definition
-(interface_declaration) @interface.definition
-(enum_declaration) @enum.definition
-
-(method_declaration) @method.definition
-(constructor_declaration) @constructor.definition
-
-(field_declaration) @field.definition
-
-; Java inheritance and implementation patterns
-(superclass (type_identifier) @class.inheritance)
-(super_interfaces (type_list (type_identifier) @class.implementation))
-
-`
-  },
-  {
-    name: 'cpp',
-    extensions: ['.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx'],
-    wasmPath: 'tree-sitter-cpp/tree-sitter-cpp.wasm',
-    query: `
-(preproc_include) @import.statement
-
-(function_definition) @function.definition
-(declaration
-  declarator: (function_declarator)) @function.declaration
-
-(class_specifier) @class.definition
-(struct_specifier) @struct.definition
-(union_specifier) @union.definition
-(enum_specifier) @enum.definition
-
-(namespace_definition) @namespace.definition
-
-(template_declaration) @template.definition
-
-(function_definition declarator: (qualified_identifier)) @method.definition
-(field_declaration declarator: (function_declarator)) @method.definition
-(field_declaration) @field.definition
-`
-  },
-  {
-    name: 'c',
-    extensions: ['.c'],
-    wasmPath: 'tree-sitter-c/tree-sitter-c.wasm',
-    query: `
-(preproc_include) @import.statement
-
-(function_definition) @function.definition
-(declaration declarator: (function_declarator)) @function.declaration
-(struct_specifier) @struct.definition
-(union_specifier) @union.definition
-(enum_specifier) @enum.definition
-(type_definition) @type.definition
-`
-  },
-  {
-    name: 'go',
-    extensions: ['.go'],
-    wasmPath: 'tree-sitter-go/tree-sitter-go.wasm',
-    query: `
-(import_declaration) @import.statement
-
-(function_declaration) @function.definition
-(method_declaration) @method.definition
-
-(type_declaration) @type.definition
-
-(var_declaration) @variable.definition
-(const_declaration) @constant.definition
-`
-  },
-  {
-    name: 'rust',
-    extensions: ['.rs'],
-    wasmPath: 'tree-sitter-rust/tree-sitter-rust.wasm',
-    query: `
-(mod_item
-  name: (identifier) @import.source) @import.statement
-
-(function_item) @function.definition
-(impl_item) @impl.definition
-
-(struct_item) @struct.definition
-(enum_item) @enum.definition
-(trait_item) @trait.definition
-(function_signature_item) @method.definition
-
-(type_item) @type.definition
-(const_item) @constant.definition
-(static_item) @static.definition
-
-(function_signature_item) @function.declaration
-`
-  },
-  {
-    name: 'csharp',
-    extensions: ['.cs'],
-    wasmPath: 'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm',
-    query: `
-(using_directive) @import.statement
-
-(class_declaration) @class.definition
-(interface_declaration) @interface.definition
-(struct_declaration) @struct.definition
-(enum_declaration) @enum.definition
-
-(method_declaration) @method.definition
-(constructor_declaration) @constructor.definition
-
-(field_declaration) @field.definition
-(property_declaration) @property.definition
-
-(namespace_declaration) @namespace.definition
-`
-  },
-  {
-    name: 'php',
-    extensions: ['.php'],
-    wasmPath: 'tree-sitter-php/tree-sitter-php.wasm',
-    query: `
-      (namespace_definition) @namespace.definition
-      (class_declaration) @class.definition
-      (function_definition) @function.definition
-      (method_declaration) @method.definition
-    `
-  },
-  {
-    name: 'ruby',
-    extensions: ['.rb'],
-    wasmPath: 'tree-sitter-ruby/tree-sitter-ruby.wasm',
-    query: `
-      (module) @module.definition
-      (class) @class.definition
-      (method) @method.definition
-      (singleton_method) @method.definition
-    `
-  },
-  {
-    name: 'solidity',
-    extensions: ['.sol'],
-    wasmPath: 'tree-sitter-solidity/tree-sitter-solidity.wasm',
-    query: `
-      (contract_declaration) @class.definition
-      (function_definition) @function.definition
-      (event_definition) @enum.definition
-    `
-  },
-  {
-    name: 'swift',
-    extensions: ['.swift'],
-    wasmPath: 'tree-sitter-swift/tree-sitter-swift.wasm',
-    query: `
-      (class_declaration) @class.definition
-      (protocol_declaration) @trait.definition
-      (function_declaration) @function.definition
-      (protocol_function_declaration) @function.definition
-      (property_declaration) @field.definition
-    `
-  },
-  {
-    name: 'vue',
-    extensions: ['.vue'],
-    wasmPath: 'tree-sitter-vue/tree-sitter-vue.wasm',
-    query: `
-      (script_element .
-        [
-          (lexical_declaration (variable_declarator)) @variable.definition
-          (function_declaration) @function.definition
-        ])
-`
-  }
-];
-
-/**
- * Get the language configuration for a given file extension
- */
-export function getLanguageConfigForFile(filePath: string): LanguageConfig | null {
-  const extension = filePath.substring(filePath.lastIndexOf('.'));
-  
-  for (const config of LANGUAGE_CONFIGS) {
-    if (config.extensions.includes(extension)) {
-      return config;
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Get all supported file extensions
- */
-export function getSupportedExtensions(): string[] {
-  return LANGUAGE_CONFIGS.flatMap(config => config.extensions);
-}
-````
-
 ## File: src/pipeline/discover.ts
 ````typescript
 import { globby } from 'globby';
@@ -1050,6 +760,463 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     return fileContents.filter((c): c is FileContent => c !== null);
   };
 };
+````
+
+## File: src/tree-sitter/language-config.ts
+````typescript
+import type { Language } from 'web-tree-sitter';
+
+export interface LanguageConfig {
+  name: string;
+  extensions: string[];
+  wasmPath: string;
+  query: string;
+}
+
+export interface LoadedLanguage {
+  config: LanguageConfig;
+  language: Language;
+}
+
+export const LANGUAGE_CONFIGS: LanguageConfig[] = [
+  {
+    name: 'typescript',
+    extensions: ['.ts', '.js', '.mjs', '.cjs'],
+    wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
+    query: `
+(import_statement
+  source: (string) @import.source) @import.statement
+
+(class_declaration) @class.definition
+(export_statement declaration: (class_declaration)) @class.definition
+
+(function_declaration
+  ("async")? @qualifier.async
+  parameters: (formal_parameters) @symbol.parameters
+  return_type: (type_annotation)? @symbol.returnType
+) @function.definition
+(export_statement
+  declaration: (function_declaration
+    ("async")? @qualifier.async
+    parameters: (formal_parameters) @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.definition
+
+(variable_declarator
+  value: (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+(public_field_definition
+  value: (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      value: (arrow_function
+        ("async")? @qualifier.async
+        parameters: (formal_parameters)? @symbol.parameters
+        return_type: (type_annotation)? @symbol.returnType
+      )
+    )
+  )
+) @function.arrow.definition
+
+(interface_declaration) @interface.definition
+(export_statement declaration: (interface_declaration)) @interface.definition
+
+(type_alias_declaration) @type.definition
+(export_statement declaration: (type_alias_declaration)) @type.definition
+
+(enum_declaration) @enum.definition
+(export_statement declaration: (enum_declaration)) @enum.definition
+
+(method_definition
+  (accessibility_modifier)? @qualifier.visibility
+  ("static")? @qualifier.static
+  ("async")? @qualifier.async
+  parameters: (formal_parameters) @symbol.parameters
+  return_type: (type_annotation)? @symbol.returnType
+) @method.definition
+
+(public_field_definition
+  (accessibility_modifier)? @qualifier.visibility
+  ("static")? @qualifier.static
+  type: (type_annotation)? @symbol.returnType
+) @field.definition
+
+(variable_declarator) @variable.definition
+(export_statement declaration: (lexical_declaration (variable_declarator))) @variable.definition
+
+(call_expression
+  function: (identifier) @function.call)
+
+(throw_statement) @qualifier.throws
+
+; Class inheritance and implementation patterns
+(extends_clause (identifier) @class.inheritance)
+(implements_clause (type_identifier) @class.implementation)
+`
+  },
+  {
+    name: 'tsx',
+    extensions: ['.tsx', '.jsx'],
+    wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
+    query: `
+(import_statement
+  source: (string) @import.source) @import.statement
+
+(class_declaration) @class.definition
+(export_statement declaration: (class_declaration)) @class.definition
+
+(function_declaration
+  ("async")? @qualifier.async
+  parameters: (formal_parameters) @symbol.parameters
+  return_type: (type_annotation)? @symbol.returnType
+) @function.definition
+(export_statement
+  declaration: (function_declaration
+    ("async")? @qualifier.async
+    parameters: (formal_parameters) @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.definition
+
+(variable_declarator
+  value: (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+(public_field_definition
+  value: (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      value: (arrow_function
+        ("async")? @qualifier.async
+        parameters: (formal_parameters)? @symbol.parameters
+        return_type: (type_annotation)? @symbol.returnType
+      )
+    )
+  )
+) @function.arrow.definition
+
+(interface_declaration) @interface.definition
+(export_statement declaration: (interface_declaration)) @interface.definition
+
+(type_alias_declaration) @type.definition
+(export_statement declaration: (type_alias_declaration)) @type.definition
+
+(enum_declaration) @enum.definition
+(export_statement declaration: (enum_declaration)) @enum.definition
+
+(method_definition
+  (accessibility_modifier)? @qualifier.visibility
+  ("static")? @qualifier.static
+  ("async")? @qualifier.async
+  parameters: (formal_parameters) @symbol.parameters
+  return_type: (type_annotation)? @symbol.returnType
+) @method.definition
+
+(public_field_definition
+  (accessibility_modifier)? @qualifier.visibility
+  ("static")? @qualifier.static
+  type: (type_annotation)? @symbol.returnType
+) @field.definition
+
+(variable_declarator) @variable.definition
+(export_statement declaration: (lexical_declaration (variable_declarator))) @variable.definition
+
+(call_expression
+  function: (identifier) @function.call)
+
+(throw_statement) @qualifier.throws
+
+; Class inheritance and implementation patterns
+(extends_clause (identifier) @class.inheritance)
+(implements_clause (type_identifier) @class.implementation)
+
+; JSX/TSX specific
+(jsx_opening_element
+  name: (_) @html.tag
+) @html.element.definition
+`
+  },
+  {
+    name: 'python',
+    extensions: ['.py', '.pyw'],
+    wasmPath: 'tree-sitter-python/tree-sitter-python.wasm',
+    query: `
+(import_statement) @import.statement
+(import_from_statement
+  module_name: (relative_import) @import.source) @import.statement
+(import_from_statement
+  module_name: (dotted_name) @import.source) @import.statement
+
+(class_definition) @class.definition
+
+(function_definition) @function.definition
+
+(decorated_definition
+  (function_definition)) @function.definition
+
+(decorated_definition
+  (class_definition)) @class.definition
+
+(class_definition
+  body: (block (function_definition) @method.definition))
+
+(expression_statement
+  (assignment)) @variable.definition
+
+(raise_statement) @qualifier.throws
+
+; Python inheritance patterns
+(class_definition
+  superclasses: (argument_list (identifier) @class.inheritance))
+`
+  },
+  {
+    name: 'java',
+    extensions: ['.java'],
+    wasmPath: 'tree-sitter-java/tree-sitter-java.wasm',
+    query: `
+(import_declaration
+  (scoped_identifier) @import.source) @import.statement
+
+(class_declaration) @class.definition
+(interface_declaration) @interface.definition
+(enum_declaration) @enum.definition
+
+(method_declaration
+  (modifiers)? @qualifier.modifiers
+) @method.definition
+
+(constructor_declaration) @constructor.definition
+
+(field_declaration) @field.definition
+
+(throw_statement) @qualifier.throws
+
+; Java inheritance and implementation patterns
+(superclass (type_identifier) @class.inheritance)
+(super_interfaces (type_list (type_identifier) @class.implementation))
+
+`
+  },
+  {
+    name: 'cpp',
+    extensions: ['.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx'],
+    wasmPath: 'tree-sitter-cpp/tree-sitter-cpp.wasm',
+    query: `
+(preproc_include) @import.statement
+
+(function_definition) @function.definition
+(declaration
+  declarator: (function_declarator)) @function.declaration
+
+(class_specifier) @class.definition
+(struct_specifier) @struct.definition
+(union_specifier) @union.definition
+(enum_specifier) @enum.definition
+
+(namespace_definition) @namespace.definition
+
+(template_declaration) @template.definition
+
+(function_definition declarator: (qualified_identifier)) @method.definition
+(field_declaration declarator: (function_declarator)) @method.definition
+(field_declaration) @field.definition
+
+(throw_expression) @qualifier.throws
+`
+  },
+  {
+    name: 'c',
+    extensions: ['.c'],
+    wasmPath: 'tree-sitter-c/tree-sitter-c.wasm',
+    query: `
+(preproc_include) @import.statement
+
+(function_definition) @function.definition
+(declaration declarator: (function_declarator)) @function.declaration
+(struct_specifier) @struct.definition
+(union_specifier) @union.definition
+(enum_specifier) @enum.definition
+(type_definition) @type.definition
+`
+  },
+  {
+    name: 'go',
+    extensions: ['.go'],
+    wasmPath: 'tree-sitter-go/tree-sitter-go.wasm',
+    query: `
+(import_declaration) @import.statement
+
+(function_declaration) @function.definition
+(method_declaration) @method.definition
+
+(type_declaration) @type.definition
+
+(var_declaration) @variable.definition
+(const_declaration) @constant.definition
+`
+  },
+  {
+    name: 'rust',
+    extensions: ['.rs'],
+    wasmPath: 'tree-sitter-rust/tree-sitter-rust.wasm',
+    query: `
+(mod_item
+  name: (identifier) @import.source) @import.statement
+
+(function_item) @function.definition
+(impl_item) @impl.definition
+
+(struct_item) @struct.definition
+(enum_item) @enum.definition
+(trait_item) @trait.definition
+(function_signature_item) @method.definition
+
+(type_item) @type.definition
+(const_item) @constant.definition
+(static_item) @static.definition
+
+(function_signature_item) @function.declaration
+`
+  },
+  {
+    name: 'csharp',
+    extensions: ['.cs'],
+    wasmPath: 'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm',
+    query: `
+(using_directive) @import.statement
+
+(class_declaration) @class.definition
+(interface_declaration) @interface.definition
+(struct_declaration) @struct.definition
+(enum_declaration) @enum.definition
+
+(method_declaration) @method.definition
+(constructor_declaration) @constructor.definition
+
+(field_declaration) @field.definition
+(property_declaration) @property.definition
+
+(namespace_declaration) @namespace.definition
+
+(throw_statement) @qualifier.throws
+`
+  },
+  {
+    name: 'php',
+    extensions: ['.php'],
+    wasmPath: 'tree-sitter-php/tree-sitter-php.wasm',
+    query: `
+      (namespace_definition) @namespace.definition
+      (class_declaration) @class.definition
+      (function_definition) @function.definition
+      (method_declaration) @method.definition
+    `
+  },
+  {
+    name: 'ruby',
+    extensions: ['.rb'],
+    wasmPath: 'tree-sitter-ruby/tree-sitter-ruby.wasm',
+    query: `
+      (module) @module.definition
+      (class) @class.definition
+      (method) @method.definition
+      (singleton_method) @method.definition
+    `
+  },
+  {
+    name: 'solidity',
+    extensions: ['.sol'],
+    wasmPath: 'tree-sitter-solidity/tree-sitter-solidity.wasm',
+    query: `
+      (contract_declaration) @class.definition
+      (function_definition) @function.definition
+      (event_definition) @enum.definition
+    `
+  },
+  {
+    name: 'swift',
+    extensions: ['.swift'],
+    wasmPath: 'tree-sitter-swift/tree-sitter-swift.wasm',
+    query: `
+      (class_declaration) @class.definition
+      (protocol_declaration) @trait.definition
+      (function_declaration) @function.definition
+      (protocol_function_declaration) @function.definition
+      (property_declaration) @field.definition
+    `
+  },
+  {
+    name: 'vue',
+    extensions: ['.vue'],
+    wasmPath: 'tree-sitter-vue/tree-sitter-vue.wasm',
+    query: `
+      (script_element .
+        [
+          (lexical_declaration (variable_declarator)) @variable.definition
+          (function_declaration) @function.definition
+        ])
+
+      (element
+        (start_tag
+          (tag_name) @html.tag
+        )
+      ) @html.element.definition
+`
+  },
+  {
+    name: 'css',
+    extensions: ['.css'],
+    wasmPath: 'tree-sitter-css/tree-sitter-css.wasm',
+    query: `
+      (rule_set
+        (selectors) @css.selector
+      ) @css.rule.definition
+    `
+  }
+];
+
+/**
+ * Get the language configuration for a given file extension
+ */
+export function getLanguageConfigForFile(filePath: string): LanguageConfig | null {
+  const extension = filePath.substring(filePath.lastIndexOf('.'));
+  
+  for (const config of LANGUAGE_CONFIGS) {
+    if (config.extensions.includes(extension)) {
+      return config;
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Get all supported file extensions
+ */
+export function getSupportedExtensions(): string[] {
+  return LANGUAGE_CONFIGS.flatMap(config => config.extensions);
+}
 ````
 
 ## File: src/pipeline/rank.ts
@@ -1234,10 +1401,10 @@ export const createMapGenerator = (pipeline: {
 import { logger } from './utils/logger.util.js';
 import { RepoGraphError } from './utils/error.util.js';
 // High-Level API for simple use cases
-import { generateMap as executeGenerateMap } from './high-level.js';
+import { generateMap as executeGenerateMap, analyzeProject } from './high-level.js';
 import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
 
-export { generateMap } from './high-level.js';
+export { generateMap, analyzeProject } from './high-level.js';
 
 // Low-Level API for composition and advanced use cases
 export { createMapGenerator } from './composer.js';
@@ -1261,6 +1428,7 @@ export type {
   RepoGraphOptions,
   RendererOptions,
   FileDiscoverer,
+  CssIntent,
   Analyzer,
   Ranker,
   Renderer,
@@ -1481,7 +1649,12 @@ export type CodeNodeType =
   | 'constant'
   | 'static'
   | 'union'
-  | 'template';
+  | 'template'
+  | 'html_element'
+  | 'css_rule';
+
+/** For CSS nodes, a semantic grouping of its properties. */
+export type CssIntent = 'layout' | 'typography' | 'appearance';
 
 /** New type for access modifiers. */
 export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
@@ -1508,6 +1681,18 @@ export type CodeNode = {
   readonly returnType?: string;
   /** An array of parameters for functions/methods. */
   readonly parameters?: { name: string; type?: string }[];
+  /** Whether a function is known to throw exceptions. Maps to SCN '!' */
+  readonly canThrow?: boolean; // Populated by analyzer
+  /** Whether a function is believed to be pure. Maps to SCN 'o' */
+  readonly isPure?: boolean; // Not implemented yet
+  /** For UI nodes, the HTML tag name (e.g., 'div'). */
+  readonly htmlTag?: string;
+  /** For UI nodes, a map of attributes. */
+  readonly attributes?: ReadonlyMap<string, string>; // Not used yet
+  /** For CSS nodes, the full selector. */
+  readonly cssSelector?: string;
+  /** For CSS rules, a list of semantic intents. */
+  readonly cssIntents?: readonly CssIntent[]; // Not implemented yet
 };
 
 /** Represents a directed relationship between two CodeNodes. Immutable. */
@@ -1655,6 +1840,7 @@ export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions)
     "tree-sitter-c": "^0.24.1",
     "tree-sitter-c-sharp": "^0.23.1",
     "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-css": "^0.23.2",
     "tree-sitter-go": "^0.23.4",
     "tree-sitter-java": "^0.23.5",
     "tree-sitter-php": "^0.23.12",
@@ -1686,15 +1872,15 @@ export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions)
     "bun",
     "functional-programming"
   ],
-  "author": "Your Name <you@example.com>",
+  "author": "RelayCoder <you@example.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/repograph.git"
+    "url": "https://github.com/relaycoder/repograph.git"
   },
-  "homepage": "https://github.com/your-username/repograph#readme",
+  "homepage": "https://github.com/relaycoder/repograph#readme",
   "bugs": {
-    "url": "https://github.com/your-username/repograph/issues"
+    "url": "https://github.com/relaycoder/repograph/issues"
   },
   "engines": {
     "node": ">=18.0.0",
@@ -2139,25 +2325,37 @@ function processSymbol(
     declarationNode = node.namedChildren[0] ?? node;
   }
   
-  const nameNode = handler.getSymbolNameNode(declarationNode, node);
+  // --- NEW LOGIC TO EXTRACT QUALIFIERS & UI identifiers ---
+  const qualifiers: { [key: string]: TSNode } = {};
+  for (const capture of childCaptures) {
+    qualifiers[capture.name] = capture.node;
+  }
+
+  const nameNode = handler.getSymbolNameNode(declarationNode, node) 
+    || qualifiers['html.tag'] 
+    || qualifiers['css.selector'];
+
   if (!nameNode) return;
 
-  const symbolName = nameNode.text;
-  const symbolId = `${file.path}#${symbolName}`;
+  let symbolName = nameNode.text;
+  let symbolId = `${file.path}#${symbolName}`;
+
+  // HTML elements of the same type aren't unique, so we add a line number to the ID.
+  if (symbolType === 'html_element') {
+    symbolId = `${file.path}#${symbolName}:${nameNode.startPosition.row + 1}`;
+  }
 
   if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
     processedSymbols.add(symbolId);
-
-    // --- NEW LOGIC TO EXTRACT QUALIFIERS ---
-    const qualifiers: { [key: string]: TSNode } = {};
-    for (const capture of childCaptures) {
-      qualifiers[capture.name] = capture.node;
-    }
 
     const visibilityNode = qualifiers['qualifier.visibility'];
     const visibility = visibilityNode
       ? (getNodeText(visibilityNode, file.content) as CodeNodeVisibility)
       : undefined;
+    
+    const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
+    const isHtmlElement = symbolType === 'html_element';
+    const isCssRule = symbolType === 'css_rule';
 
     const parametersNode = qualifiers['symbol.parameters'];
     const parameters =
@@ -2178,6 +2376,9 @@ function processSymbol(
       ...(visibility && { visibility }),
       ...(returnType && { returnType }),
       ...(parameters && { parameters }),
+      ...(canThrow && { canThrow: true }),
+      ...(isHtmlElement && { htmlTag: symbolName }),
+      ...(isCssRule && { cssSelector: symbolName }),
     });
   }
 }
@@ -2246,6 +2447,8 @@ function getSymbolTypeFromCapture(captureName: string, type: string): CodeNodeTy
     ['impl', 'impl'],
     ['constructor', 'constructor'],
     ['property', 'property'],
+    ['html.element', 'html_element'],
+    ['css.rule', 'css_rule'],
     ['variable', 'variable'],
     ['constant', 'constant'],
     ['static', 'static'],

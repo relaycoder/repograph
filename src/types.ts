@@ -31,6 +31,9 @@ export type CodeNodeType =
   | 'html_element'
   | 'css_rule';
 
+/** For CSS nodes, a semantic grouping of its properties. */
+export type CssIntent = 'layout' | 'typography' | 'appearance';
+
 /** New type for access modifiers. */
 export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
 
@@ -57,15 +60,17 @@ export type CodeNode = {
   /** An array of parameters for functions/methods. */
   readonly parameters?: { name: string; type?: string }[];
   /** Whether a function is known to throw exceptions. Maps to SCN '!' */
-  readonly canThrow?: boolean;
+  readonly canThrow?: boolean; // Populated by analyzer
   /** Whether a function is believed to be pure. Maps to SCN 'o' */
-  readonly isPure?: boolean;
+  readonly isPure?: boolean; // Not implemented yet
   /** For UI nodes, the HTML tag name (e.g., 'div'). */
   readonly htmlTag?: string;
   /** For UI nodes, a map of attributes. */
-  readonly attributes?: ReadonlyMap<string, string>;
+  readonly attributes?: ReadonlyMap<string, string>; // Not used yet
   /** For CSS nodes, the full selector. */
   readonly cssSelector?: string;
+  /** For CSS rules, a list of semantic intents. */
+  readonly cssIntents?: readonly CssIntent[]; // Not implemented yet
 };
 
 /** Represents a directed relationship between two CodeNodes. Immutable. */

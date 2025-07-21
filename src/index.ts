@@ -3,10 +3,10 @@
 import { logger } from './utils/logger.util.js';
 import { RepoGraphError } from './utils/error.util.js';
 // High-Level API for simple use cases
-import { generateMap as executeGenerateMap } from './high-level.js';
+import { generateMap as executeGenerateMap, analyzeProject } from './high-level.js';
 import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
 
-export { generateMap } from './high-level.js';
+export { generateMap, analyzeProject } from './high-level.js';
 
 // Low-Level API for composition and advanced use cases
 export { createMapGenerator } from './composer.js';
@@ -30,6 +30,7 @@ export type {
   RepoGraphOptions,
   RendererOptions,
   FileDiscoverer,
+  CssIntent,
   Analyzer,
   Ranker,
   Renderer,
