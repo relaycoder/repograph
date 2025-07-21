@@ -72,6 +72,10 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (enum_declaration) @enum.definition
 (export_statement declaration: (enum_declaration)) @enum.definition
 
+(internal_module) @namespace.definition
+(export_statement declaration: (internal_module)) @namespace.definition
+(ambient_declaration (module) @namespace.definition)
+
 (method_definition
   (accessibility_modifier)? @qualifier.visibility
   ("static")? @qualifier.static
@@ -91,6 +95,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 
 (call_expression
   function: (identifier) @function.call)
+
+(identifier) @identifier.reference
 
 (throw_statement) @qualifier.throws
 
@@ -158,6 +164,10 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (enum_declaration) @enum.definition
 (export_statement declaration: (enum_declaration)) @enum.definition
 
+(internal_module) @namespace.definition
+(export_statement declaration: (internal_module)) @namespace.definition
+(ambient_declaration (module) @namespace.definition)
+
 (method_definition
   (accessibility_modifier)? @qualifier.visibility
   ("static")? @qualifier.static
@@ -177,6 +187,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 
 (call_expression
   function: (identifier) @function.call)
+
+(identifier) @identifier.reference
 
 (throw_statement) @qualifier.throws
 

@@ -1,3 +1,7 @@
+bun publish
+
+===
+
 scn-ts which is npm user of this repograph lib complains below. so give the scn-ts advice
 
 ===

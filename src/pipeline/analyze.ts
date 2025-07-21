@@ -30,6 +30,7 @@ type ProcessSymbolContext = {
   symbolType: CodeNodeType;
   processedSymbols: Set<string>;
   fileState: Record<string, any>;
+  childCaptures: TSMatch[];
 };
 
 const pythonHandler: Partial<LanguageHandler> = {
@@ -126,7 +127,7 @@ const tsLangHandler: Partial<LanguageHandler> = {
     }
     return declarationNode.childForFieldName('name');
   },
-  processComplexSymbol: ({ nodes, file, node, symbolType, processedSymbols, fileState }) => {
+  processComplexSymbol: ({ nodes, file, node, symbolType, processedSymbols, fileState, childCaptures }) => {
     if (symbolType !== 'method' && symbolType !== 'field') return false;
     const classParent = node.parent?.parent; // class_body -> class_declaration
     if (classParent?.type === 'class_declaration') {
@@ -140,21 +141,58 @@ const tsLangHandler: Partial<LanguageHandler> = {
         // This makes the analysis more robust.
         if (nameNode && !fileState['duplicateClassNames']?.has(className)) {
           const methodName = nameNode.text;
-          const symbolName = `${className}.${methodName}`;
-          const symbolId = `${file.path}#${symbolName}`;
-          if (!processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
-            processedSymbols.add(symbolId);
-            nodes.set(symbolId, {
-              id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
+          
+          // Create the unqualified symbol
+          const unqualifiedSymbolId = `${file.path}#${methodName}`;
+          if (!processedSymbols.has(unqualifiedSymbolId) && !nodes.has(unqualifiedSymbolId)) {
+            processedSymbols.add(unqualifiedSymbolId);
+            
+            // Extract code snippet properly for class members
+            let codeSnippet = '';
+            if (symbolType === 'field') {
+              // For fields, get the type annotation and initializer
+              const fullText = node.text;
+              const colonIndex = fullText.indexOf(':');
+              if (colonIndex !== -1) {
+                codeSnippet = fullText.substring(colonIndex);
+              }
+            } else if (symbolType === 'method') {
+              // For methods, get the signature without the body
+              codeSnippet = node.text?.split('{')[0]?.trim() || '';
+            }
+            
+            const qualifiers: { [key: string]: TSNode } = {};
+            for (const capture of childCaptures) {
+              qualifiers[capture.name] = capture.node;
+            }
+            const visibilityNode = qualifiers['qualifier.visibility'];
+            const visibility = visibilityNode ? (getNodeText(visibilityNode, file.content) as CodeNodeVisibility) : undefined;
+            const returnTypeNode = qualifiers['symbol.returnType'];
+            const returnType = returnTypeNode ? getNodeText(returnTypeNode, file.content).replace(/^:\s*/, '') : undefined;
+            const parametersNode = qualifiers['symbol.parameters'];
+            const parameters = parametersNode && tsLangHandler.parseParameters ? tsLangHandler.parseParameters(parametersNode, file.content) : undefined;
+            const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
+
+            nodes.set(unqualifiedSymbolId, {
+              id: unqualifiedSymbolId, type: symbolType, name: methodName, filePath: file.path,
               startLine: getLineFromIndex(file.content, node.startIndex),
               endLine: getLineFromIndex(file.content, node.endIndex),
-              codeSnippet: node.text?.split('{')[0]?.trim() || '',
+              codeSnippet,
+              ...(qualifiers['qualifier.async'] && { isAsync: true }),
+              ...(qualifiers['qualifier.static'] && { isStatic: true }),
+              ...(visibility && { visibility }),
+              ...(returnType && { returnType }),
+              ...(parameters && { parameters }),
+              ...(canThrow && { canThrow: true }),
             });
           }
+          
+          // Mark the unqualified symbol as processed to prevent duplicate creation
+          processedSymbols.add(`${file.path}#${methodName}`);
         }
       }
     }
-    return false;
+    return true; // Return true to indicate we handled this symbol completely
   },
   parseParameters: (paramsNode: TSNode, content: string): { name: string; type?: string }[] => {
     const params: { name: string; type?: string }[] = [];
@@ -371,8 +409,30 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
     for (const { file, captures, langConfig } of fileParseData.values()) {
       processFileRelationships({ nodes, edges }, { ...file, path: normalizePath(file.path) }, captures, langConfig, resolver, allFilePaths);
     }
+    
+    // Phase 6: Remove redundant file-level edges when entity-level edges exist
+    const entityEdges = new Set<string>();
+    for (const edge of edges) {
+      if (edge.fromId.includes('#') && edge.toId.includes('#')) {
+        // This is an entity-level edge, track the file-level equivalent
+        const fromFile = edge.fromId.split('#')[0];
+        const toFile = edge.toId.split('#')[0];
+        entityEdges.add(`${fromFile}->${toFile}`);
+      }
+    }
+    
+    // Remove file-level edges that have corresponding entity-level edges
+    const filteredEdges = edges.filter(edge => {
+      if (!edge.fromId.includes('#') && edge.toId.includes('#')) {
+        // This is a file-to-entity edge, check if there's a corresponding entity-level edge
+        const fromFile = edge.fromId;
+        const toFile = edge.toId.split('#')[0];
+        return !entityEdges.has(`${fromFile}->${toFile}`);
+      }
+      return true;
+    });
 
-    return { nodes: Object.freeze(nodes), edges: Object.freeze(edges) };
+    return { nodes: Object.freeze(nodes), edges: Object.freeze(filteredEdges) };
   };
 };
 
@@ -405,10 +465,8 @@ function processFileDefinitions(
     );
 
     processSymbol(
-      { ...graph, file, node, symbolType, processedSymbols, fileState },
+      { ...graph, file, node, symbolType, processedSymbols, fileState, childCaptures },
       langConfig
-,
-      childCaptures
     );
   }
 }
@@ -419,9 +477,8 @@ function processFileDefinitions(
 function processSymbol(
   context: ProcessSymbolContext,
   langConfig: LanguageConfig,
-  childCaptures: TSMatch[]
 ): void {
-  const { nodes, file, node, symbolType, processedSymbols } = context;
+  const { nodes, file, node, symbolType, processedSymbols, childCaptures } = context;
   const handler = getLangHandler(langConfig.name);
 
   if (handler.shouldSkipSymbol(node, symbolType, langConfig.name)) return;
@@ -473,8 +530,23 @@ function processSymbol(
     const returnTypeNode = qualifiers['symbol.returnType'];
     const returnType = returnTypeNode ? getNodeText(returnTypeNode, file.content).replace(/^:\s*/, '') : undefined;
 
-    const snippetWithEquals = file.content.slice(nameNode.endIndex, node.endIndex).replace(/^{/, '').trim();
-    const codeSnippet = snippetWithEquals.startsWith('=') ? snippetWithEquals.substring(1).trim() : snippetWithEquals;
+    // Extract code snippet
+    let codeSnippet = '';
+    if (symbolType === 'variable' || symbolType === 'constant' || symbolType === 'property') {
+      const fullText = node.text;
+      const assignmentMatch = fullText.match(/=\s*(.+)$/s);
+      if (assignmentMatch && assignmentMatch[1]) {
+        codeSnippet = assignmentMatch[1].trim();
+      }
+    } else if (symbolType === 'function' || symbolType === 'method' || symbolType === 'constructor') {
+      const bodyStart = node.text.indexOf('{');
+      codeSnippet = (bodyStart > -1 ? node.text.slice(0, bodyStart) : node.text).trim();
+    } else if (symbolType === 'arrow_function') {
+      // For arrow functions, include the full arrow function syntax including {}
+      codeSnippet = node.text.trim();
+    } else {
+      codeSnippet = node.text;
+    }
 
     nodes.set(symbolId, {
       id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
@@ -515,23 +587,39 @@ function processFileRelationships(
       const importedFilePath = handler.resolveImport(file.path, importIdentifier, allFilePaths);
       if (importedFilePath && graph.nodes.has(importedFilePath)) {
         const edge: CodeEdge = { fromId: file.path, toId: importedFilePath, type: 'imports' };
-        if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {
+        if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
           graph.edges.push(edge);
         }
       }
       continue;
     }
 
-    if (subtype && ['inheritance', 'implementation', 'call'].includes(subtype)) {
+    if (subtype && ['inheritance', 'implementation', 'call', 'reference'].includes(subtype)) {
       const fromId = findEnclosingSymbolId(node, file, graph.nodes);
       if (!fromId) continue;
       const toName = getNodeText(node, file.content).replace(/<.*>$/, '');
       const toNode = resolver.resolve(toName, file.path);
       if (!toNode) continue;
       
-      const edgeType = subtype === 'inheritance' ? 'inherits' : subtype === 'implementation' ? 'implements' : 'calls';
+      // Skip self-references
+      if (fromId === toNode.id) continue;
+      
+      // Skip references within the same file unless it's a cross-entity reference
+      if (fromId.split('#')[0] === toNode.id.split('#')[0] && fromId !== file.path && toNode.id !== file.path) {
+        // Only allow cross-entity references within the same file if they're meaningful
+        // (e.g., one function calling another, not variable self-references)
+        const fromNode = graph.nodes.get(fromId);
+        if (fromNode && (fromNode.type === 'variable' || fromNode.type === 'constant') && 
+            (toNode.type === 'variable' || toNode.type === 'constant')) {
+          continue;
+        }
+      }
+      
+      const edgeType = subtype === 'inheritance' ? 'inherits' : 
+                      subtype === 'implementation' ? 'implements' : 
+                      'calls'; // Fallback for 'call' and 'reference'
       const edge: CodeEdge = { fromId, toId: toNode.id, type: edgeType };
-      if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {
+      if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
         graph.edges.push(edge);
       }
     }

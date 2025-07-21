@@ -17,6 +17,10 @@ export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
 export { createPageRanker, createGitRanker } from './pipeline/rank.js';
 export { createMarkdownRenderer } from './pipeline/render.js';
 
+// Logger utilities
+export { logger } from './utils/logger.util.js';
+export type { Logger, LogLevel } from './utils/logger.util.js';
+
 // Core types for building custom components
 export type {
   FileContent,
@@ -85,8 +89,10 @@ Output Formatting:
     }
 
     if (args.includes('--version') || args.includes('-v')) {
-      // In a real app, you'd get this from package.json
-      logger.info('0.1.0');
+      const { readFileSync } = await import('node:fs');
+      const pkgPath = new URL('../package.json', import.meta.url);
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      console.log(pkg.version);
       process.exit(0);
     }
 
