@@ -3,7 +3,7 @@
 import { logger } from './utils/logger.util.js';
 import { RepoGraphError } from './utils/error.util.js';
 // High-Level API for simple use cases
-import { generateMap as executeGenerateMap, analyzeProject } from './high-level.js';
+import { generateMap as executeGenerateMap } from './high-level.js';
 import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
 
 export { generateMap, analyzeProject } from './high-level.js';
@@ -49,10 +49,10 @@ const isRunningDirectly = () => {
 
 if (isRunningDirectly()) {
   (async () => {
-  const args = process.argv.slice(2);
+    const args = process.argv.slice(2);
 
-  if (args.includes('--help') || args.includes('-h')) {
-    console.log(`
+    if (args.includes('--help') || args.includes('-h')) {
+      console.log(`
 Usage: repograph [root] [options]
 
 Arguments:
@@ -81,138 +81,138 @@ Output Formatting:
   --no-symbol-snippets     Hide code snippets for symbols.
   --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
     `);
-    process.exit(0);
-  }
-
-  if (args.includes('--version') || args.includes('-v')) {
-    // In a real app, you'd get this from package.json
-    logger.info('0.1.0');
-    process.exit(0);
-  }
-
-  // We need a mutable version of the options to build it from arguments.
-  const options: {
-    root?: string;
-    output?: string;
-    include?: readonly string[];
-    ignore?: readonly string[];
-    noGitignore?: boolean;
-    rankingStrategy?: 'pagerank' | 'git-changes';
-    logLevel?: IRepoGraphOptions['logLevel'];
-    rendererOptions?: IRepoGraphOptions['rendererOptions'];
-  } = {};
-  const includePatterns: string[] = [];
-  const ignorePatterns: string[] = [];
-  // We need a mutable version of rendererOptions to build from CLI args
-  const rendererOptions: {
-    customHeader?: string;
-    includeHeader?: boolean;
-    includeOverview?: boolean;
-    includeMermaidGraph?: boolean;
-    includeFileList?: boolean;
-    topFileCount?: number;
-    includeSymbolDetails?: boolean;
-    fileSectionSeparator?: string;
-    symbolDetailOptions?: {
-      includeRelations?: boolean;
-      includeLineNumber?: boolean;
-      includeCodeSnippet?: boolean;
-      maxRelationsToShow?: number;
-    };
-  } = {};
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (!arg) {
-      continue;
+      process.exit(0);
     }
-    switch (arg) {
-      case '--output':
-        options.output = args[++i];
-        break;
-      case '--include':
-        includePatterns.push(args[++i] as string);
-        break;
-      case '--ignore':
-        ignorePatterns.push(args[++i] as string);
-        break;
-      case '--no-gitignore':
-        options.noGitignore = true;
-        break;
-      case '--ranking-strategy':
-        options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
-        break;
-      case '--log-level':
-        options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
-        break;
-      // --- Renderer Options ---
-      case '--no-header':
-        rendererOptions.includeHeader = false;
-        break;
-      case '--no-overview':
-        rendererOptions.includeOverview = false;
-        break;
-      case '--no-mermaid':
-        rendererOptions.includeMermaidGraph = false;
-        break;
-      case '--no-file-list':
-        rendererOptions.includeFileList = false;
-        break;
-      case '--no-symbol-details':
-        rendererOptions.includeSymbolDetails = false;
-        break;
-      case '--top-file-count':
-        rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
-        break;
-      case '--file-section-separator':
-        rendererOptions.fileSectionSeparator = args[++i];
-        break;
-      case '--no-symbol-relations':
-        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
-        break;
-      case '--no-symbol-line-numbers':
-        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
-        break;
-      case '--no-symbol-snippets':
-        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
-        break;
-      case '--max-relations-to-show':
-        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
-        break;
-      default:
-        if (!arg.startsWith('-')) {
-          options.root = arg;
-        }
-        break;
+
+    if (args.includes('--version') || args.includes('-v')) {
+      // In a real app, you'd get this from package.json
+      logger.info('0.1.0');
+      process.exit(0);
     }
-  }
 
-  if (includePatterns.length > 0) {
-    options.include = includePatterns;
-  }
-  if (ignorePatterns.length > 0) {
-    options.ignore = ignorePatterns;
-  }
-  if (Object.keys(rendererOptions).length > 0) {
-    options.rendererOptions = rendererOptions;
-  }
+    // We need a mutable version of the options to build it from arguments.
+    const options: {
+      root?: string;
+      output?: string;
+      include?: readonly string[];
+      ignore?: readonly string[];
+      noGitignore?: boolean;
+      rankingStrategy?: 'pagerank' | 'git-changes';
+      logLevel?: IRepoGraphOptions['logLevel'];
+      rendererOptions?: IRepoGraphOptions['rendererOptions'];
+    } = {};
+    const includePatterns: string[] = [];
+    const ignorePatterns: string[] = [];
+    // We need a mutable version of rendererOptions to build from CLI args
+    const rendererOptions: {
+      customHeader?: string;
+      includeHeader?: boolean;
+      includeOverview?: boolean;
+      includeMermaidGraph?: boolean;
+      includeFileList?: boolean;
+      topFileCount?: number;
+      includeSymbolDetails?: boolean;
+      fileSectionSeparator?: string;
+      symbolDetailOptions?: {
+        includeRelations?: boolean;
+        includeLineNumber?: boolean;
+        includeCodeSnippet?: boolean;
+        maxRelationsToShow?: number;
+      };
+    } = {};
 
-  const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
-
-  logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
-  
-  try {
-    await executeGenerateMap(options);
-    const relativePath = path.relative(process.cwd(), finalOutput);
-    logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
-  } catch (error: unknown) {
-    if (error instanceof RepoGraphError) {
-      logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
-    } else {
-      logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (!arg) {
+        continue;
+      }
+      switch (arg) {
+        case '--output':
+          options.output = args[++i];
+          break;
+        case '--include':
+          includePatterns.push(args[++i] as string);
+          break;
+        case '--ignore':
+          ignorePatterns.push(args[++i] as string);
+          break;
+        case '--no-gitignore':
+          options.noGitignore = true;
+          break;
+        case '--ranking-strategy':
+          options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
+          break;
+        case '--log-level':
+          options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
+          break;
+        // --- Renderer Options ---
+        case '--no-header':
+          rendererOptions.includeHeader = false;
+          break;
+        case '--no-overview':
+          rendererOptions.includeOverview = false;
+          break;
+        case '--no-mermaid':
+          rendererOptions.includeMermaidGraph = false;
+          break;
+        case '--no-file-list':
+          rendererOptions.includeFileList = false;
+          break;
+        case '--no-symbol-details':
+          rendererOptions.includeSymbolDetails = false;
+          break;
+        case '--top-file-count':
+          rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
+          break;
+        case '--file-section-separator':
+          rendererOptions.fileSectionSeparator = args[++i];
+          break;
+        case '--no-symbol-relations':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
+          break;
+        case '--no-symbol-line-numbers':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
+          break;
+        case '--no-symbol-snippets':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
+          break;
+        case '--max-relations-to-show':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
+          break;
+        default:
+          if (!arg.startsWith('-')) {
+            options.root = arg;
+          }
+          break;
+      }
     }
-    process.exit(1);
-  }
+
+    if (includePatterns.length > 0) {
+      options.include = includePatterns;
+    }
+    if (ignorePatterns.length > 0) {
+      options.ignore = ignorePatterns;
+    }
+    if (Object.keys(rendererOptions).length > 0) {
+      options.rendererOptions = rendererOptions;
+    }
+
+    const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
+
+    logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
+
+    try {
+      await executeGenerateMap(options);
+      const relativePath = path.relative(process.cwd(), finalOutput);
+      logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
+    } catch (error: unknown) {
+      if (error instanceof RepoGraphError) {
+        logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
+      } else {
+        logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
+      }
+      process.exit(1);
+    }
   })().catch((error) => {
     console.error('Fatal error:', error);
     process.exit(1);
