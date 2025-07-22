@@ -114,6 +114,10 @@ const TS_BASE_QUERY = `
 (call_expression
   function: (identifier) @function.call)
 
+(call_expression
+  function: (member_expression
+    property: (property_identifier) @function.call))
+
 (identifier) @identifier.reference
 
 (throw_statement) @qualifier.throws

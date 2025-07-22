@@ -308,6 +308,17 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
   if (handler.shouldSkipSymbol(node, symbolType, langConfig.name)) return;
   if (handler.processComplexSymbol?.(context)) return;
 
+  // Skip local variable declarations inside functions
+  if (symbolType === 'variable') {
+    let current = node.parent;
+    while (current) {
+      if (['function_declaration', 'arrow_function', 'method_definition'].includes(current.type)) {
+        return; // Skip this variable as it's inside a function
+      }
+      current = current.parent;
+    }
+  }
+
   let declarationNode = node;
   if (node.type === 'export_statement' && node.namedChildCount > 0) declarationNode = node.namedChildren[0] ?? node;
   
@@ -322,8 +333,8 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
   let symbolName: string;
   if (!nameNode) {
     // Handle export default anonymous functions
-    if (declarationNode.type === 'export_statement') {
-      const firstChild = declarationNode.firstNamedChild;
+    if (node.type === 'export_statement') {
+      const firstChild = node.firstNamedChild;
       if (firstChild?.type === 'arrow_function' || 
           (firstChild?.type === 'function_declaration' && !firstChild.childForFieldName('name'))) {
         symbolName = 'default';
