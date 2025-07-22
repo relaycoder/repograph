@@ -26,7 +26,10 @@ const extractCodeSnippet = (symbolType: CodeNodeType, node: TSNode): string => {
       const bodyStart = text.indexOf('{');
       return (bodyStart > -1 ? text.slice(0, bodyStart) : text).trim();
     }
-    case 'arrow_function': return text.trim();
+    case 'arrow_function': {
+      const arrowIndex = text.indexOf('=>');
+      return arrowIndex > -1 ? text.slice(0, arrowIndex).trim() : text.trim();
+    } 
     default: return text.trim();
   }
 };
@@ -157,6 +160,14 @@ const tsLangHandler: Partial<LanguageHandler> = {
   getSymbolNameNode: (declarationNode, originalNode) => {
     if (originalNode.type === 'variable_declarator' || originalNode.type === 'public_field_definition') return originalNode.childForFieldName('name');
     if (declarationNode.type === 'export_statement') {
+      const { firstNamedChild } = declarationNode;
+      if (firstNamedChild?.type === 'arrow_function') {
+        return declarationNode.childForFieldName('source'); // Falls back to `default`
+      }
+      // Handle `export default function() {}`
+      if (firstNamedChild?.type === 'function_declaration' && !firstNamedChild.childForFieldName('name')) {
+        return declarationNode.childForFieldName('source');
+      }
       const lexicalDecl = declarationNode.namedChildren[0];
       if (lexicalDecl?.type === 'lexical_declaration') {
         const varDeclarator = lexicalDecl.namedChildren[0];
@@ -196,6 +207,16 @@ const tsLangHandler: Partial<LanguageHandler> = {
   },
   parseParameters: (paramsNode: TSNode, content: string): { name: string; type?: string }[] => {
     const params: { name: string; type?: string }[] = [];
+    // Handle object destructuring in props: `({ prop1, prop2 })`
+    if (paramsNode.type === 'object_pattern') {
+      for (const child of paramsNode.namedChildren) {
+        if (child && (child.type === 'shorthand_property_identifier' || child.type === 'property_identifier')) {
+          params.push({ name: getNodeText(child, content), type: '#' });
+        }
+      }
+      return params;
+    }
+
     for (const child of paramsNode.namedChildren) {
       if (child && (child.type === 'required_parameter' || child.type === 'optional_parameter')) {
         const nameNode = child.childForFieldName('pattern');
@@ -237,6 +258,25 @@ function getSymbolTypeFromCapture(captureName: string, type: string): CodeNodeTy
 function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: readonly CodeNode[]): string | null {
   let current: TSNode | null = startNode.parent;
   while (current) {
+    const nodeType = current.type;
+    // Prioritize function-like parents for accurate call linking
+    if (['function_declaration', 'method_definition', 'arrow_function', 'function_definition'].includes(nodeType)) {
+      const nameNode = current.childForFieldName('name');
+      if (nameNode) {
+        let symbolName = nameNode.text;
+        // Handle class methods
+        if (nodeType === 'method_definition') {
+          const classNode = current.parent?.parent;
+          if (classNode?.type === 'class_declaration') {
+            const className = classNode.childForFieldName('name')?.text;
+            if (className) symbolName = `${className}.${symbolName}`;
+          }
+        }
+        const symbolId = `${file.path}#${symbolName}`;
+        if (nodes.some(n => n.id === symbolId)) return symbolId;
+      }
+    }
+    // Fallback for other symbol types
     if (current.type === 'jsx_opening_element') {
       const tagNameNode = current.childForFieldName('name');
       if (tagNameNode) {
@@ -337,7 +377,15 @@ export default async function processFile({ file, langConfig }: { file: FileCont
     const subtype = parts[parts.length - 1];
 
     if (type === 'import' && subtype === 'source') {
-      relations.push({ fromId: file.path, toName: getNodeText(node, file.content).replace(/['"`]/g, ''), type: 'imports' });
+      const importPath = getNodeText(node, file.content).replace(/['"`]/g, '');
+      relations.push({ fromId: file.path, toName: importPath, type: 'imports' });
+
+      // Handle re-exports, e.g., `export * from './other';`
+      const exportParent = node.parent?.parent;
+      if (exportParent?.type === 'export_statement') {
+        // This creates a file-level dependency, which is what SCN represents.
+        relations.push({ fromId: file.path, toName: importPath, type: 'exports' });
+      }
       continue;
     }
 

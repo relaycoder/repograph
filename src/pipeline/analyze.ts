@@ -16,6 +16,11 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
   const basedir = normalizePath(path.dirname(fromFile));
   const importPath = normalizePath(path.join(basedir, sourcePath));
 
+  // First, check if the path as-is (with extension) exists
+  if (path.extname(importPath) && allFiles.includes(importPath)) {
+    return importPath;
+  }
+
   const parsedPath = path.parse(importPath);
   const basePath = normalizePath(path.join(parsedPath.dir, parsedPath.name));
   for (const ext of extensions) {
