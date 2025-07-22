@@ -327,7 +327,7 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
 
   if (symbolType === 'css_rule' && !nameNode) {
     const selectorsNode = node.childForFieldName('selectors') || node.namedChildren.find(c => c && c.type === 'selectors');
-    if (selectorsNode) nameNode = selectorsNode.namedChildren[0];
+    if (selectorsNode) nameNode = selectorsNode.namedChildren[0] ?? undefined;
   }
 
   let symbolName: string;
@@ -349,7 +349,7 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
   }
 
   let symbolId = `${file.path}#${symbolName}`;
-  if (symbolType === 'html_element') symbolId = `${file.path}#${symbolName}:${nameNode.startPosition.row + 1}`;
+  if (symbolType === 'html_element' && nameNode) symbolId = `${file.path}#${symbolName}:${nameNode.startPosition.row + 1}`;
 
   if (symbolName && !processedSymbols.has(symbolId) && !nodes.some(n => n.id === symbolId)) {
     processedSymbols.add(symbolId);
@@ -380,6 +380,7 @@ export default async function processFile({ file, langConfig }: { file: FileCont
   
   const query = new (await import('web-tree-sitter')).Query(parser.language, langConfig.query);
   const tree = parser.parse(file.content);
+  if (!tree) return { nodes, relations };
   const captures = query.captures(tree.rootNode);
 
   // --- Phase 1: Definitions ---
@@ -412,7 +413,11 @@ export default async function processFile({ file, langConfig }: { file: FileCont
       const exportParent = node.parent?.parent;
       if (exportParent?.type === 'export_statement') {
         // This creates a file-level dependency, which is what SCN represents.
-        relations.push({ fromId: file.path, toName: importPath, type: 'exports' });
+        // NOTE: The 'exports' relation type is not defined, causing a TS error.
+        // A simple 'imports' relation is already created above, which is sufficient
+        // for file-level dependency tracking. Deeper re-export symbol resolution
+        // is not yet implemented.
+        // relations.push({ fromId: file.path, toName: importPath, type: 'exports' });
       }
       continue;
     }

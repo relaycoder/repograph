@@ -94,7 +94,7 @@ const languageImportResolvers: Record<string, ImportResolver> = {
   },
 };
 
-const getImportResolver = (langName: string): ImportResolver => languageImportResolvers[langName] ?? languageImportResolvers['default'];
+const getImportResolver = (langName: string): ImportResolver => languageImportResolvers[langName] ?? languageImportResolvers['default']!;
 
 class SymbolResolver {
   private fileImports = new Map<string, string[]>();
@@ -210,7 +210,7 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
     for (const rel of unresolvedRelations) {
         if (rel.type === 'imports') continue; // Already handled
         
-        const toNode = symbolResolver.resolve(rel.toName, rel.fromId.split('#')[0]);
+        const toNode = symbolResolver.resolve(rel.toName, rel.fromId.split('#')[0]!);
         if (toNode && rel.fromId !== toNode.id) {
           const edgeType = rel.type === 'reference' ? 'calls' : rel.type;
           edges.push({ fromId: rel.fromId, toId: toNode.id, type: edgeType });
