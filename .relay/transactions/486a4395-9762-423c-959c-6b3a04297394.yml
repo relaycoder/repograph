@@ -1,0 +1,228 @@
+uuid: 486a4395-9762-423c-959c-6b3a04297394
+projectId: repograph
+createdAt: '2025-07-22T13:26:46.586Z'
+linesAdded: 6
+linesRemoved: 4
+gitCommitMsg: 'refactor(logging): make logger silent by default for library usage'
+promptSummary: Set the default logger level to 'silent' when it is not configured.
+reasoning:
+  - >-
+    Based on your request, I'll modify the logger configuration. The goal is to
+    make programmatic use of `repograph` silent by default, while keeping the
+    command-line interface (CLI) informative as it is now.
+  - 'Here is my plan:'
+  - '1.  **Modify `src/high-level.ts`**:'
+  - >-
+    *   In the `analyzeProject` function, which is intended for programmatic
+    use, I will remove the default `logLevel` of `'info'`. This will cause the
+    logger to use its own default state, which is `'silent'`, when
+    `analyzeProject` is called without a `logLevel`.
+  - >-
+    *   In the `generateMap` function, which is used by the CLI, I will
+    explicitly set the `logLevel` to `'info'` if it's not provided. This
+    maintains the current verbose behavior for CLI users and keeps the help
+    documentation accurate.
+  - >-
+    This approach ensures that using `repograph` as a library will be quiet by
+    default, as requested, without changing the existing user experience of the
+    CLI.
+  - '### Step 1: Modify `analyzeProject` and `generateMap` in `src/high-level.ts`'
+  - >-
+    I will apply two changes to this file. First, I'll update `analyzeProject`
+    to remove the default log level. Second, I will update `generateMap` to set
+    a default log level for CLI usage, ensuring it remains verbose.
+  - >-
+    This completes the requested changes. The library will now be silent by
+    default, while the CLI maintains its current behavior.
+operations:
+  - type: write
+    path: src/high-level.ts
+    content: >-
+      <<<<<<< SEARCH
+
+      export const analyzeProject = async (options: RepoGraphOptions = {}):
+      Promise<RankedCodeGraph> => {
+        const { root = process.cwd(), logLevel = 'info', include, ignore, noGitignore, maxWorkers } = options;
+
+        if (logLevel) {
+          logger.setLevel(logLevel);
+        }
+      =======
+
+      export const analyzeProject = async (options: RepoGraphOptions = {}):
+      Promise<RankedCodeGraph> => {
+        const { root = process.cwd(), logLevel, include, ignore, noGitignore, maxWorkers } = options;
+
+        if (logLevel) {
+          logger.setLevel(logLevel);
+        }
+      >>>>>>> REPLACE
+
+      <<<<<<< SEARCH
+
+      export const generateMap = async (options: RepoGraphOptions = {}):
+      Promise<void> => {
+        const {
+          root = process.cwd(),
+          output = './repograph.md',
+        } = options;
+
+        try {
+          // We get the full ranked graph first
+          const rankedGraph = await analyzeProject(options);
+
+          logger.info('4/4 Rendering output...');
+          const renderer = createMarkdownRenderer();
+          const markdown = renderer(rankedGraph, options.rendererOptions);
+          logger.debug('  -> Rendering complete.');
+
+          const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+          logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+          await writeFile(outputPath, markdown);
+          logger.info('  -> Report saved.');
+        } catch (error) {
+          // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+          throw error;
+        }
+      };
+
+      =======
+
+      export const generateMap = async (options: RepoGraphOptions = {}):
+      Promise<void> => {
+        const finalOptions = { ...options, logLevel: options.logLevel ?? 'info' };
+
+        const {
+          root = process.cwd(),
+          output = './repograph.md',
+        } = finalOptions;
+
+        try {
+          // We get the full ranked graph first
+          const rankedGraph = await analyzeProject(finalOptions);
+
+          logger.info('4/4 Rendering output...');
+          const renderer = createMarkdownRenderer();
+          const markdown = renderer(rankedGraph, finalOptions.rendererOptions);
+          logger.debug('  -> Rendering complete.');
+
+          const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+          logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+          await writeFile(outputPath, markdown);
+          logger.info('  -> Report saved.');
+        } catch (error) {
+          // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+          throw error;
+        }
+      };
+
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+snapshot:
+  src/high-level.ts: >-
+    import { createDefaultDiscoverer } from './pipeline/discover.js';
+
+    import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+
+    import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+
+    import { createMarkdownRenderer } from './pipeline/render.js';
+
+    import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
+
+    import path from 'node:path';
+
+    import { logger } from './utils/logger.util.js';
+
+    import { writeFile } from './utils/fs.util.js';
+
+    import { RepoGraphError } from './utils/error.util.js';
+
+
+    const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] =
+    'pagerank'): Ranker => {
+      if (rankingStrategy === 'git-changes') {
+        return createGitRanker();
+      }
+      if (rankingStrategy === 'pagerank') {
+        return createPageRanker();
+      }
+      throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+    };
+
+
+    /**
+     * A mid-level API for programmatically generating and receiving the code graph
+     * without rendering it to a file. Ideal for integration with other tools.
+     *
+     * @param options The configuration object for generating the map.
+     * @returns The generated `RankedCodeGraph`.
+     */
+    export const analyzeProject = async (options: RepoGraphOptions = {}):
+    Promise<RankedCodeGraph> => {
+      const { root = process.cwd(), logLevel = 'info', include, ignore, noGitignore, maxWorkers } = options;
+
+      if (logLevel) {
+        logger.setLevel(logLevel);
+      }
+
+      // Validate options before entering the main try...catch block to provide clear errors.
+      const ranker = selectRanker(options.rankingStrategy);
+
+      try {
+        logger.info('1/3 Discovering files...');
+        const discoverer = createDefaultDiscoverer();
+        const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+        logger.debug(`  -> Found ${files.length} files to analyze.`);
+
+        logger.info('2/3 Analyzing code and building graph...');
+        const analyzer = createTreeSitterAnalyzer({ maxWorkers });
+        const graph = await analyzer(files);
+        logger.debug(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+        logger.info('3/3 Ranking graph nodes...');
+        const rankedGraph = await ranker(graph);
+        logger.debug('  -> Ranking complete.');
+
+        return rankedGraph;
+      } catch (error) {
+        throw new RepoGraphError(`Failed to analyze project`, error);
+      }
+    };
+
+
+    /**
+     * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+     * default pipeline based on a configuration object to generate a codemap.
+     *
+     * @param options The configuration object for generating the map.
+     */
+    export const generateMap = async (options: RepoGraphOptions = {}):
+    Promise<void> => {
+      const {
+        root = process.cwd(),
+        output = './repograph.md',
+      } = options;
+
+      try {
+        // We get the full ranked graph first
+        const rankedGraph = await analyzeProject(options);
+
+        logger.info('4/4 Rendering output...');
+        const renderer = createMarkdownRenderer();
+        const markdown = renderer(rankedGraph, options.rendererOptions);
+        logger.debug('  -> Rendering complete.');
+
+        const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+        logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+        await writeFile(outputPath, markdown);
+        logger.info('  -> Report saved.');
+      } catch (error) {
+        // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+        throw error;
+      }
+    };
+approved: true

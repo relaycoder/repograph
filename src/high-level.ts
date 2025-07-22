@@ -26,7 +26,7 @@ const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pa
  * @returns The generated `RankedCodeGraph`.
  */
 export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
-  const { root = process.cwd(), logLevel = 'info', include, ignore, noGitignore, maxWorkers } = options;
+  const { root = process.cwd(), logLevel, include, ignore, noGitignore, maxWorkers } = options;
 
   if (logLevel) {
     logger.setLevel(logLevel);
@@ -63,18 +63,20 @@ export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<Ra
  * @param options The configuration object for generating the map.
  */
 export const generateMap = async (options: RepoGraphOptions = {}): Promise<void> => {
+  const finalOptions = { ...options, logLevel: options.logLevel ?? 'info' };
+
   const {
     root = process.cwd(),
     output = './repograph.md',
-  } = options;
+  } = finalOptions;
 
   try {
     // We get the full ranked graph first
-    const rankedGraph = await analyzeProject(options);
+    const rankedGraph = await analyzeProject(finalOptions);
 
     logger.info('4/4 Rendering output...');
     const renderer = createMarkdownRenderer();
-    const markdown = renderer(rankedGraph, options.rendererOptions);
+    const markdown = renderer(rankedGraph, finalOptions.rendererOptions);
     logger.debug('  -> Rendering complete.');
 
     const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
