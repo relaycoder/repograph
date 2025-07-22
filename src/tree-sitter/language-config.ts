@@ -58,6 +58,29 @@ const TS_BASE_QUERY = `
   )
 ) @function.arrow.definition
 
+; Export default arrow function: export default () => {}
+(export_statement
+  value: (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+
+; Alternative pattern for export default arrow function
+(export_statement
+  (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+
+; Export star statements: export * from './module'
+(export_statement
+  source: (string) @import.source
+) @import.statement
+
 (interface_declaration) @interface.definition
 (export_statement declaration: (interface_declaration)) @interface.definition
 

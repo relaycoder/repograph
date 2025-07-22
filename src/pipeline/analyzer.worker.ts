@@ -162,11 +162,12 @@ const tsLangHandler: Partial<LanguageHandler> = {
     if (declarationNode.type === 'export_statement') {
       const { firstNamedChild } = declarationNode;
       if (firstNamedChild?.type === 'arrow_function') {
-        return declarationNode.childForFieldName('source'); // Falls back to `default`
+        // For export default arrow functions, create a synthetic 'default' name
+        return null; // Will be handled by fallback logic below
       }
       // Handle `export default function() {}`
       if (firstNamedChild?.type === 'function_declaration' && !firstNamedChild.childForFieldName('name')) {
-        return declarationNode.childForFieldName('source');
+        return null; // Will be handled by fallback logic below
       }
       const lexicalDecl = declarationNode.namedChildren[0];
       if (lexicalDecl?.type === 'lexical_declaration') {
@@ -318,9 +319,25 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
     if (selectorsNode) nameNode = selectorsNode.namedChildren[0];
   }
 
-  if (!nameNode) return;
+  let symbolName: string;
+  if (!nameNode) {
+    // Handle export default anonymous functions
+    if (declarationNode.type === 'export_statement') {
+      const firstChild = declarationNode.firstNamedChild;
+      if (firstChild?.type === 'arrow_function' || 
+          (firstChild?.type === 'function_declaration' && !firstChild.childForFieldName('name'))) {
+        symbolName = 'default';
+      } else {
+        return;
+      }
+    } else {
+      return;
+    }
+  } else {
+    symbolName = nameNode.text;
+  }
 
-  let symbolName = nameNode.text, symbolId = `${file.path}#${symbolName}`;
+  let symbolId = `${file.path}#${symbolName}`;
   if (symbolType === 'html_element') symbolId = `${file.path}#${symbolName}:${nameNode.startPosition.row + 1}`;
 
   if (symbolName && !processedSymbols.has(symbolId) && !nodes.some(n => n.id === symbolId)) {
