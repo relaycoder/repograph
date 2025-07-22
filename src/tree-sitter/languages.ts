@@ -37,7 +37,28 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
   await initializeParser();
 
   try {
-    const wasmPath = path.resolve(getDirname(), '..', '..', 'node_modules', config.wasmPath);
+    // Try dist/wasm first (for published package), fallback to node_modules (for development)
+    // In published package: getDirname() = /path/to/node_modules/repograph/dist/tree-sitter
+    // In development: getDirname() = /path/to/repograph/src/tree-sitter
+    
+    // For published package: getDirname() = /path/to/node_modules/repograph/dist (chunk file location)
+    const distWasmPath = path.resolve(getDirname(), 'wasm', config.wasmPath.split('/')[1]);
+    // For development: go from src/tree-sitter -> ../../node_modules/tree-sitter-*/
+    const nodeModulesWasmPath = path.resolve(getDirname(), '..', '..', 'node_modules', config.wasmPath);
+    
+    logger.debug(`getDirname(): ${getDirname()}`);
+    logger.debug(`Trying WASM paths: dist=${distWasmPath}, nodeModules=${nodeModulesWasmPath}`);
+    
+    const fs = await import('fs');
+    let wasmPath = distWasmPath;
+    if (!fs.existsSync(distWasmPath)) {
+      wasmPath = nodeModulesWasmPath;
+      if (!fs.existsSync(nodeModulesWasmPath)) {
+        throw new Error(`WASM file not found at ${distWasmPath} or ${nodeModulesWasmPath}`);
+      }
+    }
+    
+    logger.debug(`Loading WASM from: ${wasmPath}`);
     const language = await Parser.Language.load(wasmPath);
     
     const loadedLanguage: LoadedLanguage = {
