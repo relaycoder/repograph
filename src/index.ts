@@ -70,6 +70,7 @@ Options:
   --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
   --no-gitignore           Do not respect .gitignore files.
   --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
+  --max-workers <num>      Set the maximum number of parallel workers for analysis. (default: 1)
   --log-level <level>      Set the logging level. (default: "info", options: "silent", "error", "warn", "info", "debug")
 
 Output Formatting:
@@ -103,6 +104,7 @@ Output Formatting:
       include?: readonly string[];
       ignore?: readonly string[];
       noGitignore?: boolean;
+      maxWorkers?: number;
       rankingStrategy?: 'pagerank' | 'git-changes';
       logLevel?: IRepoGraphOptions['logLevel'];
       rendererOptions?: IRepoGraphOptions['rendererOptions'];
@@ -147,6 +149,9 @@ Output Formatting:
           break;
         case '--ranking-strategy':
           options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
+          break;
+        case '--max-workers':
+          options.maxWorkers = parseInt(args[++i] as string, 10);
           break;
         case '--log-level':
           options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];

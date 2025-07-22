@@ -26,13 +26,7 @@ const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pa
  * @returns The generated `RankedCodeGraph`.
  */
 export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
-  const {
-    root = process.cwd(),
-    logLevel = 'info',
-    include,
-    ignore,
-    noGitignore,
-  } = options;
+  const { root = process.cwd(), logLevel = 'info', include, ignore, noGitignore, maxWorkers } = options;
 
   if (logLevel) {
     logger.setLevel(logLevel);
@@ -48,7 +42,7 @@ export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<Ra
     logger.debug(`  -> Found ${files.length} files to analyze.`);
 
     logger.info('2/3 Analyzing code and building graph...');
-    const analyzer = createTreeSitterAnalyzer();
+    const analyzer = createTreeSitterAnalyzer({ maxWorkers });
     const graph = await analyzer(files);
     logger.debug(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
 

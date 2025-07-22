@@ -80,6 +80,13 @@ export type CodeEdge = {
   readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
 };
 
+/** Represents a potential relationship discovered in a file, to be resolved later. */
+export type UnresolvedRelation = {
+  readonly fromId: string;
+  readonly toName: string;
+  readonly type: 'imports' | 'calls' | 'inherits' | 'implements' | 'reference';
+};
+
 /** The complete, raw model of the repository's structure. Immutable. */
 export type CodeGraph = {
   readonly nodes: ReadonlyMap<string, CodeNode>;
@@ -147,6 +154,12 @@ export type RepoGraphOptions = {
   readonly rankingStrategy?: 'pagerank' | 'git-changes';
   /** Configuration for the final Markdown output. */
   readonly rendererOptions?: RendererOptions;
+  /**
+   * The maximum number of parallel workers to use for analysis.
+   * When set to 1, analysis runs in the main thread without workers.
+   * @default 1
+   */
+  readonly maxWorkers?: number;
   /** Logging level. @default 'info' */
   readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
 };

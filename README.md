@@ -26,6 +26,7 @@ Whether you're onboarding new engineers, planning a large-scale refactor, or eve
 | Feature                               | Benefit                                                                                                                                                    |
 | :------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **🧠 Multi-Language Semantic Analysis** | Uses **Tree-sitter** to parse your code with deep understanding, identifying not just files, but classes, functions, methods, and their relationships.     |
+| **⚡ Parallel Processing**              | Leverages **worker threads** to analyze files in parallel, dramatically speeding up analysis for large codebases with configurable worker pools.        |
 | **⭐ Intelligent Ranking Algorithms**   | Go beyond file names. Rank code by importance using **PageRank** (centrality) or **Git Hot-Spots** (change frequency) to immediately find what matters.       |
 | **🎯 Rich Symbol Qualifiers**           | Extract deep metadata including visibility (`public`/`private`), `async`/`static` status, purity, exception handling, parameter types, and return types. |
 | **🎨 Comprehensive Markdown Reports**  | Generates a `repograph.md` file with a project overview, dependency graphs, ranked file lists, and detailed symbol breakdowns.                              |
@@ -171,6 +172,7 @@ repograph ./my-cool-project \
   --output docs/CodeMap.md \
   --ranking-strategy git-changes \
   --ignore "**/__tests__/**" \
+  --max-workers 4 \
   --no-mermaid
 ```
 
@@ -184,6 +186,7 @@ repograph ./my-cool-project \
 | `--ignore <pattern>`          |       | Glob pattern for files to ignore. Can be specified multiple times. |                  |
 | `--no-gitignore`              |       | Do not respect `.gitignore` files.                              | `false`          |
 | `--ranking-strategy <name>`   |       | Ranking strategy: `pagerank` or `git-changes`.                  | `pagerank`       |
+| `--max-workers <num>`         |       | Number of parallel workers for analysis. Set to 1 for single-threaded. | `1`              |
 | `--log-level <level>`         |       | Logging level: `silent`, `error`, `warn`, `info`, `debug`.      | `info`           |
 | `--help`                      | `-h`  | Display the help message.                                       |                  |
 | `--version`                   | `-v`  | Display the version number.                                     |                  |
@@ -217,6 +220,7 @@ await generateMap({
   root: path.resolve('./path/to/your/project'),
   output: 'my-custom-report.md',
   rankingStrategy: 'git-changes',
+  maxWorkers: 4, // Use 4 parallel workers for faster analysis
   rendererOptions: {
     includeMermaidGraph: false,
     topFileCount: 20,
@@ -267,7 +271,7 @@ const createLineCountRanker = (): Ranker => {
 // 2. Compose the pipeline with our custom ranker
 const myCustomGenerator = createMapGenerator({
   discover: createDefaultDiscoverer(),
-  analyze: createTreeSitterAnalyzer(),
+  analyze: createTreeSitterAnalyzer({ maxWorkers: 8 }), // <-- Use 8 workers for parallel analysis
   rank: createLineCountRanker(), // <-- Use our custom ranker!
   render: createMarkdownRenderer(),
 });
@@ -339,6 +343,50 @@ export type CodeNode = {
   }>;
 };
 ```
+
+## ⚡ Performance Optimization
+
+RepoGraph includes powerful parallel processing capabilities to dramatically speed up analysis of large codebases.
+
+### Worker Threads
+
+By default, RepoGraph analyzes files sequentially (`maxWorkers: 1`). For large projects, you can enable parallel processing using worker threads:
+
+```bash
+# CLI: Use 4 parallel workers
+repograph --max-workers 4
+
+# For CPU-intensive projects, use more workers (typically CPU cores)
+repograph --max-workers 8
+```
+
+```typescript
+// API: Configure parallel processing
+import { analyzeProject } from 'repograph';
+
+const graph = await analyzeProject({
+  root: './large-codebase',
+  maxWorkers: 4, // Parallel file processing
+});
+```
+
+### Performance Guidelines
+
+- **Small projects (< 100 files)**: Use `maxWorkers: 1` to avoid worker overhead
+- **Medium projects (100-1000 files)**: Use `maxWorkers: 2-4` for optimal performance
+- **Large projects (> 1000 files)**: Use `maxWorkers: 4-8` or match your CPU core count
+- **CI/CD environments**: Consider available CPU resources and memory limits
+
+### Implementation Details
+
+RepoGraph uses the [`tinypool`](https://github.com/tinylibs/tinypool) library to manage worker threads efficiently. Each worker:
+
+- Parses files using Tree-sitter in isolation
+- Extracts code nodes and relationships
+- Returns serializable data to the main thread
+- Automatically handles worker lifecycle and error recovery
+
+The main thread coordinates workers and resolves cross-file relationships after all files are processed.
 
 ## 🌐 Supported Languages
 
