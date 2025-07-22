@@ -12,6 +12,48 @@ const getNodeText = (node: TSNode, content: string): string => content.slice(nod
 const getLineFromIndex = (content: string, index: number): number => content.substring(0, index).split('\n').length;
 const normalizePath = (p: string): string => p.replace(/\\/g, '/');
 
+const extractCodeSnippet = (symbolType: CodeNodeType, node: TSNode): string => {
+  const text = node.text;
+  switch (symbolType) {
+    case 'variable':
+    case 'constant':
+    case 'property': {
+      const assignmentMatch = text.match(/=\s*(.+)$/s);
+      return (assignmentMatch?.[1] ?? text).trim();
+    }
+    case 'field': {
+      const colonIndex = text.indexOf(':');
+      if (colonIndex !== -1) return text.substring(colonIndex).trim();
+      const equalsIndex = text.indexOf('=');
+      if (equalsIndex !== -1) return text.substring(equalsIndex).trim();
+      return text.trim();
+    }
+    case 'function':
+    case 'method':
+    case 'constructor': {
+      const bodyStart = text.indexOf('{');
+      return (bodyStart > -1 ? text.slice(0, bodyStart) : text).trim();
+    }
+    case 'arrow_function':
+      return text.trim();
+    default:
+      return text.trim();
+  }
+};
+
+const extractQualifiers = (childCaptures: TSMatch[], fileContent: string, handler: Partial<LanguageHandler>) => {
+  const qualifiers: { [key: string]: TSNode } = {};
+  for (const capture of childCaptures) {
+    qualifiers[capture.name] = capture.node;
+  }
+  const visibility = (qualifiers['qualifier.visibility'] ? getNodeText(qualifiers['qualifier.visibility'], fileContent) : undefined) as CodeNodeVisibility | undefined;
+  const returnType = qualifiers['symbol.returnType'] ? getNodeText(qualifiers['symbol.returnType'], fileContent).replace(/^:\s*/, '') : undefined;
+  const parameters = qualifiers['symbol.parameters'] && handler.parseParameters ? handler.parseParameters(qualifiers['symbol.parameters'], fileContent) : undefined;
+  const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
+  
+  return { qualifiers, visibility, returnType, parameters, canThrow, isAsync: !!qualifiers['qualifier.async'], isStatic: !!qualifiers['qualifier.static'] };
+};
+
 const getCssIntents = (ruleNode: TSNode, content: string): readonly ('layout' | 'typography' | 'appearance')[] => {
   const intents = new Set<'layout' | 'typography' | 'appearance'>();
   const layoutProps = /^(display|position|flex|grid|width|height|margin|padding|transform|align-|justify-)/;
@@ -173,43 +215,20 @@ const tsLangHandler: Partial<LanguageHandler> = {
           if (!processedSymbols.has(unqualifiedSymbolId) && !nodes.has(unqualifiedSymbolId)) {
             processedSymbols.add(unqualifiedSymbolId);
             
-            // Extract code snippet properly for class members
-            let codeSnippet = '';
-            if (symbolType === 'field') {
-              // For fields, get the type annotation and initializer
-              const fullText = node.text;
-              const colonIndex = fullText.indexOf(':');
-              if (colonIndex !== -1) {
-                codeSnippet = fullText.substring(colonIndex);
-              }
-            } else if (symbolType === 'method') {
-              // For methods, get the signature without the body
-              codeSnippet = node.text?.split('{')[0]?.trim() || '';
-            }
-            
-            const qualifiers: { [key: string]: TSNode } = {};
-            for (const capture of childCaptures) {
-              qualifiers[capture.name] = capture.node;
-            }
-            const visibilityNode = qualifiers['qualifier.visibility'];
-            const visibility = visibilityNode ? (getNodeText(visibilityNode, file.content) as CodeNodeVisibility) : undefined;
-            const returnTypeNode = qualifiers['symbol.returnType'];
-            const returnType = returnTypeNode ? getNodeText(returnTypeNode, file.content).replace(/^:\s*/, '') : undefined;
-            const parametersNode = qualifiers['symbol.parameters'];
-            const parameters = parametersNode && tsLangHandler.parseParameters ? tsLangHandler.parseParameters(parametersNode, file.content) : undefined;
-            const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
+            const codeSnippet = extractCodeSnippet(symbolType, node);
+            const q = extractQualifiers(childCaptures, file.content, tsLangHandler);
 
             nodes.set(unqualifiedSymbolId, {
               id: unqualifiedSymbolId, type: symbolType, name: methodName, filePath: file.path,
               startLine: getLineFromIndex(file.content, node.startIndex),
               endLine: getLineFromIndex(file.content, node.endIndex),
               codeSnippet,
-              ...(qualifiers['qualifier.async'] && { isAsync: true }),
-              ...(qualifiers['qualifier.static'] && { isStatic: true }),
-              ...(visibility && { visibility }),
-              ...(returnType && { returnType }),
-              ...(parameters && { parameters }),
-              ...(canThrow && { canThrow: true }),
+              ...(q.isAsync && { isAsync: true }),
+              ...(q.isStatic && { isStatic: true }),
+              ...(q.visibility && { visibility: q.visibility }),
+              ...(q.returnType && { returnType: q.returnType }),
+              ...(q.parameters && { parameters: q.parameters }),
+              ...(q.canThrow && { canThrow: true }),
             });
           }
           
@@ -515,15 +534,10 @@ function processSymbol(
     declarationNode = node.namedChildren[0] ?? node;
   }
   
-  // --- NEW LOGIC TO EXTRACT QUALIFIERS & UI identifiers ---
-  const qualifiers: { [key: string]: TSNode } = {};
-  for (const capture of childCaptures) {
-    qualifiers[capture.name] = capture.node;
-  }
-
+  const q = extractQualifiers(childCaptures, file.content, handler);
   let nameNode = handler.getSymbolNameNode(declarationNode, node) 
-    || qualifiers['html.tag'] 
-    || qualifiers['css.selector'];
+    || q.qualifiers['html.tag'] 
+    || q.qualifiers['css.selector'];
 
   // For CSS rules, extract selector from the rule_set node
   if (symbolType === 'css_rule' && !nameNode) {
@@ -550,56 +564,23 @@ function processSymbol(
   if (symbolName && !processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
     processedSymbols.add(symbolId);
 
-    const visibilityNode = qualifiers['qualifier.visibility'];
-    const visibility = visibilityNode
-      ? (getNodeText(visibilityNode, file.content) as CodeNodeVisibility)
-      : undefined;
-    
-    const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
     const isHtmlElement = symbolType === 'html_element';
     const isCssRule = symbolType === 'css_rule';
     
     const cssIntents = isCssRule ? getCssIntents(node, file.content) : undefined;
-    
-
-    const parametersNode = qualifiers['symbol.parameters'];
-    const parameters =
-      parametersNode && handler.parseParameters
-        ? handler.parseParameters(parametersNode, file.content)
-        : undefined;
-
-    const returnTypeNode = qualifiers['symbol.returnType'];
-    const returnType = returnTypeNode ? getNodeText(returnTypeNode, file.content).replace(/^:\s*/, '') : undefined;
-
-    // Extract code snippet
-    let codeSnippet = '';
-    if (symbolType === 'variable' || symbolType === 'constant' || symbolType === 'property') {
-      const fullText = node.text;
-      const assignmentMatch = fullText.match(/=\s*(.+)$/s);
-      if (assignmentMatch && assignmentMatch[1]) {
-        codeSnippet = assignmentMatch[1].trim();
-      }
-    } else if (symbolType === 'function' || symbolType === 'method' || symbolType === 'constructor') {
-      const bodyStart = node.text.indexOf('{');
-      codeSnippet = (bodyStart > -1 ? node.text.slice(0, bodyStart) : node.text).trim();
-    } else if (symbolType === 'arrow_function') {
-      // For arrow functions, include the full arrow function syntax including {}
-      codeSnippet = node.text.trim();
-    } else {
-      codeSnippet = node.text;
-    }
+    const codeSnippet = extractCodeSnippet(symbolType, node);
 
     nodes.set(symbolId, {
       id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
       startLine: getLineFromIndex(file.content, node.startIndex),
       endLine: getLineFromIndex(file.content, node.endIndex),
       codeSnippet,
-      ...(qualifiers['qualifier.async'] && { isAsync: true }),
-      ...(qualifiers['qualifier.static'] && { isStatic: true }),
-      ...(visibility && { visibility }),
-      ...(returnType && { returnType }),
-      ...(parameters && { parameters }),
-      ...(canThrow && { canThrow: true }),
+      ...(q.isAsync && { isAsync: true }),
+      ...(q.isStatic && { isStatic: true }),
+      ...(q.visibility && { visibility: q.visibility }),
+      ...(q.returnType && { returnType: q.returnType }),
+      ...(q.parameters && { parameters: q.parameters }),
+      ...(q.canThrow && { canThrow: true }),
       ...(isHtmlElement && { htmlTag: symbolName }),
       ...(isCssRule && { cssSelector: symbolName }),
       ...(cssIntents && { cssIntents }),

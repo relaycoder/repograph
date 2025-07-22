@@ -12,12 +12,7 @@ export interface LoadedLanguage {
   language: Language;
 }
 
-export const LANGUAGE_CONFIGS: LanguageConfig[] = [
-  {
-    name: 'typescript',
-    extensions: ['.ts', '.js', '.mjs', '.cjs'],
-    wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
-    query: `
+const TS_BASE_QUERY = `
 (import_statement
   source: (string) @import.source) @import.statement
 
@@ -103,155 +98,39 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 ; Class inheritance and implementation patterns
 (extends_clause (identifier) @class.inheritance)
 (implements_clause (type_identifier) @class.implementation)
-`
-  },
-  {
-    name: 'tsx',
-    extensions: ['.tsx', '.jsx'],
-    wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
-    query: `
-(import_statement
-  source: (string) @import.source) @import.statement
+`;
 
-(class_declaration) @class.definition
-(export_statement declaration: (class_declaration)) @class.definition
-
-(function_declaration
-  parameters: (formal_parameters) @symbol.parameters
-  return_type: (type_annotation)? @symbol.returnType
-) @function.definition
-(export_statement
-  declaration: (function_declaration
-    parameters: (formal_parameters) @symbol.parameters
-    return_type: (type_annotation)? @symbol.returnType
-  )
-) @function.definition
-
-(function_declaration
-  "async" @qualifier.async
-) @function.definition
-(export_statement
-  declaration: (function_declaration
-    "async" @qualifier.async
-  )
-) @function.definition
-
-(variable_declarator
-  value: (arrow_function
-    parameters: (formal_parameters)? @symbol.parameters
-    return_type: (type_annotation)? @symbol.returnType
-  )
-) @function.arrow.definition
-(public_field_definition
-  value: (arrow_function
-    parameters: (formal_parameters)? @symbol.parameters
-    return_type: (type_annotation)? @symbol.returnType
-  )
-) @function.arrow.definition
-(export_statement
-  declaration: (lexical_declaration
-    (variable_declarator
-      value: (arrow_function
-        parameters: (formal_parameters)? @symbol.parameters
-        return_type: (type_annotation)? @symbol.returnType
-      )
-    )
-  )
-) @function.arrow.definition
-
-(variable_declarator
-  value: (arrow_function
-    "async" @qualifier.async
-  )
-) @function.arrow.definition
-(public_field_definition
-  value: (arrow_function
-    "async" @qualifier.async
-  )
-) @function.arrow.definition
-(export_statement
-  declaration: (lexical_declaration
-    (variable_declarator
-      value: (arrow_function
-        "async" @qualifier.async
-      )
-    )
-  )
-) @function.arrow.definition
-
-(interface_declaration) @interface.definition
-(export_statement declaration: (interface_declaration)) @interface.definition
-
-(type_alias_declaration) @type.definition
-(export_statement declaration: (type_alias_declaration)) @type.definition
-
-(enum_declaration) @enum.definition
-(export_statement declaration: (enum_declaration)) @enum.definition
-
-(internal_module) @namespace.definition
-(export_statement declaration: (internal_module)) @namespace.definition
-(ambient_declaration (module) @namespace.definition)
-
-(method_definition
-  parameters: (formal_parameters) @symbol.parameters
-  return_type: (type_annotation)? @symbol.returnType
-) @method.definition
-
-(method_definition
-  (accessibility_modifier) @qualifier.visibility
-) @method.definition
-
-(method_definition
-  "static" @qualifier.static
-) @method.definition
-
-(method_definition
-  "async" @qualifier.async
-) @method.definition
-
-(public_field_definition
-  type: (type_annotation)? @symbol.returnType
-) @field.definition
-
-(public_field_definition
-  (accessibility_modifier) @qualifier.visibility
-) @field.definition
-
-(public_field_definition
-  "static" @qualifier.static
-) @field.definition
-
-(variable_declarator) @variable.definition
-(export_statement declaration: (lexical_declaration (variable_declarator))) @variable.definition
-
-(call_expression
-  function: (identifier) @function.call)
-
-(identifier) @identifier.reference
-
-(throw_statement) @qualifier.throws
-
-; Class inheritance and implementation patterns
-(extends_clause (identifier) @class.inheritance)
-(implements_clause (type_identifier) @class.implementation)
-
+const TSX_SPECIFIC_QUERY = `
 ; JSX/TSX specific
 (jsx_opening_element
   name: (_) @html.tag
 ) @html.element.definition
 
-; className="...": capture string content for CSS class lookups
+; className="..."
 (jsx_attribute
   (property_identifier) @_p
   (string) @css.class.reference
   (#eq? @_p "className"))
 
-; id="...": capture string content for CSS ID lookups
+; id="..."
 (jsx_attribute
   (property_identifier) @_p
   (string) @css.id.reference
   (#eq? @_p "id"))
-`
+`;
+
+export const LANGUAGE_CONFIGS: LanguageConfig[] = [
+  {
+    name: 'typescript',
+    extensions: ['.ts', '.js', '.mjs', '.cjs'],
+    wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
+    query: TS_BASE_QUERY
+  },
+  {
+    name: 'tsx',
+    extensions: ['.tsx', '.jsx'],
+    wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
+    query: `${TS_BASE_QUERY}\n${TSX_SPECIFIC_QUERY}`
   },
   {
     name: 'python',
