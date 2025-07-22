@@ -1,25 +1,25 @@
 #!/usr/bin/env bun
 
-import { logger } from './utils/logger.util.js';
-import { RepoGraphError } from './utils/error.util.js';
+import { logger } from './utils/logger.util';
+import { RepoGraphError } from './utils/error.util';
 // High-Level API for simple use cases
-import { generateMap as executeGenerateMap } from './high-level.js';
-import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
+import { generateMap as executeGenerateMap } from './high-level';
+import type { RepoGraphOptions as IRepoGraphOptions } from './types';
 
-export { generateMap, analyzeProject } from './high-level.js';
+export { generateMap, analyzeProject } from './high-level';
 
 // Low-Level API for composition and advanced use cases
-export { createMapGenerator } from './composer.js';
+export { createMapGenerator } from './composer';
 
 // Default pipeline component factories
-export { createDefaultDiscoverer } from './pipeline/discover.js';
-export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
-export { createPageRanker, createGitRanker } from './pipeline/rank.js';
-export { createMarkdownRenderer } from './pipeline/render.js';
+export { createDefaultDiscoverer } from './pipeline/discover';
+export { createTreeSitterAnalyzer } from './pipeline/analyze';
+export { createPageRanker, createGitRanker } from './pipeline/rank';
+export { createMarkdownRenderer } from './pipeline/render';
 
 // Logger utilities
-export { logger } from './utils/logger.util.js';
-export type { Logger, LogLevel } from './utils/logger.util.js';
+export { logger } from './utils/logger.util';
+export type { Logger, LogLevel } from './utils/logger.util';
 
 // Core types for building custom components
 export type {
@@ -38,7 +38,7 @@ export type {
   Analyzer,
   Ranker,
   Renderer,
-} from './types.js';
+} from './types';
 
 // This section runs only when the script is executed directly from the CLI
 import { fileURLToPath } from 'node:url';

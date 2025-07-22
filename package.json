@@ -19,10 +19,9 @@
     "dist"
   ],
   "scripts": {
-    "clean": "rimraf dist",
-    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "build": "tsup",
     "prepublishOnly": "npm run build",
-    "dev": "tsc -w",
+    "dev": "tsup --watch",
     "test": "bun run test/run-tests.ts",
     "test:unit": "bun run test/run-tests.ts unit",
     "test:integration": "bun run test/run-tests.ts integration",
@@ -62,7 +61,7 @@
     "bun-types": "^1.1.12",
     "eslint": "^8.57.0",
     "prettier": "^3.2.5",
-    "rimraf": "^5.0.7",
+    "tsup": "^8.0.2",
     "typescript": "^5.4.5"
   },
   "keywords": [

@@ -2,10 +2,10 @@ import { globby } from 'globby';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import Ignore from 'ignore';
-import type { FileContent, FileDiscoverer } from '../types.js';
-import { isDirectory, readFile } from '../utils/fs.util.js';
-import { FileSystemError } from '../utils/error.util.js';
-import { logger } from '../utils/logger.util.js';
+import type { FileContent, FileDiscoverer } from '../types';
+import { isDirectory, readFile } from '../utils/fs.util';
+import { FileSystemError } from '../utils/error.util';
+import { logger } from '../utils/logger.util';
 
 /**
  * Creates the default file discoverer. It uses globby to find all files,

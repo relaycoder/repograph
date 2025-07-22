@@ -1,7 +1,7 @@
 import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
-import { createParserForLanguage } from '../tree-sitter/languages.js';
-import type { LanguageConfig } from '../tree-sitter/language-config.js';
-import type { CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, UnresolvedRelation } from '../types.js';
+import { createParserForLanguage } from '../tree-sitter/languages';
+import type { LanguageConfig } from '../tree-sitter/language-config';
+import type { CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, UnresolvedRelation } from '../types';
 
 // --- UTILITY FUNCTIONS (mirrored from original analyze.ts) ---
 

@@ -1,0 +1,177 @@
+uuid: 4f14a6e5-4a5f-4a6c-a494-08f23758b905
+projectId: repograph
+createdAt: '2025-07-22T19:20:43.985Z'
+linesAdded: 2
+linesRemoved: 2
+gitCommitMsg: 'refactor: remove .js extension from remaining module imports'
+promptSummary: User wants to finalize the removal of .js extensions from imports.
+reasoning:
+  - >-
+    Alright, here are the final file modifications to complete the import path
+    refactoring.
+  - '### Step 6: Final Import Path Updates'
+  - >-
+    I'll now update the last remaining files that use `.js` extensions in their
+    import statements.
+  - >-
+    This concludes the migration to `tsup` and the removal of file extensions
+    from all import statements. The project is now cleaner and uses a more
+    modern build process.
+operations:
+  - type: write
+    path: src/tree-sitter/queries.ts
+    content: >-
+      <<<<<<< SEARCH
+
+      import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig }
+      from './language-config.js';
+
+      =======
+
+      import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig }
+      from './language-config';
+
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+  - type: write
+    path: src/utils/fs.util.ts
+    content: |-
+      <<<<<<< SEARCH
+      import { FileSystemError } from './error.util.js';
+      =======
+      import { FileSystemError } from './error.util';
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+snapshot:
+  src/tree-sitter/queries.ts: >-
+    import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig }
+    from './language-config.js';
+
+
+    /**
+     * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
+     * This query is designed to find definitions of classes, functions, interfaces,
+     * and import statements to build the code graph.
+     * 
+     * @deprecated Use getQueryForLanguage() instead
+     */
+    export const TS_QUERY = `
+
+    (import_statement
+      source: (string) @import.source) @import.statement
+
+    (class_declaration) @class.definition
+
+    (export_statement declaration: (class_declaration)) @class.definition
+
+
+    (function_declaration) @function.definition
+
+    (export_statement declaration: (function_declaration)) @function.definition
+
+
+    (variable_declarator value: (arrow_function)) @function.arrow.definition
+
+    (public_field_definition value: (arrow_function)) @function.arrow.definition
+
+    (export_statement declaration: (lexical_declaration (variable_declarator
+    value: (arrow_function)))) @function.arrow.definition
+
+
+    (interface_declaration) @interface.definition
+
+    (export_statement declaration: (interface_declaration))
+    @interface.definition
+
+
+    (type_alias_declaration) @type.definition
+
+    (export_statement declaration: (type_alias_declaration)) @type.definition
+
+
+    (method_definition) @method.definition
+
+    (public_field_definition) @field.definition
+
+
+    (call_expression
+      function: (identifier) @function.call)
+    `;
+
+
+    /**
+     * Get the Tree-sitter query for a specific language configuration.
+     * @param config The language configuration
+     * @returns The query string for the language
+     */
+    export function getQueryForLanguage(config: LanguageConfig): string {
+      return config.query.trim();
+    }
+
+
+    /**
+     * Get the Tree-sitter query for a file based on its extension.
+     * @param filePath The file path
+     * @returns The query string for the file's language, or null if not supported
+     */
+    export function getQueryForFile(filePath: string): string | null {
+      const config = getLanguageConfigForFile(filePath);
+      return config ? getQueryForLanguage(config) : null;
+    }
+
+
+    /**
+     * Get all supported language configurations.
+     * @returns Array of all language configurations
+     */
+    export function getAllLanguageConfigs(): LanguageConfig[] {
+      return [...LANGUAGE_CONFIGS];
+    }
+  src/utils/fs.util.ts: >-
+    import fs from 'node:fs/promises';
+
+    import path from 'node:path';
+
+    import { FileSystemError } from './error.util.js';
+
+
+    export const readFile = async (filePath: string): Promise<string> => {
+      try {
+        const buffer = await fs.readFile(filePath);
+        // A simple heuristic to filter out binary files is checking for a null byte.
+        if (buffer.includes(0)) {
+          throw new FileSystemError('File appears to be binary', filePath);
+        }
+        return buffer.toString('utf-8');
+      } catch (e) {
+        if (e instanceof FileSystemError) {
+          throw e;
+        }
+        throw new FileSystemError('Failed to read file', filePath, e);
+      }
+    };
+
+
+    export const writeFile = async (filePath: string, content: string):
+    Promise<void> => {
+      try {
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, content);
+      } catch (e) {
+        throw new FileSystemError('Failed to write file', filePath, e);
+      }
+    };
+
+
+    export const isDirectory = async (filePath: string): Promise<boolean> => {
+      try {
+        const stats = await fs.stat(filePath);
+        return stats.isDirectory();
+      } catch (e) {
+        if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
+          return false;
+        }
+        throw new FileSystemError('Failed to check if path is a directory', filePath, e);
+      }
+    };
+approved: true

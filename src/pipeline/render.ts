@@ -1,4 +1,4 @@
-import type { Renderer, RankedCodeGraph, RendererOptions, CodeEdge, CodeNode } from '../types.js';
+import type { Renderer, RankedCodeGraph, RendererOptions, CodeEdge, CodeNode } from '../types';
 
 const generateMermaidGraph = (rankedGraph: RankedCodeGraph): string => {
   const fileNodes = [...rankedGraph.nodes.values()].filter(node => node.type === 'file');

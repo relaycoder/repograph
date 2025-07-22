@@ -1,8 +1,8 @@
 import pagerank from 'graphology-pagerank';
-import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
+import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
 import Graph from 'graphology';
 import { execSync } from 'node:child_process';
-import { logger } from '../utils/logger.util.js';
+import { logger } from '../utils/logger.util';
 
 /**
  * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by

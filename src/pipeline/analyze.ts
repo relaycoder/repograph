@@ -1,11 +1,11 @@
 import path from 'node:path';
-import type { Analyzer, CodeNode, CodeEdge, FileContent, UnresolvedRelation } from '../types.js';
-import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config.js';
-import { logger } from '../utils/logger.util.js';
-import { ParserError } from '../utils/error.util.js';
+import type { Analyzer, CodeNode, CodeEdge, FileContent, UnresolvedRelation } from '../types';
+import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config';
+import { logger } from '../utils/logger.util';
+import { ParserError } from '../utils/error.util';
 import { fileURLToPath } from 'node:url';
 import Tinypool from 'tinypool';
-import processFileInWorker from './analyzer.worker.js';
+import processFileInWorker from './analyzer.worker';
 
 const normalizePath = (p: string) => p.replace(/\\/g, '/');
 

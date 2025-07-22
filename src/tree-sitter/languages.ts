@@ -1,9 +1,9 @@
 import * as Parser from 'web-tree-sitter';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config.js';
-import { logger } from '../utils/logger.util.js';
-import { ParserError } from '../utils/error.util.js';
+import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config';
+import { logger } from '../utils/logger.util';
+import { ParserError } from '../utils/error.util';
 
 // Helper to get the correct path in different environments
 const getDirname = () => path.dirname(fileURLToPath(import.meta.url));

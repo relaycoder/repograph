@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { FileSystemError } from './error.util.js';
+import { FileSystemError } from './error.util';
 
 export const readFile = async (filePath: string): Promise<string> => {
   try {

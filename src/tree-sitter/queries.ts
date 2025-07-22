@@ -1,4 +1,4 @@
-import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config.js';
+import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config';
 
 /**
  * Tree-sitter query for TypeScript and JavaScript to capture key symbols.

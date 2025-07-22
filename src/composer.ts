@@ -1,7 +1,7 @@
 import path from 'node:path';
-import type { Analyzer, FileDiscoverer, Ranker, Renderer, RepoGraphMap } from './types.js';
-import { logger } from './utils/logger.util.js';
-import { writeFile } from './utils/fs.util.js';
+import type { Analyzer, FileDiscoverer, Ranker, Renderer, RepoGraphMap } from './types';
+import { logger } from './utils/logger.util';
+import { writeFile } from './utils/fs.util';
 
 type MapGenerator = (config: {
   readonly root: string;

@@ -1,12 +1,12 @@
-import { createDefaultDiscoverer } from './pipeline/discover.js';
-import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
-import { createPageRanker, createGitRanker } from './pipeline/rank.js';
-import { createMarkdownRenderer } from './pipeline/render.js';
-import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
+import { createDefaultDiscoverer } from './pipeline/discover';
+import { createTreeSitterAnalyzer } from './pipeline/analyze';
+import { createPageRanker, createGitRanker } from './pipeline/rank';
+import { createMarkdownRenderer } from './pipeline/render';
+import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types';
 import path from 'node:path';
-import { logger } from './utils/logger.util.js';
-import { writeFile } from './utils/fs.util.js';
-import { RepoGraphError } from './utils/error.util.js';
+import { logger } from './utils/logger.util';
+import { writeFile } from './utils/fs.util';
+import { RepoGraphError } from './utils/error.util';
 
 const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pagerank'): Ranker => {
   if (rankingStrategy === 'git-changes') {
