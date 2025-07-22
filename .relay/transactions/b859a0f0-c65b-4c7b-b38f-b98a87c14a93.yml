@@ -1,0 +1,276 @@
+uuid: b859a0f0-c65b-4c7b-b38f-b98a87c14a93
+projectId: repograph
+createdAt: '2025-07-22T05:10:03.749Z'
+linesAdded: 8
+linesRemoved: 8
+gitCommitMsg: 'refactor(logging): adjust log levels for progress reporting'
+promptSummary: >-
+  The user requested to adjust the logger levels to be more appropriate. I've
+  changed detailed progress messages from `info` to `debug` level in both the
+  composer and high-level API files, making the default output cleaner while
+  preserving verbose information for debugging.
+reasoning:
+  - >-
+    I'll adjust the logging levels for progress reporting. The main stage
+    announcements will remain at the `info` level, ensuring they're visible by
+    default. However, the more detailed sub-step messages (like file counts and
+    completion confirmations) will be moved to the `debug` level. This change
+    makes the default output cleaner while providing more verbose logging for
+    users who need it.
+  - >-
+    First, I'll update `src/composer.ts` to adjust the log levels for detailed
+    progress messages.
+  - >-
+    Next, I'll apply the same logic to the high-level API in
+    `src/high-level.ts`. This ensures consistent logging behavior whether using
+    the direct API or the composer.
+operations:
+  - type: write
+    path: src/composer.ts
+    content: |-
+      <<<<<<< SEARCH
+            logger.info(`  -> Found ${files.length} files to analyze.`);
+      =======
+            logger.debug(`  -> Found ${files.length} files to analyze.`);
+      >>>>>>> REPLACE
+      <<<<<<< SEARCH
+            logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+      =======
+            logger.debug(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+      >>>>>>> REPLACE
+      <<<<<<< SEARCH
+            logger.info('  -> Ranking complete.');
+      =======
+            logger.debug('  -> Ranking complete.');
+      >>>>>>> REPLACE
+      <<<<<<< SEARCH
+            logger.info('  -> Rendering complete.');
+      =======
+            logger.debug('  -> Rendering complete.');
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+  - type: write
+    path: src/high-level.ts
+    content: |-
+      <<<<<<< SEARCH
+          logger.info(`  -> Found ${files.length} files to analyze.`);
+      =======
+          logger.debug(`  -> Found ${files.length} files to analyze.`);
+      >>>>>>> REPLACE
+      <<<<<<< SEARCH
+          logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+      =======
+          logger.debug(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+      >>>>>>> REPLACE
+      <<<<<<< SEARCH
+          logger.info('  -> Ranking complete.');
+      =======
+          logger.debug('  -> Ranking complete.');
+      >>>>>>> REPLACE
+      <<<<<<< SEARCH
+          logger.info('  -> Rendering complete.');
+      =======
+          logger.debug('  -> Rendering complete.');
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+snapshot:
+  src/composer.ts: >-
+    import path from 'node:path';
+
+    import type { Analyzer, FileDiscoverer, Ranker, Renderer, RepoGraphMap }
+    from './types.js';
+
+    import { logger } from './utils/logger.util.js';
+
+    import { writeFile } from './utils/fs.util.js';
+
+
+    type MapGenerator = (config: {
+      readonly root: string;
+      readonly output?: string;
+      readonly include?: readonly string[];
+      readonly ignore?: readonly string[];
+      readonly noGitignore?: boolean;
+      readonly rendererOptions?: any;
+    }) => Promise<RepoGraphMap>;
+
+
+    /**
+     * A Higher-Order Function that takes pipeline functions as arguments and
+     * returns a fully configured `generate` function for creating a codemap.
+     * This is the core of RepoGraph's composability.
+     *
+     * @param pipeline An object containing implementations for each pipeline stage.
+     * @returns An asynchronous function to generate and write the codemap.
+     */
+    export const createMapGenerator = (pipeline: {
+      readonly discover: FileDiscoverer;
+      readonly analyze: Analyzer;
+      readonly rank: Ranker;
+      readonly render: Renderer;
+    }): MapGenerator => {
+      if (
+        !pipeline ||
+        typeof pipeline.discover !== 'function' ||
+        typeof pipeline.analyze !== 'function' ||
+        typeof pipeline.rank !== 'function' ||
+        typeof pipeline.render !== 'function'
+      ) {
+        throw new Error('createMapGenerator: A valid pipeline object with discover, analyze, rank, and render functions must be provided.');
+      }
+      return async (config) => {
+        const { root, output, include, ignore, noGitignore, rendererOptions } = config;
+
+        let stage = 'discover';
+        try {
+          logger.info('1/4 Discovering files...');
+          const files = await pipeline.discover({ root, include, ignore, noGitignore });
+          logger.info(`  -> Found ${files.length} files to analyze.`);
+
+          stage = 'analyze';
+          logger.info('2/4 Analyzing code and building graph...');
+          const graph = await pipeline.analyze(files);
+          logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+          stage = 'rank';
+          logger.info('3/4 Ranking graph nodes...');
+          const rankedGraph = await pipeline.rank(graph);
+          logger.info('  -> Ranking complete.');
+
+          stage = 'render';
+          logger.info('4/4 Rendering output...');
+          const markdown = pipeline.render(rankedGraph, rendererOptions);
+          logger.info('  -> Rendering complete.');
+
+          if (output) {
+            const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+            stage = 'write';
+            logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+            await writeFile(outputPath, markdown);
+            logger.info('  -> Report saved.');
+          }
+
+          return { graph: rankedGraph, markdown };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const stageErrorMessage = stage === 'write' ? `Failed to write output file` : `Error in ${stage} stage`;
+          // We will create a new error to wrap the original one, preserving its stack.
+          const newError = new Error(`${stageErrorMessage}: ${message}`);
+          if (error instanceof Error && error.stack) {
+            newError.stack = `${newError.stack}\nCaused by: ${error.stack}`;
+          }
+          throw newError;
+        }
+      };
+    };
+  src/high-level.ts: >-
+    import { createDefaultDiscoverer } from './pipeline/discover.js';
+
+    import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+
+    import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+
+    import { createMarkdownRenderer } from './pipeline/render.js';
+
+    import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
+
+    import path from 'node:path';
+
+    import { logger } from './utils/logger.util.js';
+
+    import { writeFile } from './utils/fs.util.js';
+
+    import { RepoGraphError } from './utils/error.util.js';
+
+
+    const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] =
+    'pagerank'): Ranker => {
+      if (rankingStrategy === 'git-changes') {
+        return createGitRanker();
+      }
+      if (rankingStrategy === 'pagerank') {
+        return createPageRanker();
+      }
+      throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+    };
+
+
+    /**
+     * A mid-level API for programmatically generating and receiving the code graph
+     * without rendering it to a file. Ideal for integration with other tools.
+     *
+     * @param options The configuration object for generating the map.
+     * @returns The generated `RankedCodeGraph`.
+     */
+    export const analyzeProject = async (options: RepoGraphOptions = {}):
+    Promise<RankedCodeGraph> => {
+      const {
+        root = process.cwd(),
+        logLevel = 'info',
+        include,
+        ignore,
+        noGitignore,
+      } = options;
+
+      if (logLevel) {
+        logger.setLevel(logLevel);
+      }
+
+      // Validate options before entering the main try...catch block to provide clear errors.
+      const ranker = selectRanker(options.rankingStrategy);
+
+      try {
+        logger.info('1/3 Discovering files...');
+        const discoverer = createDefaultDiscoverer();
+        const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+        logger.info(`  -> Found ${files.length} files to analyze.`);
+
+        logger.info('2/3 Analyzing code and building graph...');
+        const analyzer = createTreeSitterAnalyzer();
+        const graph = await analyzer(files);
+        logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+        logger.info('3/3 Ranking graph nodes...');
+        const rankedGraph = await ranker(graph);
+        logger.info('  -> Ranking complete.');
+
+        return rankedGraph;
+      } catch (error) {
+        throw new RepoGraphError(`Failed to analyze project`, error);
+      }
+    };
+
+
+    /**
+     * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+     * default pipeline based on a configuration object to generate a codemap.
+     *
+     * @param options The configuration object for generating the map.
+     */
+    export const generateMap = async (options: RepoGraphOptions = {}):
+    Promise<void> => {
+      const {
+        root = process.cwd(),
+        output = './repograph.md',
+      } = options;
+
+      try {
+        // We get the full ranked graph first
+        const rankedGraph = await analyzeProject(options);
+
+        logger.info('4/4 Rendering output...');
+        const renderer = createMarkdownRenderer();
+        const markdown = renderer(rankedGraph, options.rendererOptions);
+        logger.info('  -> Rendering complete.');
+
+        const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+        logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+        await writeFile(outputPath, markdown);
+        logger.info('  -> Report saved.');
+      } catch (error) {
+        // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+        throw error;
+      }
+    };
+approved: true

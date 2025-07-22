@@ -45,16 +45,16 @@ export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<Ra
     logger.info('1/3 Discovering files...');
     const discoverer = createDefaultDiscoverer();
     const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
-    logger.info(`  -> Found ${files.length} files to analyze.`);
+    logger.debug(`  -> Found ${files.length} files to analyze.`);
 
     logger.info('2/3 Analyzing code and building graph...');
     const analyzer = createTreeSitterAnalyzer();
     const graph = await analyzer(files);
-    logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+    logger.debug(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
 
     logger.info('3/3 Ranking graph nodes...');
     const rankedGraph = await ranker(graph);
-    logger.info('  -> Ranking complete.');
+    logger.debug('  -> Ranking complete.');
 
     return rankedGraph;
   } catch (error) {
@@ -81,7 +81,7 @@ export const generateMap = async (options: RepoGraphOptions = {}): Promise<void>
     logger.info('4/4 Rendering output...');
     const renderer = createMarkdownRenderer();
     const markdown = renderer(rankedGraph, options.rendererOptions);
-    logger.info('  -> Rendering complete.');
+    logger.debug('  -> Rendering complete.');
 
     const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
 
