@@ -18,13 +18,13 @@ const getCssIntents = (ruleNode: TSNode, content: string): readonly ('layout' | 
   const typographyProps = /^(font|text-|line-height|letter-spacing|word-spacing)/;
   const appearanceProps = /^(background|border|box-shadow|opacity|color|fill|stroke|cursor)/;
 
-  const block = ruleNode.childForFieldName('body') ?? ruleNode.namedChildren.find(c => c.type === 'block');
+  const block = ruleNode.childForFieldName('body') ?? ruleNode.namedChildren.find(c => c && c.type === 'block');
   
   if (block) {
     for (const declaration of block.namedChildren) {
-      if (declaration.type === 'declaration') {
+      if (declaration && declaration.type === 'declaration') {
         // In CSS tree-sitter, the property name is a 'property_name' node
-        const propNode = declaration.namedChildren.find(c => c.type === 'property_name');
+        const propNode = declaration.namedChildren.find(c => c && c.type === 'property_name');
         if (propNode) {
           const propName = getNodeText(propNode, content);
           if (layoutProps.test(propName)) intents.add('layout');
@@ -527,7 +527,7 @@ function processSymbol(
 
   // For CSS rules, extract selector from the rule_set node
   if (symbolType === 'css_rule' && !nameNode) {
-    const selectorsNode = node.childForFieldName('selectors') || node.namedChildren.find(c => c.type === 'selectors');
+    const selectorsNode = node.childForFieldName('selectors') || node.namedChildren.find(c => c && c.type === 'selectors');
     if (selectorsNode) {
       // Get the first selector from the selectors list
       const firstSelector = selectorsNode.namedChildren[0];

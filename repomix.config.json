@@ -26,9 +26,8 @@
     "package.json",
     "tsconfig.json",
     "tsconfig.build.json",
-    "README.md",
-    "docs/scn.readme.md"
-    // "src"
+    "docs/scn.readme.md",
+    "src"
     // "docs/scn-ts-2.report.md"
   ],
   "ignore": {

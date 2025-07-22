@@ -158,7 +158,7 @@ export const LogLevels = {
 export type LogLevel = keyof typeof LogLevels;
 
 // This state is internal to the logger module.
-let currentLevel: LogLevel = 'info';
+let currentLevel: LogLevel = 'silent';
 
 const logFunctions: Record<Exclude<LogLevel, 'silent'>, (...args: any[]) => void> = {
   error: console.error,
@@ -401,104 +401,6 @@ export function getAllLanguageConfigs(): LanguageConfig[] {
 }
 ````
 
-## File: src/high-level.ts
-````typescript
-import { createDefaultDiscoverer } from './pipeline/discover.js';
-import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
-import { createPageRanker, createGitRanker } from './pipeline/rank.js';
-import { createMarkdownRenderer } from './pipeline/render.js';
-import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
-import path from 'node:path';
-import { logger } from './utils/logger.util.js';
-import { writeFile } from './utils/fs.util.js';
-import { RepoGraphError } from './utils/error.util.js';
-
-const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pagerank'): Ranker => {
-  if (rankingStrategy === 'git-changes') {
-    return createGitRanker();
-  }
-  if (rankingStrategy === 'pagerank') {
-    return createPageRanker();
-  }
-  throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
-};
-
-/**
- * A mid-level API for programmatically generating and receiving the code graph
- * without rendering it to a file. Ideal for integration with other tools.
- *
- * @param options The configuration object for generating the map.
- * @returns The generated `RankedCodeGraph`.
- */
-export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
-  const {
-    root = process.cwd(),
-    logLevel = 'info',
-    include,
-    ignore,
-    noGitignore,
-  } = options;
-
-  if (logLevel) {
-    logger.setLevel(logLevel);
-  }
-
-  try {
-    const ranker = selectRanker(options.rankingStrategy);
-
-    logger.info('1/3 Discovering files...');
-    const discoverer = createDefaultDiscoverer();
-    const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
-    logger.info(`  -> Found ${files.length} files to analyze.`);
-
-    logger.info('2/3 Analyzing code and building graph...');
-    const analyzer = createTreeSitterAnalyzer();
-    const graph = await analyzer(files);
-    logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
-
-    logger.info('3/3 Ranking graph nodes...');
-    const rankedGraph = await ranker(graph);
-    logger.info('  -> Ranking complete.');
-
-    return rankedGraph;
-  } catch (error) {
-    throw new RepoGraphError(`Failed to analyze project`, error);
-  }
-};
-
-/**
- * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
- * default pipeline based on a configuration object to generate a codemap.
- *
- * @param options The configuration object for generating the map.
- */
-export const generateMap = async (options: RepoGraphOptions = {}): Promise<void> => {
-  const {
-    root = process.cwd(),
-    output = './repograph.md',
-  } = options;
-
-  try {
-    // We get the full ranked graph first
-    const rankedGraph = await analyzeProject(options);
-
-    logger.info('4/4 Rendering output...');
-    const renderer = createMarkdownRenderer();
-    const markdown = renderer(rankedGraph, options.rendererOptions);
-    logger.info('  -> Rendering complete.');
-
-    const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
-
-    logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
-    await writeFile(outputPath, markdown);
-    logger.info('  -> Report saved.');
-  } catch (error) {
-    // The underlying `analyzeProject` already wraps the error, so we just re-throw.
-    throw error;
-  }
-};
-````
-
 ## File: src/pipeline/render.ts
 ````typescript
 import type { Renderer, RankedCodeGraph, RendererOptions, CodeEdge, CodeNode } from '../types.js';
@@ -660,6 +562,105 @@ export const createMarkdownRenderer = (): Renderer => {
 };
 ````
 
+## File: src/high-level.ts
+````typescript
+import { createDefaultDiscoverer } from './pipeline/discover.js';
+import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+import { createMarkdownRenderer } from './pipeline/render.js';
+import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
+import path from 'node:path';
+import { logger } from './utils/logger.util.js';
+import { writeFile } from './utils/fs.util.js';
+import { RepoGraphError } from './utils/error.util.js';
+
+const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pagerank'): Ranker => {
+  if (rankingStrategy === 'git-changes') {
+    return createGitRanker();
+  }
+  if (rankingStrategy === 'pagerank') {
+    return createPageRanker();
+  }
+  throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+};
+
+/**
+ * A mid-level API for programmatically generating and receiving the code graph
+ * without rendering it to a file. Ideal for integration with other tools.
+ *
+ * @param options The configuration object for generating the map.
+ * @returns The generated `RankedCodeGraph`.
+ */
+export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
+  const {
+    root = process.cwd(),
+    logLevel = 'info',
+    include,
+    ignore,
+    noGitignore,
+  } = options;
+
+  if (logLevel) {
+    logger.setLevel(logLevel);
+  }
+
+  // Validate options before entering the main try...catch block to provide clear errors.
+  const ranker = selectRanker(options.rankingStrategy);
+
+  try {
+    logger.info('1/3 Discovering files...');
+    const discoverer = createDefaultDiscoverer();
+    const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+    logger.info(`  -> Found ${files.length} files to analyze.`);
+
+    logger.info('2/3 Analyzing code and building graph...');
+    const analyzer = createTreeSitterAnalyzer();
+    const graph = await analyzer(files);
+    logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+    logger.info('3/3 Ranking graph nodes...');
+    const rankedGraph = await ranker(graph);
+    logger.info('  -> Ranking complete.');
+
+    return rankedGraph;
+  } catch (error) {
+    throw new RepoGraphError(`Failed to analyze project`, error);
+  }
+};
+
+/**
+ * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+ * default pipeline based on a configuration object to generate a codemap.
+ *
+ * @param options The configuration object for generating the map.
+ */
+export const generateMap = async (options: RepoGraphOptions = {}): Promise<void> => {
+  const {
+    root = process.cwd(),
+    output = './repograph.md',
+  } = options;
+
+  try {
+    // We get the full ranked graph first
+    const rankedGraph = await analyzeProject(options);
+
+    logger.info('4/4 Rendering output...');
+    const renderer = createMarkdownRenderer();
+    const markdown = renderer(rankedGraph, options.rendererOptions);
+    logger.info('  -> Rendering complete.');
+
+    const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+    logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+    await writeFile(outputPath, markdown);
+    logger.info('  -> Report saved.');
+  } catch (error) {
+    // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+    throw error;
+  }
+};
+````
+
 ## File: src/pipeline/discover.ts
 ````typescript
 import { globby } from 'globby';
@@ -713,15 +714,20 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       ignoreFilter.add(ignore.join('\n'));
     }
 
-    // Use globby to find all files matching the include patterns
-    const relativePaths = await globby(patterns, {
+    // Use globby to find all files matching the include patterns.
+    // Globby might return absolute paths if the patterns are absolute. We ensure
+    // all paths are absolute first, then make them relative to the root for
+    // consistent processing, which is required by the `ignore` package.
+    const foundPaths = await globby(patterns, {
       cwd: root,
       gitignore: false, // We handle gitignore patterns manually
       dot: true,
-      absolute: false,
+      absolute: true,
       followSymbolicLinks: true,
       onlyFiles: true,
     });
+
+    const relativePaths = foundPaths.map(p => path.relative(root, p).replace(/\\/g, '/'));
 
     // Filter out files that would cause symlink cycles
     const visitedRealPaths = new Set<string>();
@@ -741,7 +747,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       }
     }
     
-    // Filter the paths using the ignore package
+    // Filter the paths using the ignore package. Paths are now guaranteed to be relative.
     const filteredPaths = safeRelativePaths.filter(p => !ignoreFilter.ignores(p));
 
     const fileContents = await Promise.all(
@@ -758,6 +764,181 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     );
 
     return fileContents.filter((c): c is FileContent => c !== null);
+  };
+};
+````
+
+## File: src/pipeline/rank.ts
+````typescript
+import pagerank from 'graphology-pagerank';
+import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
+import Graph from 'graphology';
+import { execSync } from 'node:child_process';
+import { logger } from '../utils/logger.util.js';
+
+/**
+ * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
+ * other important nodes will receive a higher rank.
+ * @returns A Ranker function.
+ */
+export const createPageRanker = (): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    // PageRank can only be computed on graphs with nodes.
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks: new Map() };
+    }
+
+    // Pagerank lib requires a graphology instance.
+    const simpleGraph = new Graph({ type: 'directed' });
+    for (const [nodeId, node] of graph.nodes) {
+      simpleGraph.addNode(nodeId, node);
+    }
+    for (const edge of graph.edges) {
+      if (!simpleGraph.hasEdge(edge.fromId, edge.toId)) {
+        simpleGraph.addDirectedEdge(edge.fromId, edge.toId);
+      }
+    }
+
+    const graphForRank = simpleGraph;
+    const ranksData = pagerank(graphForRank);
+    const ranks = new Map<string, number>();
+    for (const node in ranksData) {
+      ranks.set(node, ranksData[node] ?? 0);
+    }
+    return { ...graph, ranks };
+  };
+};
+
+/**
+ * Creates a ranker based on Git commit history. Files changed more frequently are considered
+ * more important. Requires Git to be installed.
+ * @returns A Ranker function.
+ */
+export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    const { maxCommits = 500 } = options;
+    const ranks = new Map<string, number>();
+
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks };
+    }
+
+    try {
+      const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
+      const output = execSync(command, { encoding: 'utf-8' });
+      const files = output.split('\n').filter(Boolean);
+
+      const changeCounts: Record<string, number> = {};
+      for (const file of files) {
+        changeCounts[file] = (changeCounts[file] || 0) + 1;
+      }
+
+      const maxChanges = Math.max(...Object.values(changeCounts), 1);
+
+      for (const [nodeId, attributes] of graph.nodes) {
+        // We only rank file nodes with this strategy
+        if (attributes.type === 'file') {
+          const count = changeCounts[attributes.filePath] ?? 0;
+          ranks.set(nodeId, count / maxChanges); // Normalize score
+        } else {
+          ranks.set(nodeId, 0);
+        }
+      }
+    } catch (e) {
+      // This is not a fatal error for the whole process, but this ranker cannot proceed.
+      logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
+      for (const [nodeId] of graph.nodes) {
+        ranks.set(nodeId, 0);
+      }
+    }
+
+    return { ...graph, ranks };
+  };
+};
+````
+
+## File: src/composer.ts
+````typescript
+import path from 'node:path';
+import type { Analyzer, FileDiscoverer, Ranker, Renderer, RepoGraphMap } from './types.js';
+import { logger } from './utils/logger.util.js';
+import { writeFile } from './utils/fs.util.js';
+
+type MapGenerator = (config: {
+  readonly root: string;
+  readonly output?: string;
+  readonly include?: readonly string[];
+  readonly ignore?: readonly string[];
+  readonly noGitignore?: boolean;
+  readonly rendererOptions?: any;
+}) => Promise<RepoGraphMap>;
+
+/**
+ * A Higher-Order Function that takes pipeline functions as arguments and
+ * returns a fully configured `generate` function for creating a codemap.
+ * This is the core of RepoGraph's composability.
+ *
+ * @param pipeline An object containing implementations for each pipeline stage.
+ * @returns An asynchronous function to generate and write the codemap.
+ */
+export const createMapGenerator = (pipeline: {
+  readonly discover: FileDiscoverer;
+  readonly analyze: Analyzer;
+  readonly rank: Ranker;
+  readonly render: Renderer;
+}): MapGenerator => {
+  if (
+    !pipeline ||
+    typeof pipeline.discover !== 'function' ||
+    typeof pipeline.analyze !== 'function' ||
+    typeof pipeline.rank !== 'function' ||
+    typeof pipeline.render !== 'function'
+  ) {
+    throw new Error('createMapGenerator: A valid pipeline object with discover, analyze, rank, and render functions must be provided.');
+  }
+  return async (config) => {
+    const { root, output, include, ignore, noGitignore, rendererOptions } = config;
+
+    let stage = 'discover';
+    try {
+      logger.info('1/4 Discovering files...');
+      const files = await pipeline.discover({ root, include, ignore, noGitignore });
+      logger.info(`  -> Found ${files.length} files to analyze.`);
+
+      stage = 'analyze';
+      logger.info('2/4 Analyzing code and building graph...');
+      const graph = await pipeline.analyze(files);
+      logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+      stage = 'rank';
+      logger.info('3/4 Ranking graph nodes...');
+      const rankedGraph = await pipeline.rank(graph);
+      logger.info('  -> Ranking complete.');
+
+      stage = 'render';
+      logger.info('4/4 Rendering output...');
+      const markdown = pipeline.render(rankedGraph, rendererOptions);
+      logger.info('  -> Rendering complete.');
+
+      if (output) {
+        const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+        stage = 'write';
+        logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+        await writeFile(outputPath, markdown);
+        logger.info('  -> Report saved.');
+      }
+
+      return { graph: rankedGraph, markdown };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stageErrorMessage = stage === 'write' ? `Failed to write output file` : `Error in ${stage} stage`;
+      // We will create a new error to wrap the original one, preserving its stack.
+      const newError = new Error(`${stageErrorMessage}: ${message}`);
+      if (error instanceof Error && error.stack) {
+        newError.stack = `${newError.stack}\nCaused by: ${error.stack}`;
+      }
+      throw newError;
+    }
   };
 };
 ````
@@ -838,6 +1019,10 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (enum_declaration) @enum.definition
 (export_statement declaration: (enum_declaration)) @enum.definition
 
+(internal_module) @namespace.definition
+(export_statement declaration: (internal_module)) @namespace.definition
+(ambient_declaration (module) @namespace.definition)
+
 (method_definition
   (accessibility_modifier)? @qualifier.visibility
   ("static")? @qualifier.static
@@ -857,6 +1042,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 
 (call_expression
   function: (identifier) @function.call)
+
+(identifier) @identifier.reference
 
 (throw_statement) @qualifier.throws
 
@@ -877,28 +1064,33 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (export_statement declaration: (class_declaration)) @class.definition
 
 (function_declaration
-  ("async")? @qualifier.async
   parameters: (formal_parameters) @symbol.parameters
   return_type: (type_annotation)? @symbol.returnType
 ) @function.definition
 (export_statement
   declaration: (function_declaration
-    ("async")? @qualifier.async
     parameters: (formal_parameters) @symbol.parameters
     return_type: (type_annotation)? @symbol.returnType
   )
 ) @function.definition
 
+(function_declaration
+  "async" @qualifier.async
+) @function.definition
+(export_statement
+  declaration: (function_declaration
+    "async" @qualifier.async
+  )
+) @function.definition
+
 (variable_declarator
   value: (arrow_function
-    ("async")? @qualifier.async
     parameters: (formal_parameters)? @symbol.parameters
     return_type: (type_annotation)? @symbol.returnType
   )
 ) @function.arrow.definition
 (public_field_definition
   value: (arrow_function
-    ("async")? @qualifier.async
     parameters: (formal_parameters)? @symbol.parameters
     return_type: (type_annotation)? @symbol.returnType
   )
@@ -907,9 +1099,28 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   declaration: (lexical_declaration
     (variable_declarator
       value: (arrow_function
-        ("async")? @qualifier.async
         parameters: (formal_parameters)? @symbol.parameters
         return_type: (type_annotation)? @symbol.returnType
+      )
+    )
+  )
+) @function.arrow.definition
+
+(variable_declarator
+  value: (arrow_function
+    "async" @qualifier.async
+  )
+) @function.arrow.definition
+(public_field_definition
+  value: (arrow_function
+    "async" @qualifier.async
+  )
+) @function.arrow.definition
+(export_statement
+  declaration: (lexical_declaration
+    (variable_declarator
+      value: (arrow_function
+        "async" @qualifier.async
       )
     )
   )
@@ -924,18 +1135,37 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (enum_declaration) @enum.definition
 (export_statement declaration: (enum_declaration)) @enum.definition
 
+(internal_module) @namespace.definition
+(export_statement declaration: (internal_module)) @namespace.definition
+(ambient_declaration (module) @namespace.definition)
+
 (method_definition
-  (accessibility_modifier)? @qualifier.visibility
-  ("static")? @qualifier.static
-  ("async")? @qualifier.async
   parameters: (formal_parameters) @symbol.parameters
   return_type: (type_annotation)? @symbol.returnType
 ) @method.definition
 
+(method_definition
+  (accessibility_modifier) @qualifier.visibility
+) @method.definition
+
+(method_definition
+  "static" @qualifier.static
+) @method.definition
+
+(method_definition
+  "async" @qualifier.async
+) @method.definition
+
 (public_field_definition
-  (accessibility_modifier)? @qualifier.visibility
-  ("static")? @qualifier.static
   type: (type_annotation)? @symbol.returnType
+) @field.definition
+
+(public_field_definition
+  (accessibility_modifier) @qualifier.visibility
+) @field.definition
+
+(public_field_definition
+  "static" @qualifier.static
 ) @field.definition
 
 (variable_declarator) @variable.definition
@@ -943,6 +1173,8 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 
 (call_expression
   function: (identifier) @function.call)
+
+(identifier) @identifier.reference
 
 (throw_statement) @qualifier.throws
 
@@ -954,6 +1186,18 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (jsx_opening_element
   name: (_) @html.tag
 ) @html.element.definition
+
+; className="...": capture string content for CSS class lookups
+(jsx_attribute
+  (property_identifier) @_p
+  (string) @css.class.reference
+  (#eq? @_p "className"))
+
+; id="...": capture string content for CSS ID lookups
+(jsx_attribute
+  (property_identifier) @_p
+  (string) @css.id.reference
+  (#eq? @_p "id"))
 `
   },
   {
@@ -1189,9 +1433,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
     extensions: ['.css'],
     wasmPath: 'tree-sitter-css/tree-sitter-css.wasm',
     query: `
-      (rule_set
-        (selectors) @css.selector
-      ) @css.rule.definition
+      (rule_set) @css.rule.definition
     `
   }
 ];
@@ -1219,181 +1461,6 @@ export function getSupportedExtensions(): string[] {
 }
 ````
 
-## File: src/pipeline/rank.ts
-````typescript
-import pagerank from 'graphology-pagerank';
-import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
-import Graph from 'graphology';
-import { execSync } from 'node:child_process';
-import { logger } from '../utils/logger.util.js';
-
-/**
- * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
- * other important nodes will receive a higher rank.
- * @returns A Ranker function.
- */
-export const createPageRanker = (): Ranker => {
-  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
-    // PageRank can only be computed on graphs with nodes.
-    if (graph.nodes.size === 0) {
-      return { ...graph, ranks: new Map() };
-    }
-
-    // Pagerank lib requires a graphology instance.
-    const simpleGraph = new Graph({ type: 'directed' });
-    for (const [nodeId, node] of graph.nodes) {
-      simpleGraph.addNode(nodeId, node);
-    }
-    for (const edge of graph.edges) {
-      if (!simpleGraph.hasEdge(edge.fromId, edge.toId)) {
-        simpleGraph.addDirectedEdge(edge.fromId, edge.toId);
-      }
-    }
-
-    const graphForRank = simpleGraph;
-    const ranksData = pagerank(graphForRank);
-    const ranks = new Map<string, number>();
-    for (const node in ranksData) {
-      ranks.set(node, ranksData[node] ?? 0);
-    }
-    return { ...graph, ranks };
-  };
-};
-
-/**
- * Creates a ranker based on Git commit history. Files changed more frequently are considered
- * more important. Requires Git to be installed.
- * @returns A Ranker function.
- */
-export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
-  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
-    const { maxCommits = 500 } = options;
-    const ranks = new Map<string, number>();
-
-    if (graph.nodes.size === 0) {
-      return { ...graph, ranks };
-    }
-
-    try {
-      const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
-      const output = execSync(command, { encoding: 'utf-8' });
-      const files = output.split('\n').filter(Boolean);
-
-      const changeCounts: Record<string, number> = {};
-      for (const file of files) {
-        changeCounts[file] = (changeCounts[file] || 0) + 1;
-      }
-
-      const maxChanges = Math.max(...Object.values(changeCounts), 1);
-
-      for (const [nodeId, attributes] of graph.nodes) {
-        // We only rank file nodes with this strategy
-        if (attributes.type === 'file') {
-          const count = changeCounts[attributes.filePath] ?? 0;
-          ranks.set(nodeId, count / maxChanges); // Normalize score
-        } else {
-          ranks.set(nodeId, 0);
-        }
-      }
-    } catch (e) {
-      // This is not a fatal error for the whole process, but this ranker cannot proceed.
-      logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
-      for (const [nodeId] of graph.nodes) {
-        ranks.set(nodeId, 0);
-      }
-    }
-
-    return { ...graph, ranks };
-  };
-};
-````
-
-## File: src/composer.ts
-````typescript
-import path from 'node:path';
-import type { Analyzer, FileDiscoverer, Ranker, Renderer, RepoGraphMap } from './types.js';
-import { logger } from './utils/logger.util.js';
-import { writeFile } from './utils/fs.util.js';
-
-type MapGenerator = (config: {
-  readonly root: string;
-  readonly output?: string;
-  readonly include?: readonly string[];
-  readonly ignore?: readonly string[];
-  readonly noGitignore?: boolean;
-  readonly rendererOptions?: any;
-}) => Promise<RepoGraphMap>;
-
-/**
- * A Higher-Order Function that takes pipeline functions as arguments and
- * returns a fully configured `generate` function for creating a codemap.
- * This is the core of RepoGraph's composability.
- *
- * @param pipeline An object containing implementations for each pipeline stage.
- * @returns An asynchronous function to generate and write the codemap.
- */
-export const createMapGenerator = (pipeline: {
-  readonly discover: FileDiscoverer;
-  readonly analyze: Analyzer;
-  readonly rank: Ranker;
-  readonly render: Renderer;
-}): MapGenerator => {
-  if (
-    !pipeline ||
-    typeof pipeline.discover !== 'function' ||
-    typeof pipeline.analyze !== 'function' ||
-    typeof pipeline.rank !== 'function' ||
-    typeof pipeline.render !== 'function'
-  ) {
-    throw new Error('createMapGenerator: A valid pipeline object with discover, analyze, rank, and render functions must be provided.');
-  }
-  return async (config) => {
-    const { root, output, include, ignore, noGitignore, rendererOptions } = config;
-
-    let stage = 'discover';
-    try {
-      logger.info('1/4 Discovering files...');
-      const files = await pipeline.discover({ root, include, ignore, noGitignore });
-      logger.info(`  -> Found ${files.length} files to analyze.`);
-
-      stage = 'analyze';
-      logger.info('2/4 Analyzing code and building graph...');
-      const graph = await pipeline.analyze(files);
-      logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
-
-      stage = 'rank';
-      logger.info('3/4 Ranking graph nodes...');
-      const rankedGraph = await pipeline.rank(graph);
-      logger.info('  -> Ranking complete.');
-
-      stage = 'render';
-      logger.info('4/4 Rendering output...');
-      const markdown = pipeline.render(rankedGraph, rendererOptions);
-      logger.info('  -> Rendering complete.');
-
-      if (output) {
-        const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
-        stage = 'write';
-        logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
-        await writeFile(outputPath, markdown);
-        logger.info('  -> Report saved.');
-      }
-
-      return { graph: rankedGraph, markdown };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const stageErrorMessage = stage === 'write' ? `Failed to write output file` : `Error in ${stage} stage`;
-      // We will create a new error to wrap the original one, preserving its stack.
-      const newError = new Error(`${stageErrorMessage}: ${message}`);
-      if (error instanceof Error && error.stack) {
-        newError.stack = `${newError.stack}\nCaused by: ${error.stack}`;
-      }
-      throw newError;
-    }
-  };
-};
-````
-
 ## File: src/index.ts
 ````typescript
 #!/usr/bin/env bun
@@ -1401,7 +1468,7 @@ export const createMapGenerator = (pipeline: {
 import { logger } from './utils/logger.util.js';
 import { RepoGraphError } from './utils/error.util.js';
 // High-Level API for simple use cases
-import { generateMap as executeGenerateMap, analyzeProject } from './high-level.js';
+import { generateMap as executeGenerateMap } from './high-level.js';
 import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
 
 export { generateMap, analyzeProject } from './high-level.js';
@@ -1414,6 +1481,10 @@ export { createDefaultDiscoverer } from './pipeline/discover.js';
 export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
 export { createPageRanker, createGitRanker } from './pipeline/rank.js';
 export { createMarkdownRenderer } from './pipeline/render.js';
+
+// Logger utilities
+export { logger } from './utils/logger.util.js';
+export type { Logger, LogLevel } from './utils/logger.util.js';
 
 // Core types for building custom components
 export type {
@@ -1447,10 +1518,10 @@ const isRunningDirectly = () => {
 
 if (isRunningDirectly()) {
   (async () => {
-  const args = process.argv.slice(2);
+    const args = process.argv.slice(2);
 
-  if (args.includes('--help') || args.includes('-h')) {
-    console.log(`
+    if (args.includes('--help') || args.includes('-h')) {
+      console.log(`
 Usage: repograph [root] [options]
 
 Arguments:
@@ -1479,138 +1550,140 @@ Output Formatting:
   --no-symbol-snippets     Hide code snippets for symbols.
   --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
     `);
-    process.exit(0);
-  }
-
-  if (args.includes('--version') || args.includes('-v')) {
-    // In a real app, you'd get this from package.json
-    logger.info('0.1.0');
-    process.exit(0);
-  }
-
-  // We need a mutable version of the options to build it from arguments.
-  const options: {
-    root?: string;
-    output?: string;
-    include?: readonly string[];
-    ignore?: readonly string[];
-    noGitignore?: boolean;
-    rankingStrategy?: 'pagerank' | 'git-changes';
-    logLevel?: IRepoGraphOptions['logLevel'];
-    rendererOptions?: IRepoGraphOptions['rendererOptions'];
-  } = {};
-  const includePatterns: string[] = [];
-  const ignorePatterns: string[] = [];
-  // We need a mutable version of rendererOptions to build from CLI args
-  const rendererOptions: {
-    customHeader?: string;
-    includeHeader?: boolean;
-    includeOverview?: boolean;
-    includeMermaidGraph?: boolean;
-    includeFileList?: boolean;
-    topFileCount?: number;
-    includeSymbolDetails?: boolean;
-    fileSectionSeparator?: string;
-    symbolDetailOptions?: {
-      includeRelations?: boolean;
-      includeLineNumber?: boolean;
-      includeCodeSnippet?: boolean;
-      maxRelationsToShow?: number;
-    };
-  } = {};
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (!arg) {
-      continue;
+      process.exit(0);
     }
-    switch (arg) {
-      case '--output':
-        options.output = args[++i];
-        break;
-      case '--include':
-        includePatterns.push(args[++i] as string);
-        break;
-      case '--ignore':
-        ignorePatterns.push(args[++i] as string);
-        break;
-      case '--no-gitignore':
-        options.noGitignore = true;
-        break;
-      case '--ranking-strategy':
-        options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
-        break;
-      case '--log-level':
-        options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
-        break;
-      // --- Renderer Options ---
-      case '--no-header':
-        rendererOptions.includeHeader = false;
-        break;
-      case '--no-overview':
-        rendererOptions.includeOverview = false;
-        break;
-      case '--no-mermaid':
-        rendererOptions.includeMermaidGraph = false;
-        break;
-      case '--no-file-list':
-        rendererOptions.includeFileList = false;
-        break;
-      case '--no-symbol-details':
-        rendererOptions.includeSymbolDetails = false;
-        break;
-      case '--top-file-count':
-        rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
-        break;
-      case '--file-section-separator':
-        rendererOptions.fileSectionSeparator = args[++i];
-        break;
-      case '--no-symbol-relations':
-        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
-        break;
-      case '--no-symbol-line-numbers':
-        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
-        break;
-      case '--no-symbol-snippets':
-        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
-        break;
-      case '--max-relations-to-show':
-        rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
-        break;
-      default:
-        if (!arg.startsWith('-')) {
-          options.root = arg;
-        }
-        break;
+
+    if (args.includes('--version') || args.includes('-v')) {
+      const { readFileSync } = await import('node:fs');
+      const pkgPath = new URL('../package.json', import.meta.url);
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      console.log(pkg.version);
+      process.exit(0);
     }
-  }
 
-  if (includePatterns.length > 0) {
-    options.include = includePatterns;
-  }
-  if (ignorePatterns.length > 0) {
-    options.ignore = ignorePatterns;
-  }
-  if (Object.keys(rendererOptions).length > 0) {
-    options.rendererOptions = rendererOptions;
-  }
+    // We need a mutable version of the options to build it from arguments.
+    const options: {
+      root?: string;
+      output?: string;
+      include?: readonly string[];
+      ignore?: readonly string[];
+      noGitignore?: boolean;
+      rankingStrategy?: 'pagerank' | 'git-changes';
+      logLevel?: IRepoGraphOptions['logLevel'];
+      rendererOptions?: IRepoGraphOptions['rendererOptions'];
+    } = {};
+    const includePatterns: string[] = [];
+    const ignorePatterns: string[] = [];
+    // We need a mutable version of rendererOptions to build from CLI args
+    const rendererOptions: {
+      customHeader?: string;
+      includeHeader?: boolean;
+      includeOverview?: boolean;
+      includeMermaidGraph?: boolean;
+      includeFileList?: boolean;
+      topFileCount?: number;
+      includeSymbolDetails?: boolean;
+      fileSectionSeparator?: string;
+      symbolDetailOptions?: {
+        includeRelations?: boolean;
+        includeLineNumber?: boolean;
+        includeCodeSnippet?: boolean;
+        maxRelationsToShow?: number;
+      };
+    } = {};
 
-  const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
-
-  logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
-  
-  try {
-    await executeGenerateMap(options);
-    const relativePath = path.relative(process.cwd(), finalOutput);
-    logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
-  } catch (error: unknown) {
-    if (error instanceof RepoGraphError) {
-      logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
-    } else {
-      logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (!arg) {
+        continue;
+      }
+      switch (arg) {
+        case '--output':
+          options.output = args[++i];
+          break;
+        case '--include':
+          includePatterns.push(args[++i] as string);
+          break;
+        case '--ignore':
+          ignorePatterns.push(args[++i] as string);
+          break;
+        case '--no-gitignore':
+          options.noGitignore = true;
+          break;
+        case '--ranking-strategy':
+          options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
+          break;
+        case '--log-level':
+          options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
+          break;
+        // --- Renderer Options ---
+        case '--no-header':
+          rendererOptions.includeHeader = false;
+          break;
+        case '--no-overview':
+          rendererOptions.includeOverview = false;
+          break;
+        case '--no-mermaid':
+          rendererOptions.includeMermaidGraph = false;
+          break;
+        case '--no-file-list':
+          rendererOptions.includeFileList = false;
+          break;
+        case '--no-symbol-details':
+          rendererOptions.includeSymbolDetails = false;
+          break;
+        case '--top-file-count':
+          rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
+          break;
+        case '--file-section-separator':
+          rendererOptions.fileSectionSeparator = args[++i];
+          break;
+        case '--no-symbol-relations':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
+          break;
+        case '--no-symbol-line-numbers':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
+          break;
+        case '--no-symbol-snippets':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
+          break;
+        case '--max-relations-to-show':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
+          break;
+        default:
+          if (!arg.startsWith('-')) {
+            options.root = arg;
+          }
+          break;
+      }
     }
-    process.exit(1);
-  }
+
+    if (includePatterns.length > 0) {
+      options.include = includePatterns;
+    }
+    if (ignorePatterns.length > 0) {
+      options.ignore = ignorePatterns;
+    }
+    if (Object.keys(rendererOptions).length > 0) {
+      options.rendererOptions = rendererOptions;
+    }
+
+    const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
+
+    logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
+
+    try {
+      await executeGenerateMap(options);
+      const relativePath = path.relative(process.cwd(), finalOutput);
+      logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
+    } catch (error: unknown) {
+      if (error instanceof RepoGraphError) {
+        logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
+      } else {
+        logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
+      }
+      process.exit(1);
+    }
   })().catch((error) => {
     console.error('Fatal error:', error);
     process.exit(1);
@@ -1797,7 +1870,7 @@ export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions)
 ````json
 {
   "name": "repograph",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
   "type": "module",
   "main": "./dist/index.js",
@@ -1905,6 +1978,32 @@ const getNodeText = (node: TSNode, content: string): string => content.slice(nod
 const getLineFromIndex = (content: string, index: number): number => content.substring(0, index).split('\n').length;
 const normalizePath = (p: string): string => p.replace(/\\/g, '/');
 
+const getCssIntents = (ruleNode: TSNode, content: string): readonly ('layout' | 'typography' | 'appearance')[] => {
+  const intents = new Set<'layout' | 'typography' | 'appearance'>();
+  const layoutProps = /^(display|position|flex|grid|width|height|margin|padding|transform|align-|justify-)/;
+  const typographyProps = /^(font|text-|line-height|letter-spacing|word-spacing)/;
+  const appearanceProps = /^(background|border|box-shadow|opacity|color|fill|stroke|cursor)/;
+
+  const block = ruleNode.childForFieldName('body') ?? ruleNode.namedChildren.find(c => c.type === 'block');
+  
+  if (block) {
+    for (const declaration of block.namedChildren) {
+      if (declaration.type === 'declaration') {
+        // In CSS tree-sitter, the property name is a 'property_name' node
+        const propNode = declaration.namedChildren.find(c => c.type === 'property_name');
+        if (propNode) {
+          const propName = getNodeText(propNode, content);
+          if (layoutProps.test(propName)) intents.add('layout');
+          if (typographyProps.test(propName)) intents.add('typography');
+          if (appearanceProps.test(propName)) intents.add('appearance');
+        }
+      }
+    }
+  }
+  
+  return Array.from(intents).sort();
+};
+
 // --- LANGUAGE-SPECIFIC LOGIC ---
 
 type LanguageHandler = {
@@ -1923,6 +2022,7 @@ type ProcessSymbolContext = {
   symbolType: CodeNodeType;
   processedSymbols: Set<string>;
   fileState: Record<string, any>;
+  childCaptures: TSMatch[];
 };
 
 const pythonHandler: Partial<LanguageHandler> = {
@@ -2019,7 +2119,7 @@ const tsLangHandler: Partial<LanguageHandler> = {
     }
     return declarationNode.childForFieldName('name');
   },
-  processComplexSymbol: ({ nodes, file, node, symbolType, processedSymbols, fileState }) => {
+  processComplexSymbol: ({ nodes, file, node, symbolType, processedSymbols, fileState, childCaptures }) => {
     if (symbolType !== 'method' && symbolType !== 'field') return false;
     const classParent = node.parent?.parent; // class_body -> class_declaration
     if (classParent?.type === 'class_declaration') {
@@ -2033,21 +2133,58 @@ const tsLangHandler: Partial<LanguageHandler> = {
         // This makes the analysis more robust.
         if (nameNode && !fileState['duplicateClassNames']?.has(className)) {
           const methodName = nameNode.text;
-          const symbolName = `${className}.${methodName}`;
-          const symbolId = `${file.path}#${symbolName}`;
-          if (!processedSymbols.has(symbolId) && !nodes.has(symbolId)) {
-            processedSymbols.add(symbolId);
-            nodes.set(symbolId, {
-              id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
+          
+          // Create the unqualified symbol
+          const unqualifiedSymbolId = `${file.path}#${methodName}`;
+          if (!processedSymbols.has(unqualifiedSymbolId) && !nodes.has(unqualifiedSymbolId)) {
+            processedSymbols.add(unqualifiedSymbolId);
+            
+            // Extract code snippet properly for class members
+            let codeSnippet = '';
+            if (symbolType === 'field') {
+              // For fields, get the type annotation and initializer
+              const fullText = node.text;
+              const colonIndex = fullText.indexOf(':');
+              if (colonIndex !== -1) {
+                codeSnippet = fullText.substring(colonIndex);
+              }
+            } else if (symbolType === 'method') {
+              // For methods, get the signature without the body
+              codeSnippet = node.text?.split('{')[0]?.trim() || '';
+            }
+            
+            const qualifiers: { [key: string]: TSNode } = {};
+            for (const capture of childCaptures) {
+              qualifiers[capture.name] = capture.node;
+            }
+            const visibilityNode = qualifiers['qualifier.visibility'];
+            const visibility = visibilityNode ? (getNodeText(visibilityNode, file.content) as CodeNodeVisibility) : undefined;
+            const returnTypeNode = qualifiers['symbol.returnType'];
+            const returnType = returnTypeNode ? getNodeText(returnTypeNode, file.content).replace(/^:\s*/, '') : undefined;
+            const parametersNode = qualifiers['symbol.parameters'];
+            const parameters = parametersNode && tsLangHandler.parseParameters ? tsLangHandler.parseParameters(parametersNode, file.content) : undefined;
+            const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
+
+            nodes.set(unqualifiedSymbolId, {
+              id: unqualifiedSymbolId, type: symbolType, name: methodName, filePath: file.path,
               startLine: getLineFromIndex(file.content, node.startIndex),
               endLine: getLineFromIndex(file.content, node.endIndex),
-              codeSnippet: node.text?.split('{')[0]?.trim() || '',
+              codeSnippet,
+              ...(qualifiers['qualifier.async'] && { isAsync: true }),
+              ...(qualifiers['qualifier.static'] && { isStatic: true }),
+              ...(visibility && { visibility }),
+              ...(returnType && { returnType }),
+              ...(parameters && { parameters }),
+              ...(canThrow && { canThrow: true }),
             });
           }
+          
+          // Mark the unqualified symbol as processed to prevent duplicate creation
+          processedSymbols.add(`${file.path}#${methodName}`);
         }
       }
     }
-    return false;
+    return true; // Return true to indicate we handled this symbol completely
   },
   parseParameters: (paramsNode: TSNode, content: string): { name: string; type?: string }[] => {
     const params: { name: string; type?: string }[] = [];
@@ -2139,14 +2276,14 @@ const languageHandlers: Record<string, Partial<LanguageHandler>> = {
   },
   typescript: {
     ...tsLangHandler,
-    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']),
+    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
   },
   javascript: {
     resolveImport: createModuleResolver(['.js', '.jsx', '.mjs', '.cjs']),
   },
   tsx: {
     ...tsLangHandler,
-    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']),
+    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
   },
   python: { 
     ...pythonHandler, 
@@ -2264,8 +2401,30 @@ export const createTreeSitterAnalyzer = (): Analyzer => {
     for (const { file, captures, langConfig } of fileParseData.values()) {
       processFileRelationships({ nodes, edges }, { ...file, path: normalizePath(file.path) }, captures, langConfig, resolver, allFilePaths);
     }
+    
+    // Phase 6: Remove redundant file-level edges when entity-level edges exist
+    const entityEdges = new Set<string>();
+    for (const edge of edges) {
+      if (edge.fromId.includes('#') && edge.toId.includes('#')) {
+        // This is an entity-level edge, track the file-level equivalent
+        const fromFile = edge.fromId.split('#')[0];
+        const toFile = edge.toId.split('#')[0];
+        entityEdges.add(`${fromFile}->${toFile}`);
+      }
+    }
+    
+    // Remove file-level edges that have corresponding entity-level edges
+    const filteredEdges = edges.filter(edge => {
+      if (!edge.fromId.includes('#') && edge.toId.includes('#')) {
+        // This is a file-to-entity edge, check if there's a corresponding entity-level edge
+        const fromFile = edge.fromId;
+        const toFile = edge.toId.split('#')[0];
+        return !entityEdges.has(`${fromFile}->${toFile}`);
+      }
+      return true;
+    });
 
-    return { nodes: Object.freeze(nodes), edges: Object.freeze(edges) };
+    return { nodes: Object.freeze(nodes), edges: Object.freeze(filteredEdges) };
   };
 };
 
@@ -2298,10 +2457,8 @@ function processFileDefinitions(
     );
 
     processSymbol(
-      { ...graph, file, node, symbolType, processedSymbols, fileState },
+      { ...graph, file, node, symbolType, processedSymbols, fileState, childCaptures },
       langConfig
-,
-      childCaptures
     );
   }
 }
@@ -2312,9 +2469,8 @@ function processFileDefinitions(
 function processSymbol(
   context: ProcessSymbolContext,
   langConfig: LanguageConfig,
-  childCaptures: TSMatch[]
 ): void {
-  const { nodes, file, node, symbolType, processedSymbols } = context;
+  const { nodes, file, node, symbolType, processedSymbols, childCaptures } = context;
   const handler = getLangHandler(langConfig.name);
 
   if (handler.shouldSkipSymbol(node, symbolType, langConfig.name)) return;
@@ -2331,9 +2487,21 @@ function processSymbol(
     qualifiers[capture.name] = capture.node;
   }
 
-  const nameNode = handler.getSymbolNameNode(declarationNode, node) 
+  let nameNode = handler.getSymbolNameNode(declarationNode, node) 
     || qualifiers['html.tag'] 
     || qualifiers['css.selector'];
+
+  // For CSS rules, extract selector from the rule_set node
+  if (symbolType === 'css_rule' && !nameNode) {
+    const selectorsNode = node.childForFieldName('selectors') || node.namedChildren.find(c => c.type === 'selectors');
+    if (selectorsNode) {
+      // Get the first selector from the selectors list
+      const firstSelector = selectorsNode.namedChildren[0];
+      if (firstSelector) {
+        nameNode = firstSelector;
+      }
+    }
+  }
 
   if (!nameNode) return;
 
@@ -2356,6 +2524,9 @@ function processSymbol(
     const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
     const isHtmlElement = symbolType === 'html_element';
     const isCssRule = symbolType === 'css_rule';
+    
+    const cssIntents = isCssRule ? getCssIntents(node, file.content) : undefined;
+    
 
     const parametersNode = qualifiers['symbol.parameters'];
     const parameters =
@@ -2366,11 +2537,29 @@ function processSymbol(
     const returnTypeNode = qualifiers['symbol.returnType'];
     const returnType = returnTypeNode ? getNodeText(returnTypeNode, file.content).replace(/^:\s*/, '') : undefined;
 
+    // Extract code snippet
+    let codeSnippet = '';
+    if (symbolType === 'variable' || symbolType === 'constant' || symbolType === 'property') {
+      const fullText = node.text;
+      const assignmentMatch = fullText.match(/=\s*(.+)$/s);
+      if (assignmentMatch && assignmentMatch[1]) {
+        codeSnippet = assignmentMatch[1].trim();
+      }
+    } else if (symbolType === 'function' || symbolType === 'method' || symbolType === 'constructor') {
+      const bodyStart = node.text.indexOf('{');
+      codeSnippet = (bodyStart > -1 ? node.text.slice(0, bodyStart) : node.text).trim();
+    } else if (symbolType === 'arrow_function') {
+      // For arrow functions, include the full arrow function syntax including {}
+      codeSnippet = node.text.trim();
+    } else {
+      codeSnippet = node.text;
+    }
+
     nodes.set(symbolId, {
       id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
       startLine: getLineFromIndex(file.content, node.startIndex),
       endLine: getLineFromIndex(file.content, node.endIndex),
-      codeSnippet: node.text?.split('{')[0]?.trim() || '',
+      codeSnippet,
       ...(qualifiers['qualifier.async'] && { isAsync: true }),
       ...(qualifiers['qualifier.static'] && { isStatic: true }),
       ...(visibility && { visibility }),
@@ -2379,6 +2568,7 @@ function processSymbol(
       ...(canThrow && { canThrow: true }),
       ...(isHtmlElement && { htmlTag: symbolName }),
       ...(isCssRule && { cssSelector: symbolName }),
+      ...(cssIntents && { cssIntents }),
     });
   }
 }
@@ -2405,23 +2595,62 @@ function processFileRelationships(
       const importedFilePath = handler.resolveImport(file.path, importIdentifier, allFilePaths);
       if (importedFilePath && graph.nodes.has(importedFilePath)) {
         const edge: CodeEdge = { fromId: file.path, toId: importedFilePath, type: 'imports' };
-        if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {
+        if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
           graph.edges.push(edge);
         }
       }
       continue;
     }
 
-    if (subtype && ['inheritance', 'implementation', 'call'].includes(subtype)) {
+    if (name === 'css.class.reference' || name === 'css.id.reference') {
+      const fromId = findEnclosingSymbolId(node, file, graph.nodes);
+      if (!fromId) continue;
+
+      const fromNode = graph.nodes.get(fromId);
+      if (fromNode?.type !== 'html_element') continue;
+
+      const text = getNodeText(node, file.content).replace(/['"`]/g, '');
+      const prefix = name === 'css.id.reference' ? '#' : '.';
+      const selectors = (prefix === '.') ? text.split(' ').filter(Boolean).map(s => '.' + s) : [prefix + text];
+
+      for (const selector of selectors) {
+        const toNode = Array.from(graph.nodes.values()).find(n => n.type === 'css_rule' && n.cssSelector === selector);
+        if (toNode) {
+          const edge: CodeEdge = { fromId, toId: toNode.id, type: 'calls' };
+          if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {
+            graph.edges.push(edge);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (subtype && ['inheritance', 'implementation', 'call', 'reference'].includes(subtype)) {
       const fromId = findEnclosingSymbolId(node, file, graph.nodes);
       if (!fromId) continue;
       const toName = getNodeText(node, file.content).replace(/<.*>$/, '');
       const toNode = resolver.resolve(toName, file.path);
       if (!toNode) continue;
       
-      const edgeType = subtype === 'inheritance' ? 'inherits' : subtype === 'implementation' ? 'implements' : 'calls';
+      // Skip self-references
+      if (fromId === toNode.id) continue;
+      
+      // Skip references within the same file unless it's a cross-entity reference
+      if (fromId.split('#')[0] === toNode.id.split('#')[0] && fromId !== file.path && toNode.id !== file.path) {
+        // Only allow cross-entity references within the same file if they're meaningful
+        // (e.g., one function calling another, not variable self-references)
+        const fromNode = graph.nodes.get(fromId);
+        if (fromNode && (fromNode.type === 'variable' || fromNode.type === 'constant') && 
+            (toNode.type === 'variable' || toNode.type === 'constant')) {
+          continue;
+        }
+      }
+      
+      const edgeType = subtype === 'inheritance' ? 'inherits' : 
+                      subtype === 'implementation' ? 'implements' : 
+                      'calls'; // Fallback for 'call' and 'reference'
       const edge: CodeEdge = { fromId, toId: toNode.id, type: edgeType };
-      if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {
+      if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
         graph.edges.push(edge);
       }
     }
@@ -2493,6 +2722,17 @@ class SymbolResolver {
 function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: ReadonlyMap<string, CodeNode>): string | null {
   let current: TSNode | null = startNode.parent;
   while (current) {
+    // For JSX elements, look for jsx_opening_element first
+    if (current.type === 'jsx_opening_element') {
+      const tagNameNode = current.childForFieldName('name');
+      if (tagNameNode) {
+        const tagName = tagNameNode.text;
+        const lineNumber = tagNameNode.startPosition.row + 1;
+        const symbolId = `${file.path}#${tagName}:${lineNumber}`;
+        if (nodes.has(symbolId)) return symbolId;
+      }
+    }
+    
     const nameNode = current.childForFieldName('name');
     if (nameNode) {
       let symbolName = nameNode.text;
