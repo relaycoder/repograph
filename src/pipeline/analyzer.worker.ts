@@ -1,7 +1,7 @@
 import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
 import { createParserForLanguage } from '../tree-sitter/languages.js';
 import type { LanguageConfig } from '../tree-sitter/language-config.js';
-import type { Analyzer, CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, UnresolvedRelation } from '../types.js';
+import type { CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, UnresolvedRelation } from '../types.js';
 
 // --- UTILITY FUNCTIONS (mirrored from original analyze.ts) ---
 
@@ -29,7 +29,7 @@ const extractCodeSnippet = (symbolType: CodeNodeType, node: TSNode): string => {
     case 'arrow_function': {
       const arrowIndex = text.indexOf('=>');
       return arrowIndex > -1 ? text.slice(0, arrowIndex).trim() : text.trim();
-    } 
+    }
     default: return text.trim();
   }
 };
@@ -37,12 +37,12 @@ const extractCodeSnippet = (symbolType: CodeNodeType, node: TSNode): string => {
 const extractQualifiers = (childCaptures: TSMatch[], fileContent: string, handler: Partial<LanguageHandler>) => {
   const qualifiers: { [key: string]: TSNode } = {};
   for (const capture of childCaptures) qualifiers[capture.name] = capture.node;
-  
+
   const visibility = (qualifiers['qualifier.visibility'] ? getNodeText(qualifiers['qualifier.visibility'], fileContent) : undefined) as CodeNodeVisibility | undefined;
   const returnType = qualifiers['symbol.returnType'] ? getNodeText(qualifiers['symbol.returnType'], fileContent).replace(/^:\s*/, '') : undefined;
   const parameters = qualifiers['symbol.parameters'] && handler.parseParameters ? handler.parseParameters(qualifiers['symbol.parameters'], fileContent) : undefined;
   const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
-  
+
   return { qualifiers, visibility, returnType, parameters, canThrow, isAsync: !!qualifiers['qualifier.async'], isStatic: !!qualifiers['qualifier.static'] };
 };
 
@@ -52,7 +52,7 @@ const getCssIntents = (ruleNode: TSNode, content: string): readonly ('layout' | 
   const typographyProps = /^(font|text-|line-height|letter-spacing|word-spacing)/;
   const appearanceProps = /^(background|border|box-shadow|opacity|color|fill|stroke|cursor)/;
   const block = ruleNode.childForFieldName('body') ?? ruleNode.namedChildren.find(c => c && c.type === 'block');
-  
+
   if (block) {
     for (const declaration of block.namedChildren) {
       if (declaration && declaration.type === 'declaration') {
@@ -321,7 +321,7 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
 
   let declarationNode = node;
   if (node.type === 'export_statement' && node.namedChildCount > 0) declarationNode = node.namedChildren[0] ?? node;
-  
+
   const q = extractQualifiers(childCaptures, file.content, handler);
   let nameNode = handler.getSymbolNameNode(declarationNode, node) || q.qualifiers['html.tag'] || q.qualifiers['css.selector'];
 
@@ -335,8 +335,8 @@ function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig
     // Handle export default anonymous functions
     if (node.type === 'export_statement') {
       const firstChild = node.firstNamedChild;
-      if (firstChild?.type === 'arrow_function' || 
-          (firstChild?.type === 'function_declaration' && !firstChild.childForFieldName('name'))) {
+      if (firstChild?.type === 'arrow_function' ||
+        (firstChild?.type === 'function_declaration' && !firstChild.childForFieldName('name'))) {
         symbolName = 'default';
       } else {
         return;
@@ -377,7 +377,7 @@ export default async function processFile({ file, langConfig }: { file: FileCont
 
   const parser = await createParserForLanguage(langConfig);
   if (!parser.language) return { nodes, relations };
-  
+
   const query = new (await import('web-tree-sitter')).Query(parser.language, langConfig.query);
   const tree = parser.parse(file.content);
   if (!tree) return { nodes, relations };
@@ -440,7 +440,7 @@ export default async function processFile({ file, langConfig }: { file: FileCont
     if (subtype && ['inheritance', 'implementation', 'call', 'reference'].includes(subtype)) {
       const fromId = findEnclosingSymbolId(node, file, nodes);
       if (!fromId) continue;
-      
+
       const toName = getNodeText(node, file.content).replace(/<.*>$/, '');
       const edgeType = subtype === 'inheritance' ? 'inherits' : subtype === 'implementation' ? 'implements' : 'reference';
       relations.push({ fromId, toName, type: edgeType });
