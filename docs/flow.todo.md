@@ -1,3 +1,7 @@
+use tsup instead, also I dont like imports with .js
+
+===
+
 bun publish
 
 ===

@@ -28,380 +28,6 @@ tsconfig.json
 
 # Files
 
-## File: src/pipeline/analyzer.worker.ts
-````typescript
-import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
-import { createParserForLanguage } from '../tree-sitter/languages.js';
-import type { LanguageConfig } from '../tree-sitter/language-config.js';
-import type { Analyzer, CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, UnresolvedRelation } from '../types.js';
-
-// --- UTILITY FUNCTIONS (mirrored from original analyze.ts) ---
-
-const getNodeText = (node: TSNode, content: string): string => content.slice(node.startIndex, node.endIndex);
-const getLineFromIndex = (content: string, index: number): number => content.substring(0, index).split('\n').length;
-
-const extractCodeSnippet = (symbolType: CodeNodeType, node: TSNode): string => {
-  const text = node.text;
-  switch (symbolType) {
-    case 'variable': case 'constant': case 'property': {
-      const assignmentMatch = text.match(/=\s*(.+)$/s);
-      return (assignmentMatch?.[1] ?? text).trim();
-    }
-    case 'field': {
-      const colonIndex = text.indexOf(':');
-      if (colonIndex !== -1) return text.substring(colonIndex).trim();
-      const equalsIndex = text.indexOf('=');
-      if (equalsIndex !== -1) return text.substring(equalsIndex).trim();
-      return text.trim();
-    }
-    case 'function': case 'method': case 'constructor': {
-      const bodyStart = text.indexOf('{');
-      return (bodyStart > -1 ? text.slice(0, bodyStart) : text).trim();
-    }
-    case 'arrow_function': return text.trim();
-    default: return text.trim();
-  }
-};
-
-const extractQualifiers = (childCaptures: TSMatch[], fileContent: string, handler: Partial<LanguageHandler>) => {
-  const qualifiers: { [key: string]: TSNode } = {};
-  for (const capture of childCaptures) qualifiers[capture.name] = capture.node;
-  
-  const visibility = (qualifiers['qualifier.visibility'] ? getNodeText(qualifiers['qualifier.visibility'], fileContent) : undefined) as CodeNodeVisibility | undefined;
-  const returnType = qualifiers['symbol.returnType'] ? getNodeText(qualifiers['symbol.returnType'], fileContent).replace(/^:\s*/, '') : undefined;
-  const parameters = qualifiers['symbol.parameters'] && handler.parseParameters ? handler.parseParameters(qualifiers['symbol.parameters'], fileContent) : undefined;
-  const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
-  
-  return { qualifiers, visibility, returnType, parameters, canThrow, isAsync: !!qualifiers['qualifier.async'], isStatic: !!qualifiers['qualifier.static'] };
-};
-
-const getCssIntents = (ruleNode: TSNode, content: string): readonly ('layout' | 'typography' | 'appearance')[] => {
-  const intents = new Set<'layout' | 'typography' | 'appearance'>();
-  const layoutProps = /^(display|position|flex|grid|width|height|margin|padding|transform|align-|justify-)/;
-  const typographyProps = /^(font|text-|line-height|letter-spacing|word-spacing)/;
-  const appearanceProps = /^(background|border|box-shadow|opacity|color|fill|stroke|cursor)/;
-  const block = ruleNode.childForFieldName('body') ?? ruleNode.namedChildren.find(c => c && c.type === 'block');
-  
-  if (block) {
-    for (const declaration of block.namedChildren) {
-      if (declaration && declaration.type === 'declaration') {
-        const propNode = declaration.namedChildren.find(c => c && c.type === 'property_name');
-        if (propNode) {
-          const propName = getNodeText(propNode, content);
-          if (layoutProps.test(propName)) intents.add('layout');
-          if (typographyProps.test(propName)) intents.add('typography');
-          if (appearanceProps.test(propName)) intents.add('appearance');
-        }
-      }
-    }
-  }
-  return Array.from(intents).sort();
-};
-
-// --- LANGUAGE-SPECIFIC LOGIC ---
-
-type LanguageHandler = {
-  preProcessFile?: (file: FileContent, captures: TSMatch[]) => Record<string, any>;
-  shouldSkipSymbol: (node: TSNode, symbolType: CodeNodeType, langName: string) => boolean;
-  getSymbolNameNode: (declarationNode: TSNode, originalNode: TSNode) => TSNode | null;
-  processComplexSymbol?: (context: ProcessSymbolContext) => boolean;
-  parseParameters?: (paramsNode: TSNode, content: string) => { name: string; type?: string }[];
-};
-
-type ProcessSymbolContext = {
-  nodes: CodeNode[];
-  file: FileContent;
-  node: TSNode;
-  symbolType: CodeNodeType;
-  processedSymbols: Set<string>;
-  fileState: Record<string, any>;
-  childCaptures: TSMatch[];
-};
-
-const pythonHandler: Partial<LanguageHandler> = {
-  getSymbolNameNode: (declarationNode: TSNode) => {
-    if (declarationNode.type === 'expression_statement') {
-      const assignmentNode = declarationNode.namedChild(0);
-      if (assignmentNode?.type === 'assignment') return assignmentNode.childForFieldName('left');
-    }
-    return declarationNode.childForFieldName('name');
-  },
-};
-
-const goLangHandler: Partial<LanguageHandler> = {
-  getSymbolNameNode: (declarationNode: TSNode) => {
-    const nodeType = declarationNode.type;
-    if (['type_declaration', 'const_declaration', 'var_declaration'].includes(nodeType)) {
-      const spec = declarationNode.namedChild(0);
-      if (spec && ['type_spec', 'const_spec', 'var_spec'].includes(spec.type)) return spec.childForFieldName('name');
-    }
-    return declarationNode.childForFieldName('name');
-  },
-};
-
-const cLangHandler: Partial<LanguageHandler> = {
-  getSymbolNameNode: (declarationNode: TSNode) => {
-    if (declarationNode.type === 'type_definition') {
-      const lastChild = declarationNode.namedChild(declarationNode.namedChildCount - 1);
-      if (lastChild?.type === 'type_identifier') return lastChild;
-    }
-    if (declarationNode.type === 'function_definition') {
-      const declarator = declarationNode.childForFieldName('declarator');
-      if (declarator?.type === 'function_declarator') {
-        const nameNode = declarator.childForFieldName('declarator');
-        if (nameNode?.type === 'identifier') return nameNode;
-      }
-    }
-    if (declarationNode.type === 'field_declaration') {
-      const declarator = declarationNode.childForFieldName('declarator');
-      if (declarator?.type === 'function_declarator') return declarator.childForFieldName('declarator');
-      return declarator;
-    }
-    return declarationNode.childForFieldName('name');
-  },
-};
-
-const tsLangHandler: Partial<LanguageHandler> = {
-  preProcessFile: (_file, captures) => {
-    const classNames = new Map<string, number>(); const duplicateClassNames = new Set<string>(); const seenClassNodes = new Set<number>();
-    for (const { name, node } of captures) {
-      if (name === 'class.definition') {
-        let classNode = node.type === 'export_statement' ? (node.namedChildren[0] ?? node) : node;
-        if (classNode.type === 'class_declaration' && !seenClassNodes.has(classNode.startIndex)) {
-          seenClassNodes.add(classNode.startIndex);
-          const nameNode = classNode.childForFieldName('name');
-          if (nameNode) {
-            const className = nameNode.text; const count = classNames.get(className) || 0;
-            classNames.set(className, count + 1);
-            if (count + 1 > 1) duplicateClassNames.add(className);
-          }
-        }
-      }
-    }
-    return { duplicateClassNames };
-  },
-  shouldSkipSymbol: (node, symbolType, langName) => {
-    if (langName !== 'typescript') return false;
-    const valueNode = node.childForFieldName('value');
-    if (valueNode?.type !== 'arrow_function') return false;
-    return (symbolType === 'field' && node.type === 'public_field_definition') || (symbolType === 'variable' && node.type === 'variable_declarator');
-  },
-  getSymbolNameNode: (declarationNode, originalNode) => {
-    if (originalNode.type === 'variable_declarator' || originalNode.type === 'public_field_definition') return originalNode.childForFieldName('name');
-    if (declarationNode.type === 'export_statement') {
-      const lexicalDecl = declarationNode.namedChildren[0];
-      if (lexicalDecl?.type === 'lexical_declaration') {
-        const varDeclarator = lexicalDecl.namedChildren[0];
-        if (varDeclarator?.type === 'variable_declarator') return varDeclarator.childForFieldName('name');
-      }
-    }
-    return declarationNode.childForFieldName('name');
-  },
-  processComplexSymbol: ({ nodes, file, node, symbolType, processedSymbols, fileState, childCaptures }) => {
-    if (symbolType !== 'method' && symbolType !== 'field') return false;
-    const classParent = node.parent?.parent;
-    if (classParent?.type === 'class_declaration') {
-      const classNameNode = classParent.childForFieldName('name');
-      if (classNameNode) {
-        const className = classNameNode.text;
-        const nameNode = node.childForFieldName('name');
-        if (nameNode && !fileState['duplicateClassNames']?.has(className)) {
-          const methodName = nameNode.text;
-          const unqualifiedSymbolId = `${file.path}#${methodName}`;
-          if (!processedSymbols.has(unqualifiedSymbolId) && !nodes.some(n => n.id === unqualifiedSymbolId)) {
-            processedSymbols.add(unqualifiedSymbolId);
-            const codeSnippet = extractCodeSnippet(symbolType, node);
-            const q = extractQualifiers(childCaptures, file.content, tsLangHandler);
-            nodes.push({
-              id: unqualifiedSymbolId, type: symbolType, name: methodName, filePath: file.path,
-              startLine: getLineFromIndex(file.content, node.startIndex), endLine: getLineFromIndex(file.content, node.endIndex),
-              codeSnippet, ...(q.isAsync && { isAsync: true }), ...(q.isStatic && { isStatic: true }),
-              ...(q.visibility && { visibility: q.visibility }), ...(q.returnType && { returnType: q.returnType }),
-              ...(q.parameters && { parameters: q.parameters }), ...(q.canThrow && { canThrow: true }),
-            });
-          }
-          processedSymbols.add(`${file.path}#${methodName}`);
-        }
-      }
-    }
-    return true;
-  },
-  parseParameters: (paramsNode: TSNode, content: string): { name: string; type?: string }[] => {
-    const params: { name: string; type?: string }[] = [];
-    for (const child of paramsNode.namedChildren) {
-      if (child && (child.type === 'required_parameter' || child.type === 'optional_parameter')) {
-        const nameNode = child.childForFieldName('pattern');
-        const typeNode = child.childForFieldName('type');
-        if (nameNode) params.push({ name: getNodeText(nameNode, content), type: typeNode ? getNodeText(typeNode, content).replace(/^:\s*/, '') : undefined });
-      }
-    }
-    return params;
-  },
-};
-
-const phpHandler: Partial<LanguageHandler> = {
-  getSymbolNameNode: (declarationNode: TSNode) => {
-    if (declarationNode.type === 'namespace_definition') return declarationNode.childForFieldName('name');
-    return declarationNode.childForFieldName('name');
-  },
-};
-
-const languageHandlers: Record<string, Partial<LanguageHandler>> = {
-  default: { shouldSkipSymbol: () => false, getSymbolNameNode: (declarationNode) => declarationNode.childForFieldName('name') },
-  typescript: tsLangHandler, tsx: tsLangHandler,
-  python: pythonHandler, go: goLangHandler, rust: goLangHandler,
-  c: cLangHandler, cpp: cLangHandler, php: phpHandler,
-};
-
-const getLangHandler = (langName: string): LanguageHandler => ({ ...languageHandlers['default'], ...languageHandlers[langName] } as LanguageHandler);
-
-function getSymbolTypeFromCapture(captureName: string, type: string): CodeNodeType | null {
-  const baseMap = new Map<string, CodeNodeType>([
-    ['class', 'class'], ['function', 'function'], ['function.arrow', 'arrow_function'], ['interface', 'interface'],
-    ['type', 'type'], ['method', 'method'], ['field', 'field'], ['struct', 'struct'], ['enum', 'enum'],
-    ['namespace', 'namespace'], ['trait', 'trait'], ['impl', 'impl'], ['constructor', 'constructor'], ['property', 'property'],
-    ['html.element', 'html_element'], ['css.rule', 'css_rule'], ['variable', 'variable'], ['constant', 'constant'],
-    ['static', 'static'], ['union', 'union'], ['template', 'template'],
-  ]);
-  return baseMap.get(captureName) ?? baseMap.get(type) ?? null;
-}
-
-function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: readonly CodeNode[]): string | null {
-  let current: TSNode | null = startNode.parent;
-  while (current) {
-    if (current.type === 'jsx_opening_element') {
-      const tagNameNode = current.childForFieldName('name');
-      if (tagNameNode) {
-        const tagName = tagNameNode.text, lineNumber = tagNameNode.startPosition.row + 1;
-        const symbolId = `${file.path}#${tagName}:${lineNumber}`;
-        if (nodes.some(n => n.id === symbolId)) return symbolId;
-      }
-    }
-    const nameNode = current.childForFieldName('name');
-    if (nameNode) {
-      let symbolName = nameNode.text;
-      if (current.type === 'method_definition' || (current.type === 'public_field_definition' && !current.text.includes('=>'))) {
-        const classNode = current.parent?.parent;
-        if (classNode?.type === 'class_declaration') symbolName = `${classNode.childForFieldName('name')?.text}.${symbolName}`;
-      }
-      const symbolId = `${file.path}#${symbolName}`;
-      if (nodes.some(n => n.id === symbolId)) return symbolId;
-    }
-    current = current.parent;
-  }
-  return file.path;
-}
-
-function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig): void {
-  const { nodes, file, node, symbolType, processedSymbols, childCaptures } = context;
-  const handler = getLangHandler(langConfig.name);
-
-  if (handler.shouldSkipSymbol(node, symbolType, langConfig.name)) return;
-  if (handler.processComplexSymbol?.(context)) return;
-
-  let declarationNode = node;
-  if (node.type === 'export_statement' && node.namedChildCount > 0) declarationNode = node.namedChildren[0] ?? node;
-  
-  const q = extractQualifiers(childCaptures, file.content, handler);
-  let nameNode = handler.getSymbolNameNode(declarationNode, node) || q.qualifiers['html.tag'] || q.qualifiers['css.selector'];
-
-  if (symbolType === 'css_rule' && !nameNode) {
-    const selectorsNode = node.childForFieldName('selectors') || node.namedChildren.find(c => c && c.type === 'selectors');
-    if (selectorsNode) nameNode = selectorsNode.namedChildren[0];
-  }
-
-  if (!nameNode) return;
-
-  let symbolName = nameNode.text, symbolId = `${file.path}#${symbolName}`;
-  if (symbolType === 'html_element') symbolId = `${file.path}#${symbolName}:${nameNode.startPosition.row + 1}`;
-
-  if (symbolName && !processedSymbols.has(symbolId) && !nodes.some(n => n.id === symbolId)) {
-    processedSymbols.add(symbolId);
-    const isHtmlElement = symbolType === 'html_element', isCssRule = symbolType === 'css_rule';
-    const cssIntents = isCssRule ? getCssIntents(node, file.content) : undefined;
-    const codeSnippet = extractCodeSnippet(symbolType, node);
-    nodes.push({
-      id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
-      startLine: getLineFromIndex(file.content, node.startIndex), endLine: getLineFromIndex(file.content, node.endIndex),
-      codeSnippet, ...(q.isAsync && { isAsync: true }), ...(q.isStatic && { isStatic: true }),
-      ...(q.visibility && { visibility: q.visibility }), ...(q.returnType && { returnType: q.returnType }),
-      ...(q.parameters && { parameters: q.parameters }), ...(q.canThrow && { canThrow: true }),
-      ...(isHtmlElement && { htmlTag: symbolName }), ...(isCssRule && { cssSelector: symbolName }),
-      ...(cssIntents && { cssIntents }),
-    });
-  }
-}
-
-// --- MAIN WORKER FUNCTION ---
-
-export default async function processFile({ file, langConfig }: { file: FileContent; langConfig: LanguageConfig; }) {
-  const nodes: CodeNode[] = [];
-  const relations: UnresolvedRelation[] = [];
-  const processedSymbols = new Set<string>();
-
-  const parser = await createParserForLanguage(langConfig);
-  if (!parser.language) return { nodes, relations };
-  
-  const query = new (await import('web-tree-sitter')).Query(parser.language, langConfig.query);
-  const tree = parser.parse(file.content);
-  const captures = query.captures(tree.rootNode);
-
-  // --- Phase 1: Definitions ---
-  const handler = getLangHandler(langConfig.name);
-  const fileState = handler.preProcessFile?.(file, captures) || {};
-  const definitionCaptures = captures.filter(({ name }) => name.endsWith('.definition'));
-  const otherCaptures = captures.filter(({ name }) => !name.endsWith('.definition'));
-
-  for (const { name, node } of definitionCaptures) {
-    const parts = name.split('.');
-    const type = parts.slice(0, -1).join('.');
-    const symbolType = getSymbolTypeFromCapture(name, type);
-    if (!symbolType) continue;
-
-    const childCaptures = otherCaptures.filter((c) => c.node.startIndex >= node.startIndex && c.node.endIndex <= node.endIndex);
-    processSymbol({ nodes, file, node, symbolType, processedSymbols, fileState, childCaptures }, langConfig);
-  }
-
-  // --- Phase 2: Relationships ---
-  for (const { name, node } of captures) {
-    const parts = name.split('.');
-    const type = parts.slice(0, -1).join('.');
-    const subtype = parts[parts.length - 1];
-
-    if (type === 'import' && subtype === 'source') {
-      relations.push({ fromId: file.path, toName: getNodeText(node, file.content).replace(/['"`]/g, ''), type: 'imports' });
-      continue;
-    }
-
-    if (name === 'css.class.reference' || name === 'css.id.reference') {
-      const fromId = findEnclosingSymbolId(node, file, nodes);
-      if (!fromId) continue;
-
-      const fromNode = nodes.find(n => n.id === fromId);
-      if (fromNode?.type !== 'html_element') continue;
-
-      const text = getNodeText(node, file.content).replace(/['"`]/g, '');
-      const prefix = name === 'css.id.reference' ? '#' : '.';
-      const selectors = (prefix === '.') ? text.split(' ').filter(Boolean).map(s => '.' + s) : [prefix + text];
-
-      for (const selector of selectors) relations.push({ fromId, toName: selector, type: 'reference' });
-      continue;
-    }
-
-    if (subtype && ['inheritance', 'implementation', 'call', 'reference'].includes(subtype)) {
-      const fromId = findEnclosingSymbolId(node, file, nodes);
-      if (!fromId) continue;
-      
-      const toName = getNodeText(node, file.content).replace(/<.*>$/, '');
-      const edgeType = subtype === 'inheritance' ? 'inherits' : subtype === 'implementation' ? 'implements' : 'reference';
-      relations.push({ fromId, toName, type: edgeType });
-    }
-  }
-
-  return { nodes, relations };
-}
-````
-
 ## File: src/utils/error.util.ts
 ````typescript
 export class RepoGraphError extends Error {
@@ -710,6 +336,461 @@ export const getParser = async (): Promise<Parser.Parser> => {
 };
 ````
 
+## File: src/pipeline/analyzer.worker.ts
+````typescript
+import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
+import { createParserForLanguage } from '../tree-sitter/languages.js';
+import type { LanguageConfig } from '../tree-sitter/language-config.js';
+import type { CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, UnresolvedRelation } from '../types.js';
+
+// --- UTILITY FUNCTIONS (mirrored from original analyze.ts) ---
+
+const getNodeText = (node: TSNode, content: string): string => content.slice(node.startIndex, node.endIndex);
+const getLineFromIndex = (content: string, index: number): number => content.substring(0, index).split('\n').length;
+
+const extractCodeSnippet = (symbolType: CodeNodeType, node: TSNode): string => {
+  const text = node.text;
+  switch (symbolType) {
+    case 'variable': case 'constant': case 'property': {
+      const assignmentMatch = text.match(/=\s*(.+)$/s);
+      return (assignmentMatch?.[1] ?? text).trim();
+    }
+    case 'field': {
+      const colonIndex = text.indexOf(':');
+      if (colonIndex !== -1) return text.substring(colonIndex).trim();
+      const equalsIndex = text.indexOf('=');
+      if (equalsIndex !== -1) return text.substring(equalsIndex).trim();
+      return text.trim();
+    }
+    case 'function': case 'method': case 'constructor': {
+      const bodyStart = text.indexOf('{');
+      return (bodyStart > -1 ? text.slice(0, bodyStart) : text).trim();
+    }
+    case 'arrow_function': {
+      const arrowIndex = text.indexOf('=>');
+      return arrowIndex > -1 ? text.slice(0, arrowIndex).trim() : text.trim();
+    }
+    default: return text.trim();
+  }
+};
+
+const extractQualifiers = (childCaptures: TSMatch[], fileContent: string, handler: Partial<LanguageHandler>) => {
+  const qualifiers: { [key: string]: TSNode } = {};
+  for (const capture of childCaptures) qualifiers[capture.name] = capture.node;
+
+  const visibility = (qualifiers['qualifier.visibility'] ? getNodeText(qualifiers['qualifier.visibility'], fileContent) : undefined) as CodeNodeVisibility | undefined;
+  const returnType = qualifiers['symbol.returnType'] ? getNodeText(qualifiers['symbol.returnType'], fileContent).replace(/^:\s*/, '') : undefined;
+  const parameters = qualifiers['symbol.parameters'] && handler.parseParameters ? handler.parseParameters(qualifiers['symbol.parameters'], fileContent) : undefined;
+  const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
+
+  return { qualifiers, visibility, returnType, parameters, canThrow, isAsync: !!qualifiers['qualifier.async'], isStatic: !!qualifiers['qualifier.static'] };
+};
+
+const getCssIntents = (ruleNode: TSNode, content: string): readonly ('layout' | 'typography' | 'appearance')[] => {
+  const intents = new Set<'layout' | 'typography' | 'appearance'>();
+  const layoutProps = /^(display|position|flex|grid|width|height|margin|padding|transform|align-|justify-)/;
+  const typographyProps = /^(font|text-|line-height|letter-spacing|word-spacing)/;
+  const appearanceProps = /^(background|border|box-shadow|opacity|color|fill|stroke|cursor)/;
+  const block = ruleNode.childForFieldName('body') ?? ruleNode.namedChildren.find(c => c && c.type === 'block');
+
+  if (block) {
+    for (const declaration of block.namedChildren) {
+      if (declaration && declaration.type === 'declaration') {
+        const propNode = declaration.namedChildren.find(c => c && c.type === 'property_name');
+        if (propNode) {
+          const propName = getNodeText(propNode, content);
+          if (layoutProps.test(propName)) intents.add('layout');
+          if (typographyProps.test(propName)) intents.add('typography');
+          if (appearanceProps.test(propName)) intents.add('appearance');
+        }
+      }
+    }
+  }
+  return Array.from(intents).sort();
+};
+
+// --- LANGUAGE-SPECIFIC LOGIC ---
+
+type LanguageHandler = {
+  preProcessFile?: (file: FileContent, captures: TSMatch[]) => Record<string, any>;
+  shouldSkipSymbol: (node: TSNode, symbolType: CodeNodeType, langName: string) => boolean;
+  getSymbolNameNode: (declarationNode: TSNode, originalNode: TSNode) => TSNode | null;
+  processComplexSymbol?: (context: ProcessSymbolContext) => boolean;
+  parseParameters?: (paramsNode: TSNode, content: string) => { name: string; type?: string }[];
+};
+
+type ProcessSymbolContext = {
+  nodes: CodeNode[];
+  file: FileContent;
+  node: TSNode;
+  symbolType: CodeNodeType;
+  processedSymbols: Set<string>;
+  fileState: Record<string, any>;
+  childCaptures: TSMatch[];
+};
+
+const pythonHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    if (declarationNode.type === 'expression_statement') {
+      const assignmentNode = declarationNode.namedChild(0);
+      if (assignmentNode?.type === 'assignment') return assignmentNode.childForFieldName('left');
+    }
+    return declarationNode.childForFieldName('name');
+  },
+};
+
+const goLangHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    const nodeType = declarationNode.type;
+    if (['type_declaration', 'const_declaration', 'var_declaration'].includes(nodeType)) {
+      const spec = declarationNode.namedChild(0);
+      if (spec && ['type_spec', 'const_spec', 'var_spec'].includes(spec.type)) return spec.childForFieldName('name');
+    }
+    return declarationNode.childForFieldName('name');
+  },
+};
+
+const cLangHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    if (declarationNode.type === 'type_definition') {
+      const lastChild = declarationNode.namedChild(declarationNode.namedChildCount - 1);
+      if (lastChild?.type === 'type_identifier') return lastChild;
+    }
+    if (declarationNode.type === 'function_definition') {
+      const declarator = declarationNode.childForFieldName('declarator');
+      if (declarator?.type === 'function_declarator') {
+        const nameNode = declarator.childForFieldName('declarator');
+        if (nameNode?.type === 'identifier') return nameNode;
+      }
+    }
+    if (declarationNode.type === 'field_declaration') {
+      const declarator = declarationNode.childForFieldName('declarator');
+      if (declarator?.type === 'function_declarator') return declarator.childForFieldName('declarator');
+      return declarator;
+    }
+    return declarationNode.childForFieldName('name');
+  },
+};
+
+const tsLangHandler: Partial<LanguageHandler> = {
+  preProcessFile: (_file, captures) => {
+    const classNames = new Map<string, number>(); const duplicateClassNames = new Set<string>(); const seenClassNodes = new Set<number>();
+    for (const { name, node } of captures) {
+      if (name === 'class.definition') {
+        let classNode = node.type === 'export_statement' ? (node.namedChildren[0] ?? node) : node;
+        if (classNode.type === 'class_declaration' && !seenClassNodes.has(classNode.startIndex)) {
+          seenClassNodes.add(classNode.startIndex);
+          const nameNode = classNode.childForFieldName('name');
+          if (nameNode) {
+            const className = nameNode.text; const count = classNames.get(className) || 0;
+            classNames.set(className, count + 1);
+            if (count + 1 > 1) duplicateClassNames.add(className);
+          }
+        }
+      }
+    }
+    return { duplicateClassNames };
+  },
+  shouldSkipSymbol: (node, symbolType, langName) => {
+    if (langName !== 'typescript') return false;
+    const valueNode = node.childForFieldName('value');
+    if (valueNode?.type !== 'arrow_function') return false;
+    return (symbolType === 'field' && node.type === 'public_field_definition') || (symbolType === 'variable' && node.type === 'variable_declarator');
+  },
+  getSymbolNameNode: (declarationNode, originalNode) => {
+    if (originalNode.type === 'variable_declarator' || originalNode.type === 'public_field_definition') return originalNode.childForFieldName('name');
+    if (declarationNode.type === 'export_statement') {
+      const { firstNamedChild } = declarationNode;
+      if (firstNamedChild?.type === 'arrow_function') {
+        // For export default arrow functions, create a synthetic 'default' name
+        return null; // Will be handled by fallback logic below
+      }
+      // Handle `export default function() {}`
+      if (firstNamedChild?.type === 'function_declaration' && !firstNamedChild.childForFieldName('name')) {
+        return null; // Will be handled by fallback logic below
+      }
+      const lexicalDecl = declarationNode.namedChildren[0];
+      if (lexicalDecl?.type === 'lexical_declaration') {
+        const varDeclarator = lexicalDecl.namedChildren[0];
+        if (varDeclarator?.type === 'variable_declarator') return varDeclarator.childForFieldName('name');
+      }
+    }
+    return declarationNode.childForFieldName('name');
+  },
+  processComplexSymbol: ({ nodes, file, node, symbolType, processedSymbols, fileState, childCaptures }) => {
+    if (symbolType !== 'method' && symbolType !== 'field') return false;
+    const classParent = node.parent?.parent;
+    if (classParent?.type === 'class_declaration') {
+      const classNameNode = classParent.childForFieldName('name');
+      if (classNameNode) {
+        const className = classNameNode.text;
+        const nameNode = node.childForFieldName('name');
+        if (nameNode && !fileState['duplicateClassNames']?.has(className)) {
+          const methodName = nameNode.text;
+          const unqualifiedSymbolId = `${file.path}#${methodName}`;
+          if (!processedSymbols.has(unqualifiedSymbolId) && !nodes.some(n => n.id === unqualifiedSymbolId)) {
+            processedSymbols.add(unqualifiedSymbolId);
+            const codeSnippet = extractCodeSnippet(symbolType, node);
+            const q = extractQualifiers(childCaptures, file.content, tsLangHandler);
+            nodes.push({
+              id: unqualifiedSymbolId, type: symbolType, name: methodName, filePath: file.path,
+              startLine: getLineFromIndex(file.content, node.startIndex), endLine: getLineFromIndex(file.content, node.endIndex),
+              codeSnippet, ...(q.isAsync && { isAsync: true }), ...(q.isStatic && { isStatic: true }),
+              ...(q.visibility && { visibility: q.visibility }), ...(q.returnType && { returnType: q.returnType }),
+              ...(q.parameters && { parameters: q.parameters }), ...(q.canThrow && { canThrow: true }),
+            });
+          }
+          processedSymbols.add(`${file.path}#${methodName}`);
+        }
+      }
+    }
+    return true;
+  },
+  parseParameters: (paramsNode: TSNode, content: string): { name: string; type?: string }[] => {
+    const params: { name: string; type?: string }[] = [];
+    // Handle object destructuring in props: `({ prop1, prop2 })`
+    if (paramsNode.type === 'object_pattern') {
+      for (const child of paramsNode.namedChildren) {
+        if (child && (child.type === 'shorthand_property_identifier' || child.type === 'property_identifier')) {
+          params.push({ name: getNodeText(child, content), type: '#' });
+        }
+      }
+      return params;
+    }
+
+    for (const child of paramsNode.namedChildren) {
+      if (child && (child.type === 'required_parameter' || child.type === 'optional_parameter')) {
+        const nameNode = child.childForFieldName('pattern');
+        const typeNode = child.childForFieldName('type');
+        if (nameNode) params.push({ name: getNodeText(nameNode, content), type: typeNode ? getNodeText(typeNode, content).replace(/^:\s*/, '') : undefined });
+      }
+    }
+    return params;
+  },
+};
+
+const phpHandler: Partial<LanguageHandler> = {
+  getSymbolNameNode: (declarationNode: TSNode) => {
+    if (declarationNode.type === 'namespace_definition') return declarationNode.childForFieldName('name');
+    return declarationNode.childForFieldName('name');
+  },
+};
+
+const languageHandlers: Record<string, Partial<LanguageHandler>> = {
+  default: { shouldSkipSymbol: () => false, getSymbolNameNode: (declarationNode) => declarationNode.childForFieldName('name') },
+  typescript: tsLangHandler, tsx: tsLangHandler,
+  python: pythonHandler, go: goLangHandler, rust: goLangHandler,
+  c: cLangHandler, cpp: cLangHandler, php: phpHandler,
+};
+
+const getLangHandler = (langName: string): LanguageHandler => ({ ...languageHandlers['default'], ...languageHandlers[langName] } as LanguageHandler);
+
+function getSymbolTypeFromCapture(captureName: string, type: string): CodeNodeType | null {
+  const baseMap = new Map<string, CodeNodeType>([
+    ['class', 'class'], ['function', 'function'], ['function.arrow', 'arrow_function'], ['interface', 'interface'],
+    ['type', 'type'], ['method', 'method'], ['field', 'field'], ['struct', 'struct'], ['enum', 'enum'],
+    ['namespace', 'namespace'], ['trait', 'trait'], ['impl', 'impl'], ['constructor', 'constructor'], ['property', 'property'],
+    ['html.element', 'html_element'], ['css.rule', 'css_rule'], ['variable', 'variable'], ['constant', 'constant'],
+    ['static', 'static'], ['union', 'union'], ['template', 'template'],
+  ]);
+  return baseMap.get(captureName) ?? baseMap.get(type) ?? null;
+}
+
+function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: readonly CodeNode[]): string | null {
+  let current: TSNode | null = startNode.parent;
+  while (current) {
+    const nodeType = current.type;
+    // Prioritize function-like parents for accurate call linking
+    if (['function_declaration', 'method_definition', 'arrow_function', 'function_definition'].includes(nodeType)) {
+      const nameNode = current.childForFieldName('name');
+      if (nameNode) {
+        let symbolName = nameNode.text;
+        // Handle class methods
+        if (nodeType === 'method_definition') {
+          const classNode = current.parent?.parent;
+          if (classNode?.type === 'class_declaration') {
+            const className = classNode.childForFieldName('name')?.text;
+            if (className) symbolName = `${className}.${symbolName}`;
+          }
+        }
+        const symbolId = `${file.path}#${symbolName}`;
+        if (nodes.some(n => n.id === symbolId)) return symbolId;
+      }
+    }
+    // Fallback for other symbol types
+    if (current.type === 'jsx_opening_element') {
+      const tagNameNode = current.childForFieldName('name');
+      if (tagNameNode) {
+        const tagName = tagNameNode.text, lineNumber = tagNameNode.startPosition.row + 1;
+        const symbolId = `${file.path}#${tagName}:${lineNumber}`;
+        if (nodes.some(n => n.id === symbolId)) return symbolId;
+      }
+    }
+    const nameNode = current.childForFieldName('name');
+    if (nameNode) {
+      let symbolName = nameNode.text;
+      if (current.type === 'method_definition' || (current.type === 'public_field_definition' && !current.text.includes('=>'))) {
+        const classNode = current.parent?.parent;
+        if (classNode?.type === 'class_declaration') symbolName = `${classNode.childForFieldName('name')?.text}.${symbolName}`;
+      }
+      const symbolId = `${file.path}#${symbolName}`;
+      if (nodes.some(n => n.id === symbolId)) return symbolId;
+    }
+    current = current.parent;
+  }
+  return file.path;
+}
+
+function processSymbol(context: ProcessSymbolContext, langConfig: LanguageConfig): void {
+  const { nodes, file, node, symbolType, processedSymbols, childCaptures } = context;
+  const handler = getLangHandler(langConfig.name);
+
+  if (handler.shouldSkipSymbol(node, symbolType, langConfig.name)) return;
+  if (handler.processComplexSymbol?.(context)) return;
+
+  // Skip local variable declarations inside functions
+  if (symbolType === 'variable') {
+    let current = node.parent;
+    while (current) {
+      if (['function_declaration', 'arrow_function', 'method_definition'].includes(current.type)) {
+        return; // Skip this variable as it's inside a function
+      }
+      current = current.parent;
+    }
+  }
+
+  let declarationNode = node;
+  if (node.type === 'export_statement' && node.namedChildCount > 0) declarationNode = node.namedChildren[0] ?? node;
+
+  const q = extractQualifiers(childCaptures, file.content, handler);
+  let nameNode = handler.getSymbolNameNode(declarationNode, node) || q.qualifiers['html.tag'] || q.qualifiers['css.selector'];
+
+  if (symbolType === 'css_rule' && !nameNode) {
+    const selectorsNode = node.childForFieldName('selectors') || node.namedChildren.find(c => c && c.type === 'selectors');
+    if (selectorsNode) nameNode = selectorsNode.namedChildren[0] ?? undefined;
+  }
+
+  let symbolName: string;
+  if (!nameNode) {
+    // Handle export default anonymous functions
+    if (node.type === 'export_statement') {
+      const firstChild = node.firstNamedChild;
+      if (firstChild?.type === 'arrow_function' ||
+        (firstChild?.type === 'function_declaration' && !firstChild.childForFieldName('name'))) {
+        symbolName = 'default';
+      } else {
+        return;
+      }
+    } else {
+      return;
+    }
+  } else {
+    symbolName = nameNode.text;
+  }
+
+  let symbolId = `${file.path}#${symbolName}`;
+  if (symbolType === 'html_element' && nameNode) symbolId = `${file.path}#${symbolName}:${nameNode.startPosition.row + 1}`;
+
+  if (symbolName && !processedSymbols.has(symbolId) && !nodes.some(n => n.id === symbolId)) {
+    processedSymbols.add(symbolId);
+    const isHtmlElement = symbolType === 'html_element', isCssRule = symbolType === 'css_rule';
+    const cssIntents = isCssRule ? getCssIntents(node, file.content) : undefined;
+    const codeSnippet = extractCodeSnippet(symbolType, node);
+    nodes.push({
+      id: symbolId, type: symbolType, name: symbolName, filePath: file.path,
+      startLine: getLineFromIndex(file.content, node.startIndex), endLine: getLineFromIndex(file.content, node.endIndex),
+      codeSnippet, ...(q.isAsync && { isAsync: true }), ...(q.isStatic && { isStatic: true }),
+      ...(q.visibility && { visibility: q.visibility }), ...(q.returnType && { returnType: q.returnType }),
+      ...(q.parameters && { parameters: q.parameters }), ...(q.canThrow && { canThrow: true }),
+      ...(isHtmlElement && { htmlTag: symbolName }), ...(isCssRule && { cssSelector: symbolName }),
+      ...(cssIntents && { cssIntents }),
+    });
+  }
+}
+
+// --- MAIN WORKER FUNCTION ---
+
+export default async function processFile({ file, langConfig }: { file: FileContent; langConfig: LanguageConfig; }) {
+  const nodes: CodeNode[] = [];
+  const relations: UnresolvedRelation[] = [];
+  const processedSymbols = new Set<string>();
+
+  const parser = await createParserForLanguage(langConfig);
+  if (!parser.language) return { nodes, relations };
+
+  const query = new (await import('web-tree-sitter')).Query(parser.language, langConfig.query);
+  const tree = parser.parse(file.content);
+  if (!tree) return { nodes, relations };
+  const captures = query.captures(tree.rootNode);
+
+  // --- Phase 1: Definitions ---
+  const handler = getLangHandler(langConfig.name);
+  const fileState = handler.preProcessFile?.(file, captures) || {};
+  const definitionCaptures = captures.filter(({ name }) => name.endsWith('.definition'));
+  const otherCaptures = captures.filter(({ name }) => !name.endsWith('.definition'));
+
+  for (const { name, node } of definitionCaptures) {
+    const parts = name.split('.');
+    const type = parts.slice(0, -1).join('.');
+    const symbolType = getSymbolTypeFromCapture(name, type);
+    if (!symbolType) continue;
+
+    const childCaptures = otherCaptures.filter((c) => c.node.startIndex >= node.startIndex && c.node.endIndex <= node.endIndex);
+    processSymbol({ nodes, file, node, symbolType, processedSymbols, fileState, childCaptures }, langConfig);
+  }
+
+  // --- Phase 2: Relationships ---
+  for (const { name, node } of captures) {
+    const parts = name.split('.');
+    const type = parts.slice(0, -1).join('.');
+    const subtype = parts[parts.length - 1];
+
+    if (type === 'import' && subtype === 'source') {
+      const importPath = getNodeText(node, file.content).replace(/['"`]/g, '');
+      relations.push({ fromId: file.path, toName: importPath, type: 'imports' });
+
+      // Handle re-exports, e.g., `export * from './other';`
+      const exportParent = node.parent?.parent;
+      if (exportParent?.type === 'export_statement') {
+        // This creates a file-level dependency, which is what SCN represents.
+        // NOTE: The 'exports' relation type is not defined, causing a TS error.
+        // A simple 'imports' relation is already created above, which is sufficient
+        // for file-level dependency tracking. Deeper re-export symbol resolution
+        // is not yet implemented.
+        // relations.push({ fromId: file.path, toName: importPath, type: 'exports' });
+      }
+      continue;
+    }
+
+    if (name === 'css.class.reference' || name === 'css.id.reference') {
+      const fromId = findEnclosingSymbolId(node, file, nodes);
+      if (!fromId) continue;
+
+      const fromNode = nodes.find(n => n.id === fromId);
+      if (fromNode?.type !== 'html_element') continue;
+
+      const text = getNodeText(node, file.content).replace(/['"`]/g, '');
+      const prefix = name === 'css.id.reference' ? '#' : '.';
+      const selectors = (prefix === '.') ? text.split(' ').filter(Boolean).map(s => '.' + s) : [prefix + text];
+
+      for (const selector of selectors) relations.push({ fromId, toName: selector, type: 'reference' });
+      continue;
+    }
+
+    if (subtype && ['inheritance', 'implementation', 'call', 'reference'].includes(subtype)) {
+      const fromId = findEnclosingSymbolId(node, file, nodes);
+      if (!fromId) continue;
+
+      const toName = getNodeText(node, file.content).replace(/<.*>$/, '');
+      const edgeType = subtype === 'inheritance' ? 'inherits' : subtype === 'implementation' ? 'implements' : 'reference';
+      relations.push({ fromId, toName, type: edgeType });
+    }
+  }
+
+  return { nodes, relations };
+}
+````
+
 ## File: src/tree-sitter/queries.ts
 ````typescript
 import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config.js';
@@ -937,99 +1018,6 @@ export const createMarkdownRenderer = (): Renderer => {
 };
 ````
 
-## File: src/high-level.ts
-````typescript
-import { createDefaultDiscoverer } from './pipeline/discover.js';
-import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
-import { createPageRanker, createGitRanker } from './pipeline/rank.js';
-import { createMarkdownRenderer } from './pipeline/render.js';
-import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
-import path from 'node:path';
-import { logger } from './utils/logger.util.js';
-import { writeFile } from './utils/fs.util.js';
-import { RepoGraphError } from './utils/error.util.js';
-
-const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pagerank'): Ranker => {
-  if (rankingStrategy === 'git-changes') {
-    return createGitRanker();
-  }
-  if (rankingStrategy === 'pagerank') {
-    return createPageRanker();
-  }
-  throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
-};
-
-/**
- * A mid-level API for programmatically generating and receiving the code graph
- * without rendering it to a file. Ideal for integration with other tools.
- *
- * @param options The configuration object for generating the map.
- * @returns The generated `RankedCodeGraph`.
- */
-export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
-  const { root = process.cwd(), logLevel = 'info', include, ignore, noGitignore, maxWorkers } = options;
-
-  if (logLevel) {
-    logger.setLevel(logLevel);
-  }
-
-  // Validate options before entering the main try...catch block to provide clear errors.
-  const ranker = selectRanker(options.rankingStrategy);
-
-  try {
-    logger.info('1/3 Discovering files...');
-    const discoverer = createDefaultDiscoverer();
-    const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
-    logger.debug(`  -> Found ${files.length} files to analyze.`);
-
-    logger.info('2/3 Analyzing code and building graph...');
-    const analyzer = createTreeSitterAnalyzer({ maxWorkers });
-    const graph = await analyzer(files);
-    logger.debug(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
-
-    logger.info('3/3 Ranking graph nodes...');
-    const rankedGraph = await ranker(graph);
-    logger.debug('  -> Ranking complete.');
-
-    return rankedGraph;
-  } catch (error) {
-    throw new RepoGraphError(`Failed to analyze project`, error);
-  }
-};
-
-/**
- * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
- * default pipeline based on a configuration object to generate a codemap.
- *
- * @param options The configuration object for generating the map.
- */
-export const generateMap = async (options: RepoGraphOptions = {}): Promise<void> => {
-  const {
-    root = process.cwd(),
-    output = './repograph.md',
-  } = options;
-
-  try {
-    // We get the full ranked graph first
-    const rankedGraph = await analyzeProject(options);
-
-    logger.info('4/4 Rendering output...');
-    const renderer = createMarkdownRenderer();
-    const markdown = renderer(rankedGraph, options.rendererOptions);
-    logger.debug('  -> Rendering complete.');
-
-    const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
-
-    logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
-    await writeFile(outputPath, markdown);
-    logger.info('  -> Report saved.');
-  } catch (error) {
-    // The underlying `analyzeProject` already wraps the error, so we just re-throw.
-    throw error;
-  }
-};
-````
-
 ## File: src/pipeline/discover.ts
 ````typescript
 import { globby } from 'globby';
@@ -1226,6 +1214,101 @@ export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker =
 };
 ````
 
+## File: src/high-level.ts
+````typescript
+import { createDefaultDiscoverer } from './pipeline/discover.js';
+import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+import { createMarkdownRenderer } from './pipeline/render.js';
+import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
+import path from 'node:path';
+import { logger } from './utils/logger.util.js';
+import { writeFile } from './utils/fs.util.js';
+import { RepoGraphError } from './utils/error.util.js';
+
+const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pagerank'): Ranker => {
+  if (rankingStrategy === 'git-changes') {
+    return createGitRanker();
+  }
+  if (rankingStrategy === 'pagerank') {
+    return createPageRanker();
+  }
+  throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+};
+
+/**
+ * A mid-level API for programmatically generating and receiving the code graph
+ * without rendering it to a file. Ideal for integration with other tools.
+ *
+ * @param options The configuration object for generating the map.
+ * @returns The generated `RankedCodeGraph`.
+ */
+export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
+  const { root = process.cwd(), logLevel, include, ignore, noGitignore, maxWorkers } = options;
+
+  if (logLevel) {
+    logger.setLevel(logLevel);
+  }
+
+  // Validate options before entering the main try...catch block to provide clear errors.
+  const ranker = selectRanker(options.rankingStrategy);
+
+  try {
+    logger.info('1/3 Discovering files...');
+    const discoverer = createDefaultDiscoverer();
+    const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+    logger.debug(`  -> Found ${files.length} files to analyze.`);
+
+    logger.info('2/3 Analyzing code and building graph...');
+    const analyzer = createTreeSitterAnalyzer({ maxWorkers });
+    const graph = await analyzer(files);
+    logger.debug(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+    logger.info('3/3 Ranking graph nodes...');
+    const rankedGraph = await ranker(graph);
+    logger.debug('  -> Ranking complete.');
+
+    return rankedGraph;
+  } catch (error) {
+    throw new RepoGraphError(`Failed to analyze project`, error);
+  }
+};
+
+/**
+ * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+ * default pipeline based on a configuration object to generate a codemap.
+ *
+ * @param options The configuration object for generating the map.
+ */
+export const generateMap = async (options: RepoGraphOptions = {}): Promise<void> => {
+  const finalOptions = { ...options, logLevel: options.logLevel ?? 'info' };
+
+  const {
+    root = process.cwd(),
+    output = './repograph.md',
+  } = finalOptions;
+
+  try {
+    // We get the full ranked graph first
+    const rankedGraph = await analyzeProject(finalOptions);
+
+    logger.info('4/4 Rendering output...');
+    const renderer = createMarkdownRenderer();
+    const markdown = renderer(rankedGraph, finalOptions.rendererOptions);
+    logger.debug('  -> Rendering complete.');
+
+    const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+    logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+    await writeFile(outputPath, markdown);
+    logger.info('  -> Report saved.');
+  } catch (error) {
+    // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+    throw error;
+  }
+};
+````
+
 ## File: src/composer.ts
 ````typescript
 import path from 'node:path';
@@ -1374,6 +1457,29 @@ const TS_BASE_QUERY = `
   )
 ) @function.arrow.definition
 
+; Export default arrow function: export default () => {}
+(export_statement
+  value: (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+
+; Alternative pattern for export default arrow function
+(export_statement
+  (arrow_function
+    ("async")? @qualifier.async
+    parameters: (formal_parameters)? @symbol.parameters
+    return_type: (type_annotation)? @symbol.returnType
+  )
+) @function.arrow.definition
+
+; Export star statements: export * from './module'
+(export_statement
+  source: (string) @import.source
+) @import.statement
+
 (interface_declaration) @interface.definition
 (export_statement declaration: (interface_declaration)) @interface.definition
 
@@ -1406,6 +1512,10 @@ const TS_BASE_QUERY = `
 
 (call_expression
   function: (identifier) @function.call)
+
+(call_expression
+  function: (member_expression
+    property: (property_identifier) @function.call))
 
 (identifier) @identifier.reference
 
@@ -2136,7 +2246,7 @@ export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions)
 ````json
 {
   "name": "repograph",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
   "type": "module",
   "main": "./dist/index.js",
@@ -2249,6 +2359,11 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
   const basedir = normalizePath(path.dirname(fromFile));
   const importPath = normalizePath(path.join(basedir, sourcePath));
 
+  // First, check if the path as-is (with extension) exists
+  if (path.extname(importPath) && allFiles.includes(importPath)) {
+    return importPath;
+  }
+
   const parsedPath = path.parse(importPath);
   const basePath = normalizePath(path.join(parsedPath.dir, parsedPath.name));
   for (const ext of extensions) {
@@ -2322,7 +2437,7 @@ const languageImportResolvers: Record<string, ImportResolver> = {
   },
 };
 
-const getImportResolver = (langName: string): ImportResolver => languageImportResolvers[langName] ?? languageImportResolvers['default'];
+const getImportResolver = (langName: string): ImportResolver => languageImportResolvers[langName] ?? languageImportResolvers['default']!;
 
 class SymbolResolver {
   private fileImports = new Map<string, string[]>();
@@ -2438,7 +2553,7 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
     for (const rel of unresolvedRelations) {
         if (rel.type === 'imports') continue; // Already handled
         
-        const toNode = symbolResolver.resolve(rel.toName, rel.fromId.split('#')[0]);
+        const toNode = symbolResolver.resolve(rel.toName, rel.fromId.split('#')[0]!);
         if (toNode && rel.fromId !== toNode.id) {
           const edgeType = rel.type === 'reference' ? 'calls' : rel.type;
           edges.push({ fromId: rel.fromId, toId: toNode.id, type: edgeType });
