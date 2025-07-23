@@ -6,7 +6,7 @@
 
 ### Your Codebase, Visualized & Understood.
 
-**Generate rich, semantic, and interactive codemaps to navigate, analyze, and master any repository.**
+**Generate rich, semantic, and interactive codemaps to navigate, analyze, and master any repository. Works in both Node.js and browser environments.**
 
 [![NPM Version](https://img.shields.io/npm/v/repograph?style=for-the-badge&color=CB3837)](https://www.npmjs.com/package/repograph)
 [![License](https://img.shields.io/npm/l/repograph?style=for-the-badge&color=blue)](./LICENSE)
@@ -19,7 +19,7 @@
 
 Ever felt lost in a new codebase? Struggled to see the big picture or find the most critical files? RepoGraph is your solution. It's a powerful command-line tool and library that analyzes your code, builds a dependency graph, ranks key files and symbols, and generates a beautiful, detailed Markdown report.
 
-Whether you're onboarding new engineers, planning a large-scale refactor, or even providing context to an AI, RepoGraph gives you the map you need to navigate with confidence.
+Whether you're onboarding new engineers, planning a large-scale refactor, providing context to an AI, or building browser-based code analysis tools, RepoGraph gives you the map you need to navigate with confidence.
 
 ## ✨ Key Features & Benefits
 
@@ -33,6 +33,7 @@ Whether you're onboarding new engineers, planning a large-scale refactor, or eve
 | **📊 Automatic Mermaid.js Graphs**     | Visualize your module dependencies with an automatically generated, easy-to-read Mermaid diagram right in your report.                                       |
 | **🧩 Composable Pipeline API**         | A fully functional, composable API allows you to replace or extend any part of the pipeline: **Discover → Analyze → Rank → Render**.                         |
 | **⚙️ Highly Configurable CLI**          | Fine-tune your analysis and output with a rich set of command-line flags to include/ignore files, customize the report, and more.                            |
+| **🌐 Browser Compatible**               | Works in modern browsers with Vite, Webpack, and other bundlers. Analyze code client-side without filesystem dependencies.                                   |
 
 ## 🚀 Why Use RepoGraph?
 
@@ -41,6 +42,7 @@ Whether you're onboarding new engineers, planning a large-scale refactor, or eve
 -   **Prioritize Refactoring:** Identify highly-central but frequently changed files—prime candidates for refactoring and stabilization.
 -   **Enhance AI Context:** Feed a structured, ranked, and semantically-rich overview of your codebase to LLMs for vastly improved code generation, analysis, and Q&A.
 -   **Power Advanced Tooling:** The rich, structured data output is a perfect foundation for sophisticated tools like `scn-ts` to generate specialized visualizations and representations.
+-   **Build Browser Applications:** Create web-based code analysis tools, online IDEs, or client-side code exploration applications.
 -   **Streamline Architectural Reviews:** Get a high-level, data-driven view of your system's architecture to facilitate design discussions.
 
 ## 📸 Gallery: Example Output
@@ -203,7 +205,111 @@ repograph ./my-cool-project \
 | `--no-symbol-snippets`        |       | Hide code snippets for symbols.                                 | `false`          |
 | `--max-relations-to-show <num>` |       | Max number of 'calls' relations to show per symbol.             | `3`              |
 
-### 📚 Programmatic API
+### 🌐 Browser Usage
+
+RepoGraph now works in modern browsers! Perfect for building web-based code analysis tools, online IDEs, or client-side code exploration applications.
+
+#### Setup for Browser
+
+1. **Install the package:**
+   ```bash
+   npm install repograph
+   ```
+
+2. **Copy WASM files** (if using with scn-ts):
+   ```bash
+   npx scn-ts copy-wasm public/wasm
+   ```
+
+3. **Configure your bundler:**
+
+   **Vite:**
+   ```javascript
+   // vite.config.js
+   export default {
+     optimizeDeps: {
+       exclude: ['repograph'],
+     },
+     assetsInclude: ['**/*.wasm'],
+   }
+   ```
+
+   **Webpack:**
+   ```javascript
+   // webpack.config.js
+   module.exports = {
+     resolve: {
+       fallback: {
+         "fs": false,
+         "path": false,
+         "process": false
+       }
+     }
+   };
+   ```
+
+#### Browser API Usage
+
+```typescript
+import { analyzeProjectFromMemory, generateMapFromMemory } from 'repograph/dist/index.browser.js';
+
+// Load file contents manually (fetch, file input, etc.)
+const fileContents = new Map([
+  ['src/index.ts', 'export function hello() { return "world"; }'],
+  ['src/utils.ts', 'export const config = { version: "1.0.0" };'],
+  ['src/types.ts', 'export interface User { id: number; name: string; }']
+]);
+
+// Analyze and generate a map
+const map = await generateMapFromMemory({
+  include: ['src/**/*.ts'],
+  exclude: ['**/*.test.ts'],
+  maxWorkers: 1, // Recommended for browser
+  rendererOptions: {
+    includeMermaidGraph: true,
+    topFileCount: 10
+  }
+}, fileContents);
+
+console.log(map.content); // Markdown report
+console.log(map.metadata); // Analysis metadata
+```
+
+#### Loading Files in Browser
+
+```typescript
+// Option 1: File input
+async function handleFileUpload(files: FileList) {
+  const fileContents = new Map<string, string>();
+  
+  for (const file of files) {
+    const content = await file.text();
+    fileContents.set(file.name, content);
+  }
+  
+  return fileContents;
+}
+
+// Option 2: Fetch from API
+async function loadFromServer(projectId: string) {
+  const response = await fetch(`/api/projects/${projectId}/files`);
+  const files = await response.json();
+  
+  const fileContents = new Map<string, string>();
+  for (const [path, content] of Object.entries(files)) {
+    fileContents.set(path, content as string);
+  }
+  
+  return fileContents;
+}
+
+// Option 3: Import at build time
+import sourceCode from './example-project.json'; // Pre-bundled file contents
+
+const fileContents = new Map(Object.entries(sourceCode));
+```
+
+### 📚 Programmatic API (Node.js)
 
 For ultimate flexibility, use the RepoGraph programmatic API. Integrate it into your own tools, build custom pipelines, and invent new ways to analyze code.
 
