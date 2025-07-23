@@ -41,11 +41,16 @@ export default defineConfig({
 
     for (const wasmFile of wasmFiles) {
       const srcPath = join('node_modules', wasmFile);
-      const destPath = join('dist', 'wasm', wasmFile.split('/')[1]);
+      const wasmFileName = wasmFile.split('/')[1];
+      if (!wasmFileName) {
+        console.warn(`Skipping invalid wasmFile path: ${wasmFile}`);
+        continue;
+      }
+      const destPath = join('dist', 'wasm', wasmFileName);
       
       if (existsSync(srcPath)) {
         copyFileSync(srcPath, destPath);
-        console.log(`Copied ${wasmFile} to dist/wasm/`);
+        console.log(`Copied ${wasmFileName} to dist/wasm/`);
       }
     }
   },

@@ -2,7 +2,7 @@ import { createDefaultDiscoverer } from './pipeline/discover';
 import { createTreeSitterAnalyzer } from './pipeline/analyze';
 import { createPageRanker, createGitRanker } from './pipeline/rank';
 import { createMarkdownRenderer } from './pipeline/render';
-import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types';
+import type { RepoGraphOptions, Ranker, RankedCodeGraph, FileContent } from './types';
 import path from 'node:path';
 import { logger } from './utils/logger.util';
 import { writeFile } from './utils/fs.util';
@@ -26,7 +26,8 @@ const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pa
  * @returns The generated `RankedCodeGraph`.
  */
 export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
-  const { root = process.cwd(), logLevel, include, ignore, noGitignore, maxWorkers } = options;
+  const { root, logLevel, include, ignore, noGitignore, maxWorkers, files: inputFiles } = options;
+  const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
 
   if (logLevel) {
     logger.setLevel(logLevel);
@@ -36,9 +37,19 @@ export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<Ra
   const ranker = selectRanker(options.rankingStrategy);
 
   try {
-    logger.info('1/3 Discovering files...');
-    const discoverer = createDefaultDiscoverer();
-    const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+    let files: readonly FileContent[];
+    if (inputFiles && inputFiles.length > 0) {
+      logger.info('1/3 Using provided files...');
+      files = inputFiles;
+    } else {
+      if (isBrowser) {
+        throw new RepoGraphError('File discovery is not supported in the browser. Please provide the `files` option with file content.');
+      }
+      const effectiveRoot = root || process.cwd();
+      logger.info(`1/3 Discovering files in "${effectiveRoot}"...`);
+      const discoverer = createDefaultDiscoverer();
+      files = await discoverer({ root: path.resolve(effectiveRoot), include, ignore, noGitignore });
+    }
     logger.debug(`  -> Found ${files.length} files to analyze.`);
 
     logger.info('2/3 Analyzing code and building graph...');
@@ -63,6 +74,11 @@ export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<Ra
  * @param options The configuration object for generating the map.
  */
 export const generateMap = async (options: RepoGraphOptions = {}): Promise<void> => {
+  const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+  if (isBrowser) {
+    throw new RepoGraphError('`generateMap` is not supported in the browser because it cannot write to the file system. Use `analyzeProject` and a `Renderer` instead.');
+  }
+
   const finalOptions = { ...options, logLevel: options.logLevel ?? 'info' };
 
   const {

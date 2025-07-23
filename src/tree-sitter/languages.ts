@@ -8,17 +8,31 @@ import { ParserError } from '../utils/error.util';
 // Helper to get the correct path in different environments
 const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
 
+const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+
+export interface ParserInitializationOptions {
+  /**
+   * For browser environments, sets the base URL from which to load Tree-sitter WASM files.
+   * For example, if your WASM files are in `public/wasm`, you would set this to `/wasm/`.
+   * This option is ignored in Node.js environments.
+   */
+  wasmBaseUrl?: string;
+}
+
+let wasmBaseUrl: string | null = null;
 let isInitialized = false;
 const loadedLanguages = new Map<string, LoadedLanguage>();
 
 /**
  * Initializes the Tree-sitter parser system.
+ * This must be called before any other parser functions.
  * This function is idempotent.
  */
-export const initializeParser = async (): Promise<void> => {
+export const initializeParser = async (options: ParserInitializationOptions = {}): Promise<void> => {
   if (isInitialized) {
     return;
   }
+  if (isBrowser && options.wasmBaseUrl) wasmBaseUrl = options.wasmBaseUrl;
 
   await Parser.Parser.init();
   isInitialized = true;
@@ -37,30 +51,45 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
   await initializeParser();
 
   try {
-    // Try dist/wasm first (for published package), fallback to node_modules (for development)
-    // In published package: getDirname() = /path/to/node_modules/repograph/dist/tree-sitter
-    // In development: getDirname() = /path/to/repograph/src/tree-sitter
-    
-    // For published package: getDirname() = /path/to/node_modules/repograph/dist (chunk file location)
-    const distWasmPath = path.resolve(getDirname(), 'wasm', config.wasmPath.split('/')[1]);
-    // For development: go from src/tree-sitter -> ../../node_modules/tree-sitter-*/
-    const nodeModulesWasmPath = path.resolve(getDirname(), '..', '..', 'node_modules', config.wasmPath);
-    
-    logger.debug(`getDirname(): ${getDirname()}`);
-    logger.debug(`Trying WASM paths: dist=${distWasmPath}, nodeModules=${nodeModulesWasmPath}`);
-    
-    const fs = await import('fs');
-    let wasmPath = distWasmPath;
-    if (!fs.existsSync(distWasmPath)) {
-      wasmPath = nodeModulesWasmPath;
-      if (!fs.existsSync(nodeModulesWasmPath)) {
-        throw new Error(`WASM file not found at ${distWasmPath} or ${nodeModulesWasmPath}`);
+    let finalWasmPath: string;
+
+    if (isBrowser) {
+      if (!wasmBaseUrl) {
+        throw new ParserError(
+          'In a browser environment, you must call initializeParser({ wasmBaseUrl: "..." }) before loading languages.',
+          config.name
+        );
+      }
+      const wasmFileName = config.wasmPath.split('/')[1];
+      if (!wasmFileName) {
+        throw new ParserError(`Invalid wasmPath for ${config.name}: ${config.wasmPath}`, config.name);
+      }
+      const baseUrl = wasmBaseUrl.endsWith('/') ? wasmBaseUrl : `${wasmBaseUrl}/`;
+      finalWasmPath = new URL(baseUrl + wasmFileName, window.location.href).href;
+    } else {
+      // Node.js logic
+      const wasmFileName = config.wasmPath.split('/')[1];
+      if (!wasmFileName) {
+        throw new ParserError(`Invalid wasmPath format for ${config.name}: ${config.wasmPath}. Expected 'package/file.wasm'.`, config.name);
+      }
+      const distWasmPath = path.resolve(getDirname(), '..', 'wasm', wasmFileName);
+      const nodeModulesWasmPath = path.resolve(getDirname(), '..', '..', 'node_modules', config.wasmPath);
+
+      logger.debug(`Trying WASM paths: dist=${distWasmPath}, nodeModules=${nodeModulesWasmPath}`);
+
+      const fs = await import('node:fs');
+      if (fs.existsSync(distWasmPath)) {
+        finalWasmPath = distWasmPath;
+      } else if (fs.existsSync(nodeModulesWasmPath)) {
+        finalWasmPath = nodeModulesWasmPath;
+      } else {
+        throw new Error(`WASM file not found at either ${distWasmPath} or ${nodeModulesWasmPath}`);
       }
     }
-    
-    logger.debug(`Loading WASM from: ${wasmPath}`);
-    const language = await Parser.Language.load(wasmPath);
-    
+
+    logger.debug(`Loading WASM from: ${finalWasmPath}`);
+    const language = await Parser.Language.load(finalWasmPath);
+
     const loadedLanguage: LoadedLanguage = {
       config,
       language
@@ -102,6 +131,7 @@ export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
 export const preloadAllLanguages = async (): Promise<void> => {
   await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
 };
+
 
 // Legacy function for backward compatibility
 export const getParser = async (): Promise<Parser.Parser> => {

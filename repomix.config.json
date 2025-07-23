@@ -23,13 +23,14 @@
     }
   },
   "include": [
-//    "test"
+    //    "test"
     "package.json",
     "tsconfig.json",
     "tsconfig.build.json",
-//    "docs/scn.readme.md",
+    "tsup.config.ts",
+    //    "docs/scn.readme.md",
     "src"
-//    "docs/scn-ts-2.report.md"
+    //    "docs/scn-ts-2.report.md"
   ],
   "ignore": {
     "useGitignore": true,

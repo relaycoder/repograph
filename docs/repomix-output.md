@@ -22,8 +22,8 @@ src/
   index.ts
   types.ts
 package.json
-tsconfig.build.json
 tsconfig.json
+tsup.config.ts
 ```
 
 # Files
@@ -55,11 +55,25 @@ export class ParserError extends RepoGraphError {
 }
 ````
 
+## File: src/types/graphology-pagerank.d.ts
+````typescript
+declare module 'graphology-pagerank' {
+  import type Graph from 'graphology';
+
+  export default function pagerank<T = any>(graph: Graph<T>, options?: {
+    alpha?: number;
+    tolerance?: number;
+    maxIterations?: number;
+    getEdgeWeight?: (edge: string) => number;
+  }): Record<string, number>;
+}
+````
+
 ## File: src/utils/fs.util.ts
 ````typescript
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { FileSystemError } from './error.util.js';
+import { FileSystemError } from './error.util';
 
 export const readFile = async (filePath: string): Promise<string> => {
   try {
@@ -99,51 +113,60 @@ export const isDirectory = async (filePath: string): Promise<boolean> => {
 };
 ````
 
-## File: tsconfig.build.json
-````json
-{
-  "compilerOptions": {
-    "lib": ["ESNext"],
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleDetection": "force",
-    "jsx": "react-jsx",
-    "allowJs": true,
-    "moduleResolution": "bundler",
-    "verbatimModuleSyntax": true,
-    "noEmit": false,
-    "outDir": "./dist",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitAny": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "typeRoots": ["./node_modules/@types", "./src/types"]
-  },
-  "include": ["src/**/*"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"]
-}
-````
-
-## File: src/types/graphology-pagerank.d.ts
+## File: tsup.config.ts
 ````typescript
-declare module 'graphology-pagerank' {
-  import type Graph from 'graphology';
+import { defineConfig } from 'tsup';
+import { copyFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
 
-  export default function pagerank<T = any>(graph: Graph<T>, options?: {
-    alpha?: number;
-    tolerance?: number;
-    maxIterations?: number;
-    getEdgeWeight?: (edge: string) => number;
-  }): Record<string, number>;
-}
+export default defineConfig({
+  entry: ['src/index.ts', 'src/pipeline/analyzer.worker.ts'],
+  format: ['esm'],
+  target: 'es2022',
+  dts: true,
+  sourcemap: true,
+  clean: true,
+  splitting: true,
+  treeshake: true,
+  minify: false,
+  outDir: 'dist',
+  onSuccess: async () => {
+    // Copy WASM files to dist folder
+    const wasmDir = join('dist', 'wasm');
+    if (!existsSync(wasmDir)) {
+      mkdirSync(wasmDir, { recursive: true });
+    }
+
+    const wasmFiles = [
+      'tree-sitter-typescript/tree-sitter-typescript.wasm',
+      'tree-sitter-typescript/tree-sitter-tsx.wasm',
+      'tree-sitter-javascript/tree-sitter-javascript.wasm',
+      'tree-sitter-python/tree-sitter-python.wasm',
+      'tree-sitter-java/tree-sitter-java.wasm',
+      'tree-sitter-c/tree-sitter-c.wasm',
+      'tree-sitter-cpp/tree-sitter-cpp.wasm',
+      'tree-sitter-c-sharp/tree-sitter-c-sharp.wasm',
+      'tree-sitter-css/tree-sitter-css.wasm',
+      'tree-sitter-go/tree-sitter-go.wasm',
+      'tree-sitter-php/tree-sitter-php.wasm',
+      'tree-sitter-ruby/tree-sitter-ruby.wasm',
+      'tree-sitter-rust/tree-sitter-rust.wasm',
+      'tree-sitter-solidity/tree-sitter-solidity.wasm',
+      'tree-sitter-swift/tree-sitter-swift.wasm',
+      'tree-sitter-vue/tree-sitter-vue.wasm',
+    ];
+
+    for (const wasmFile of wasmFiles) {
+      const srcPath = join('node_modules', wasmFile);
+      const destPath = join('dist', 'wasm', wasmFile.split('/')[1]);
+      
+      if (existsSync(srcPath)) {
+        copyFileSync(srcPath, destPath);
+        console.log(`Copied ${wasmFile} to dist/wasm/`);
+      }
+    }
+  },
+});
 ````
 
 ## File: src/utils/logger.util.ts
@@ -217,7 +240,6 @@ export const logger = createLogger();
 
     // Bundler mode
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
 
@@ -240,108 +262,12 @@ export const logger = createLogger();
 }
 ````
 
-## File: src/tree-sitter/languages.ts
-````typescript
-import * as Parser from 'web-tree-sitter';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config.js';
-import { logger } from '../utils/logger.util.js';
-import { ParserError } from '../utils/error.util.js';
-
-// Helper to get the correct path in different environments
-const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
-
-let isInitialized = false;
-const loadedLanguages = new Map<string, LoadedLanguage>();
-
-/**
- * Initializes the Tree-sitter parser system.
- * This function is idempotent.
- */
-export const initializeParser = async (): Promise<void> => {
-  if (isInitialized) {
-    return;
-  }
-
-  await Parser.Parser.init();
-  isInitialized = true;
-};
-
-/**
- * Loads a specific language grammar.
- * @param config The language configuration to load
- * @returns A LoadedLanguage object containing the config and language
- */
-export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLanguage> => {
-  if (loadedLanguages.has(config.name)) {
-    return loadedLanguages.get(config.name)!;
-  }
-
-  await initializeParser();
-
-  try {
-    const wasmPath = path.resolve(getDirname(), '..', '..', 'node_modules', config.wasmPath);
-    const language = await Parser.Language.load(wasmPath);
-    
-    const loadedLanguage: LoadedLanguage = {
-      config,
-      language
-    };
-    
-    loadedLanguages.set(config.name, loadedLanguage);
-    return loadedLanguage;
-  } catch (error) {
-    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure '${config.wasmPath.split('/')[0]}' is installed.`;
-    logger.error(message, error);
-    throw new ParserError(message, config.name, error);
-  }
-};
-
-/**
- * Creates a parser instance for a specific language.
- * @param config The language configuration
- * @returns A parser instance configured for the specified language
- */
-export const createParserForLanguage = async (config: LanguageConfig): Promise<Parser.Parser> => {
-  const loadedLanguage = await loadLanguage(config);
-  const parser = new Parser.Parser();
-  parser.setLanguage(loadedLanguage.language);
-  return parser;
-};
-
-/**
- * Gets all loaded languages.
- * @returns A map of language names to LoadedLanguage objects
- */
-export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
-  return new Map(loadedLanguages);
-};
-
-/**
- * Preloads all supported languages.
- * This can be called to eagerly load all language parsers.
- */
-export const preloadAllLanguages = async (): Promise<void> => {
-  await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
-};
-
-// Legacy function for backward compatibility
-export const getParser = async (): Promise<Parser.Parser> => {
-  const tsConfig = LANGUAGE_CONFIGS.find(config => config.name === 'typescript');
-  if (!tsConfig) {
-    throw new Error('TypeScript configuration not found');
-  }
-  return createParserForLanguage(tsConfig);
-};
-````
-
 ## File: src/pipeline/analyzer.worker.ts
 ````typescript
 import type { Node as TSNode, QueryCapture as TSMatch } from 'web-tree-sitter';
-import { createParserForLanguage } from '../tree-sitter/languages.js';
-import type { LanguageConfig } from '../tree-sitter/language-config.js';
-import type { CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, UnresolvedRelation } from '../types.js';
+import { createParserForLanguage } from '../tree-sitter/languages';
+import type { LanguageConfig } from '../tree-sitter/language-config';
+import type { CodeNode, CodeNodeType, CodeNodeVisibility, FileContent, UnresolvedRelation } from '../types';
 
 // --- UTILITY FUNCTIONS (mirrored from original analyze.ts) ---
 
@@ -791,9 +717,126 @@ export default async function processFile({ file, langConfig }: { file: FileCont
 }
 ````
 
+## File: src/tree-sitter/languages.ts
+````typescript
+import * as Parser from 'web-tree-sitter';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config';
+import { logger } from '../utils/logger.util';
+import { ParserError } from '../utils/error.util';
+
+// Helper to get the correct path in different environments
+const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
+
+let isInitialized = false;
+const loadedLanguages = new Map<string, LoadedLanguage>();
+
+/**
+ * Initializes the Tree-sitter parser system.
+ * This function is idempotent.
+ */
+export const initializeParser = async (): Promise<void> => {
+  if (isInitialized) {
+    return;
+  }
+
+  await Parser.Parser.init();
+  isInitialized = true;
+};
+
+/**
+ * Loads a specific language grammar.
+ * @param config The language configuration to load
+ * @returns A LoadedLanguage object containing the config and language
+ */
+export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLanguage> => {
+  if (loadedLanguages.has(config.name)) {
+    return loadedLanguages.get(config.name)!;
+  }
+
+  await initializeParser();
+
+  try {
+    // Try dist/wasm first (for published package), fallback to node_modules (for development)
+    // In published package: getDirname() = /path/to/node_modules/repograph/dist/tree-sitter
+    // In development: getDirname() = /path/to/repograph/src/tree-sitter
+    
+    // For published package: getDirname() = /path/to/node_modules/repograph/dist (chunk file location)
+    const distWasmPath = path.resolve(getDirname(), 'wasm', config.wasmPath.split('/')[1]);
+    // For development: go from src/tree-sitter -> ../../node_modules/tree-sitter-*/
+    const nodeModulesWasmPath = path.resolve(getDirname(), '..', '..', 'node_modules', config.wasmPath);
+    
+    logger.debug(`getDirname(): ${getDirname()}`);
+    logger.debug(`Trying WASM paths: dist=${distWasmPath}, nodeModules=${nodeModulesWasmPath}`);
+    
+    const fs = await import('fs');
+    let wasmPath = distWasmPath;
+    if (!fs.existsSync(distWasmPath)) {
+      wasmPath = nodeModulesWasmPath;
+      if (!fs.existsSync(nodeModulesWasmPath)) {
+        throw new Error(`WASM file not found at ${distWasmPath} or ${nodeModulesWasmPath}`);
+      }
+    }
+    
+    logger.debug(`Loading WASM from: ${wasmPath}`);
+    const language = await Parser.Language.load(wasmPath);
+    
+    const loadedLanguage: LoadedLanguage = {
+      config,
+      language
+    };
+    
+    loadedLanguages.set(config.name, loadedLanguage);
+    return loadedLanguage;
+  } catch (error) {
+    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure '${config.wasmPath.split('/')[0]}' is installed.`;
+    logger.error(message, error);
+    throw new ParserError(message, config.name, error);
+  }
+};
+
+/**
+ * Creates a parser instance for a specific language.
+ * @param config The language configuration
+ * @returns A parser instance configured for the specified language
+ */
+export const createParserForLanguage = async (config: LanguageConfig): Promise<Parser.Parser> => {
+  const loadedLanguage = await loadLanguage(config);
+  const parser = new Parser.Parser();
+  parser.setLanguage(loadedLanguage.language);
+  return parser;
+};
+
+/**
+ * Gets all loaded languages.
+ * @returns A map of language names to LoadedLanguage objects
+ */
+export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
+  return new Map(loadedLanguages);
+};
+
+/**
+ * Preloads all supported languages.
+ * This can be called to eagerly load all language parsers.
+ */
+export const preloadAllLanguages = async (): Promise<void> => {
+  await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
+};
+
+// Legacy function for backward compatibility
+export const getParser = async (): Promise<Parser.Parser> => {
+  const tsConfig = LANGUAGE_CONFIGS.find(config => config.name === 'typescript');
+  if (!tsConfig) {
+    throw new Error('TypeScript configuration not found');
+  }
+  return createParserForLanguage(tsConfig);
+};
+````
+
 ## File: src/tree-sitter/queries.ts
 ````typescript
-import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config.js';
+import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config';
 
 /**
  * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
@@ -859,7 +902,7 @@ export function getAllLanguageConfigs(): LanguageConfig[] {
 
 ## File: src/pipeline/render.ts
 ````typescript
-import type { Renderer, RankedCodeGraph, RendererOptions, CodeEdge, CodeNode } from '../types.js';
+import type { Renderer, RankedCodeGraph, RendererOptions, CodeEdge, CodeNode } from '../types';
 
 const generateMermaidGraph = (rankedGraph: RankedCodeGraph): string => {
   const fileNodes = [...rankedGraph.nodes.values()].filter(node => node.type === 'file');
@@ -1024,10 +1067,10 @@ import { globby } from 'globby';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import Ignore from 'ignore';
-import type { FileContent, FileDiscoverer } from '../types.js';
-import { isDirectory, readFile } from '../utils/fs.util.js';
-import { FileSystemError } from '../utils/error.util.js';
-import { logger } from '../utils/logger.util.js';
+import type { FileContent, FileDiscoverer } from '../types';
+import { isDirectory, readFile } from '../utils/fs.util';
+import { FileSystemError } from '../utils/error.util';
+import { logger } from '../utils/logger.util';
 
 /**
  * Creates the default file discoverer. It uses globby to find all files,
@@ -1128,10 +1171,10 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
 ## File: src/pipeline/rank.ts
 ````typescript
 import pagerank from 'graphology-pagerank';
-import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
+import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
 import Graph from 'graphology';
 import { execSync } from 'node:child_process';
-import { logger } from '../utils/logger.util.js';
+import { logger } from '../utils/logger.util';
 
 /**
  * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
@@ -1216,15 +1259,15 @@ export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker =
 
 ## File: src/high-level.ts
 ````typescript
-import { createDefaultDiscoverer } from './pipeline/discover.js';
-import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
-import { createPageRanker, createGitRanker } from './pipeline/rank.js';
-import { createMarkdownRenderer } from './pipeline/render.js';
-import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
+import { createDefaultDiscoverer } from './pipeline/discover';
+import { createTreeSitterAnalyzer } from './pipeline/analyze';
+import { createPageRanker, createGitRanker } from './pipeline/rank';
+import { createMarkdownRenderer } from './pipeline/render';
+import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types';
 import path from 'node:path';
-import { logger } from './utils/logger.util.js';
-import { writeFile } from './utils/fs.util.js';
-import { RepoGraphError } from './utils/error.util.js';
+import { logger } from './utils/logger.util';
+import { writeFile } from './utils/fs.util';
+import { RepoGraphError } from './utils/error.util';
 
 const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pagerank'): Ranker => {
   if (rankingStrategy === 'git-changes') {
@@ -1312,9 +1355,9 @@ export const generateMap = async (options: RepoGraphOptions = {}): Promise<void>
 ## File: src/composer.ts
 ````typescript
 import path from 'node:path';
-import type { Analyzer, FileDiscoverer, Ranker, Renderer, RepoGraphMap } from './types.js';
-import { logger } from './utils/logger.util.js';
-import { writeFile } from './utils/fs.util.js';
+import type { Analyzer, FileDiscoverer, Ranker, Renderer, RepoGraphMap } from './types';
+import { logger } from './utils/logger.util';
+import { writeFile } from './utils/fs.util';
 
 type MapGenerator = (config: {
   readonly root: string;
@@ -1819,30 +1862,218 @@ export function getSupportedExtensions(): string[] {
 }
 ````
 
+## File: src/types.ts
+````typescript
+// Core Data Structures
+
+/** Represents a single file read from disk. Immutable. */
+export type FileContent = {
+  readonly path: string;
+  readonly content: string;
+};
+
+/** The type of a symbol identified in the code. */
+export type CodeNodeType =
+  | 'file'
+  | 'class'
+  | 'function'
+  | 'interface'
+  | 'variable'
+  | 'type'
+  | 'arrow_function'
+  | 'method'
+  | 'field'
+  | 'struct'
+  | 'enum'
+  | 'namespace'
+  | 'trait'
+  | 'impl'
+  | 'constructor'
+  | 'property'
+  | 'constant'
+  | 'static'
+  | 'union'
+  | 'template'
+  | 'html_element'
+  | 'css_rule';
+
+/** For CSS nodes, a semantic grouping of its properties. */
+export type CssIntent = 'layout' | 'typography' | 'appearance';
+
+/** New type for access modifiers. */
+export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
+
+/** Represents a single, identifiable symbol (or a file) in the code. Immutable. */
+export type CodeNode = {
+  readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
+  readonly type: CodeNodeType;
+  readonly name: string; // e.g., 'MyClass'
+  readonly filePath: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly language?: string; // For file nodes, the detected language
+  readonly codeSnippet?: string; // e.g., function signature
+
+  // --- NEW FIELDS from scn-ts report ---
+  /** The access modifier of the symbol (e.g., public, private). Maps to SCN '+' or '-'. */
+  readonly visibility?: CodeNodeVisibility;
+  /** Whether the symbol (e.g., a function or method) is asynchronous. Maps to SCN '...'. */
+  readonly isAsync?: boolean;
+  /** Whether the symbol is a static member of a class/struct. */
+  readonly isStatic?: boolean;
+  /** The return type of a function/method, as a string. Maps to SCN '#(type)'. */
+  readonly returnType?: string;
+  /** An array of parameters for functions/methods. */
+  readonly parameters?: { name: string; type?: string }[];
+  /** Whether a function is known to throw exceptions. Maps to SCN '!' */
+  readonly canThrow?: boolean; // Populated by analyzer
+  /** Whether a function is believed to be pure. Maps to SCN 'o' */
+  readonly isPure?: boolean; // Not implemented yet
+  /** For UI nodes, the HTML tag name (e.g., 'div'). */
+  readonly htmlTag?: string;
+  /** For UI nodes, a map of attributes. */
+  readonly attributes?: ReadonlyMap<string, string>; // Not used yet
+  /** For CSS nodes, the full selector. */
+  readonly cssSelector?: string;
+  /** For CSS rules, a list of semantic intents. */
+  readonly cssIntents?: readonly CssIntent[]; // Not implemented yet
+};
+
+/** Represents a directed relationship between two CodeNodes. Immutable. */
+export type CodeEdge = {
+  readonly fromId: string; // ID of the source CodeNode
+  readonly toId: string;   // ID of the target CodeNode
+  readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
+};
+
+/** Represents a potential relationship discovered in a file, to be resolved later. */
+export type UnresolvedRelation = {
+  readonly fromId: string;
+  readonly toName: string;
+  readonly type: 'imports' | 'calls' | 'inherits' | 'implements' | 'reference';
+};
+
+/** The complete, raw model of the repository's structure. Immutable. */
+export type CodeGraph = {
+  readonly nodes: ReadonlyMap<string, CodeNode>;
+  readonly edges: readonly CodeEdge[];
+};
+
+/** A CodeGraph with an added 'rank' score for each node. Immutable. */
+export type RankedCodeGraph = CodeGraph & {
+  readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
+};
+
+/** The output of a map generation process, containing the graph and rendered output. */
+export type RepoGraphMap = {
+  readonly graph: RankedCodeGraph;
+  readonly markdown: string;
+};
+
+// High-Level API Options
+
+/** Configuration for the final Markdown output. */
+export type RendererOptions = {
+  /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */
+  readonly customHeader?: string;
+  /** Include the default `RepoGraph` header. @default true */
+  readonly includeHeader?: boolean;
+  /** Include the project overview section. @default true */
+  readonly includeOverview?: boolean;
+  /** Include a Mermaid.js dependency graph. @default true */
+  readonly includeMermaidGraph?: boolean;
+  /** Include the list of top-ranked files. @default true */
+  readonly includeFileList?: boolean;
+  /** Number of files to show in the top list. @default 10 */
+  readonly topFileCount?: number;
+  /** Include detailed breakdowns for each symbol. @default true */
+  readonly includeSymbolDetails?: boolean;
+  /** String to use as a separator between file sections. @default '---' */
+  readonly fileSectionSeparator?: string;
+
+  /** Options for how individual symbols are rendered */
+  readonly symbolDetailOptions?: {
+    /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */
+    readonly includeRelations?: boolean;
+    /** Include the starting line number. @default true */
+    readonly includeLineNumber?: boolean;
+    /** Include the code snippet for the symbol. @default true */
+    readonly includeCodeSnippet?: boolean;
+    /** Max number of relations to show per type (e.g., 'calls'). @default 3 */
+    readonly maxRelationsToShow?: number;
+  };
+};
+
+/** Configuration options for the main `generateMap` function. */
+export type RepoGraphOptions = {
+  /** Root directory to analyze. @default process.cwd() */
+  readonly root?: string;
+  /** Output path for the Markdown file. @default './repograph.md' */
+  readonly output?: string;
+  /** Glob patterns for files to include. */
+  readonly include?: readonly string[];
+  /** Glob patterns for files to exclude. */
+  readonly ignore?: readonly string[];
+  /** Disables the use of .gitignore. @default false */
+  readonly noGitignore?: boolean;
+  /** The ranking strategy to use. @default 'pagerank' */
+  readonly rankingStrategy?: 'pagerank' | 'git-changes';
+  /** Configuration for the final Markdown output. */
+  readonly rendererOptions?: RendererOptions;
+  /**
+   * The maximum number of parallel workers to use for analysis.
+   * When set to 1, analysis runs in the main thread without workers.
+   * @default 1
+   */
+  readonly maxWorkers?: number;
+  /** Logging level. @default 'info' */
+  readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
+};
+
+// Low-Level Functional Pipeline Contracts
+
+/** Discovers files and returns their content. */
+export type FileDiscoverer = (config: {
+  readonly root: string;
+  readonly include?: readonly string[];
+  readonly ignore?: readonly string[];
+  readonly noGitignore?: boolean;
+}) => Promise<readonly FileContent[]>;
+
+/** Analyzes file content and builds the dependency graph. */
+export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
+
+/** Ranks the nodes in a graph. */
+export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
+
+/** Renders a ranked graph into a string format. */
+export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions) => string;
+````
+
 ## File: src/index.ts
 ````typescript
 #!/usr/bin/env bun
 
-import { logger } from './utils/logger.util.js';
-import { RepoGraphError } from './utils/error.util.js';
+import { logger } from './utils/logger.util';
+import { RepoGraphError } from './utils/error.util';
 // High-Level API for simple use cases
-import { generateMap as executeGenerateMap } from './high-level.js';
-import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
+import { generateMap as executeGenerateMap } from './high-level';
+import type { RepoGraphOptions as IRepoGraphOptions } from './types';
 
-export { generateMap, analyzeProject } from './high-level.js';
+export { generateMap, analyzeProject } from './high-level';
 
 // Low-Level API for composition and advanced use cases
-export { createMapGenerator } from './composer.js';
+export { createMapGenerator } from './composer';
 
 // Default pipeline component factories
-export { createDefaultDiscoverer } from './pipeline/discover.js';
-export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
-export { createPageRanker, createGitRanker } from './pipeline/rank.js';
-export { createMarkdownRenderer } from './pipeline/render.js';
+export { createDefaultDiscoverer } from './pipeline/discover';
+export { createTreeSitterAnalyzer } from './pipeline/analyze';
+export { createPageRanker, createGitRanker } from './pipeline/rank';
+export { createMarkdownRenderer } from './pipeline/render';
 
 // Logger utilities
-export { logger } from './utils/logger.util.js';
-export type { Logger, LogLevel } from './utils/logger.util.js';
+export { logger } from './utils/logger.util';
+export type { Logger, LogLevel } from './utils/logger.util';
 
 // Core types for building custom components
 export type {
@@ -1861,7 +2092,7 @@ export type {
   Analyzer,
   Ranker,
   Renderer,
-} from './types.js';
+} from './types';
 
 // This section runs only when the script is executed directly from the CLI
 import { fileURLToPath } from 'node:url';
@@ -2054,199 +2285,11 @@ Output Formatting:
 }
 ````
 
-## File: src/types.ts
-````typescript
-// Core Data Structures
-
-/** Represents a single file read from disk. Immutable. */
-export type FileContent = {
-  readonly path: string;
-  readonly content: string;
-};
-
-/** The type of a symbol identified in the code. */
-export type CodeNodeType =
-  | 'file'
-  | 'class'
-  | 'function'
-  | 'interface'
-  | 'variable'
-  | 'type'
-  | 'arrow_function'
-  | 'method'
-  | 'field'
-  | 'struct'
-  | 'enum'
-  | 'namespace'
-  | 'trait'
-  | 'impl'
-  | 'constructor'
-  | 'property'
-  | 'constant'
-  | 'static'
-  | 'union'
-  | 'template'
-  | 'html_element'
-  | 'css_rule';
-
-/** For CSS nodes, a semantic grouping of its properties. */
-export type CssIntent = 'layout' | 'typography' | 'appearance';
-
-/** New type for access modifiers. */
-export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
-
-/** Represents a single, identifiable symbol (or a file) in the code. Immutable. */
-export type CodeNode = {
-  readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
-  readonly type: CodeNodeType;
-  readonly name: string; // e.g., 'MyClass'
-  readonly filePath: string;
-  readonly startLine: number;
-  readonly endLine: number;
-  readonly language?: string; // For file nodes, the detected language
-  readonly codeSnippet?: string; // e.g., function signature
-
-  // --- NEW FIELDS from scn-ts report ---
-  /** The access modifier of the symbol (e.g., public, private). Maps to SCN '+' or '-'. */
-  readonly visibility?: CodeNodeVisibility;
-  /** Whether the symbol (e.g., a function or method) is asynchronous. Maps to SCN '...'. */
-  readonly isAsync?: boolean;
-  /** Whether the symbol is a static member of a class/struct. */
-  readonly isStatic?: boolean;
-  /** The return type of a function/method, as a string. Maps to SCN '#(type)'. */
-  readonly returnType?: string;
-  /** An array of parameters for functions/methods. */
-  readonly parameters?: { name: string; type?: string }[];
-  /** Whether a function is known to throw exceptions. Maps to SCN '!' */
-  readonly canThrow?: boolean; // Populated by analyzer
-  /** Whether a function is believed to be pure. Maps to SCN 'o' */
-  readonly isPure?: boolean; // Not implemented yet
-  /** For UI nodes, the HTML tag name (e.g., 'div'). */
-  readonly htmlTag?: string;
-  /** For UI nodes, a map of attributes. */
-  readonly attributes?: ReadonlyMap<string, string>; // Not used yet
-  /** For CSS nodes, the full selector. */
-  readonly cssSelector?: string;
-  /** For CSS rules, a list of semantic intents. */
-  readonly cssIntents?: readonly CssIntent[]; // Not implemented yet
-};
-
-/** Represents a directed relationship between two CodeNodes. Immutable. */
-export type CodeEdge = {
-  readonly fromId: string; // ID of the source CodeNode
-  readonly toId: string;   // ID of the target CodeNode
-  readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
-};
-
-/** Represents a potential relationship discovered in a file, to be resolved later. */
-export type UnresolvedRelation = {
-  readonly fromId: string;
-  readonly toName: string;
-  readonly type: 'imports' | 'calls' | 'inherits' | 'implements' | 'reference';
-};
-
-/** The complete, raw model of the repository's structure. Immutable. */
-export type CodeGraph = {
-  readonly nodes: ReadonlyMap<string, CodeNode>;
-  readonly edges: readonly CodeEdge[];
-};
-
-/** A CodeGraph with an added 'rank' score for each node. Immutable. */
-export type RankedCodeGraph = CodeGraph & {
-  readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
-};
-
-/** The output of a map generation process, containing the graph and rendered output. */
-export type RepoGraphMap = {
-  readonly graph: RankedCodeGraph;
-  readonly markdown: string;
-};
-
-// High-Level API Options
-
-/** Configuration for the final Markdown output. */
-export type RendererOptions = {
-  /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */
-  readonly customHeader?: string;
-  /** Include the default `RepoGraph` header. @default true */
-  readonly includeHeader?: boolean;
-  /** Include the project overview section. @default true */
-  readonly includeOverview?: boolean;
-  /** Include a Mermaid.js dependency graph. @default true */
-  readonly includeMermaidGraph?: boolean;
-  /** Include the list of top-ranked files. @default true */
-  readonly includeFileList?: boolean;
-  /** Number of files to show in the top list. @default 10 */
-  readonly topFileCount?: number;
-  /** Include detailed breakdowns for each symbol. @default true */
-  readonly includeSymbolDetails?: boolean;
-  /** String to use as a separator between file sections. @default '---' */
-  readonly fileSectionSeparator?: string;
-
-  /** Options for how individual symbols are rendered */
-  readonly symbolDetailOptions?: {
-    /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */
-    readonly includeRelations?: boolean;
-    /** Include the starting line number. @default true */
-    readonly includeLineNumber?: boolean;
-    /** Include the code snippet for the symbol. @default true */
-    readonly includeCodeSnippet?: boolean;
-    /** Max number of relations to show per type (e.g., 'calls'). @default 3 */
-    readonly maxRelationsToShow?: number;
-  };
-};
-
-/** Configuration options for the main `generateMap` function. */
-export type RepoGraphOptions = {
-  /** Root directory to analyze. @default process.cwd() */
-  readonly root?: string;
-  /** Output path for the Markdown file. @default './repograph.md' */
-  readonly output?: string;
-  /** Glob patterns for files to include. */
-  readonly include?: readonly string[];
-  /** Glob patterns for files to exclude. */
-  readonly ignore?: readonly string[];
-  /** Disables the use of .gitignore. @default false */
-  readonly noGitignore?: boolean;
-  /** The ranking strategy to use. @default 'pagerank' */
-  readonly rankingStrategy?: 'pagerank' | 'git-changes';
-  /** Configuration for the final Markdown output. */
-  readonly rendererOptions?: RendererOptions;
-  /**
-   * The maximum number of parallel workers to use for analysis.
-   * When set to 1, analysis runs in the main thread without workers.
-   * @default 1
-   */
-  readonly maxWorkers?: number;
-  /** Logging level. @default 'info' */
-  readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
-};
-
-// Low-Level Functional Pipeline Contracts
-
-/** Discovers files and returns their content. */
-export type FileDiscoverer = (config: {
-  readonly root: string;
-  readonly include?: readonly string[];
-  readonly ignore?: readonly string[];
-  readonly noGitignore?: boolean;
-}) => Promise<readonly FileContent[]>;
-
-/** Analyzes file content and builds the dependency graph. */
-export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
-
-/** Ranks the nodes in a graph. */
-export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
-
-/** Renders a ranked graph into a string format. */
-export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions) => string;
-````
-
 ## File: package.json
 ````json
 {
   "name": "repograph",
-  "version": "0.1.5",
+  "version": "0.1.12",
   "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
   "type": "module",
   "main": "./dist/index.js",
@@ -2265,10 +2308,9 @@ export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions)
     "dist"
   ],
   "scripts": {
-    "clean": "rimraf dist",
-    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "build": "tsup",
     "prepublishOnly": "npm run build",
-    "dev": "tsc -w",
+    "dev": "tsup --watch",
     "test": "bun run test/run-tests.ts",
     "test:unit": "bun run test/run-tests.ts unit",
     "test:integration": "bun run test/run-tests.ts integration",
@@ -2308,7 +2350,7 @@ export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions)
     "bun-types": "^1.1.12",
     "eslint": "^8.57.0",
     "prettier": "^3.2.5",
-    "rimraf": "^5.0.7",
+    "tsup": "^8.0.2",
     "typescript": "^5.4.5"
   },
   "keywords": [
@@ -2342,13 +2384,13 @@ export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions)
 ## File: src/pipeline/analyze.ts
 ````typescript
 import path from 'node:path';
-import type { Analyzer, CodeNode, CodeEdge, FileContent, UnresolvedRelation } from '../types.js';
-import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config.js';
-import { logger } from '../utils/logger.util.js';
-import { ParserError } from '../utils/error.util.js';
+import type { Analyzer, CodeNode, CodeEdge, FileContent, UnresolvedRelation } from '../types';
+import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config';
+import { logger } from '../utils/logger.util';
+import { ParserError } from '../utils/error.util';
 import { fileURLToPath } from 'node:url';
 import Tinypool from 'tinypool';
-import processFileInWorker from './analyzer.worker.js';
+import processFileInWorker from './analyzer.worker';
 
 const normalizePath = (p: string) => p.replace(/\\/g, '/');
 

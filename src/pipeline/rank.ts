@@ -44,6 +44,16 @@ export const createPageRanker = (): Ranker => {
  */
 export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
   return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+    if (isBrowser) {
+      logger.warn('GitRanker is not supported in the browser. Returning 0 for all ranks.');
+      const ranks = new Map<string, number>();
+      for (const [nodeId] of graph.nodes) {
+        ranks.set(nodeId, 0);
+      }
+      return { ...graph, ranks };
+    }
+
     const { maxCommits = 500 } = options;
     const ranks = new Map<string, number>();
 

@@ -140,15 +140,21 @@ export type RendererOptions = {
 
 /** Configuration options for the main `generateMap` function. */
 export type RepoGraphOptions = {
-  /** Root directory to analyze. @default process.cwd() */
+  /**
+   * Root directory to analyze. Not used if `files` is provided.
+   * @default process.cwd() in Node.js.
+   */
   readonly root?: string;
-  /** Output path for the Markdown file. @default './repograph.md' */
+  /**
+   * Output path for the Markdown file. Writing files is not supported in the browser.
+   * @default './repograph.md'
+   */
   readonly output?: string;
-  /** Glob patterns for files to include. */
+  /** Glob patterns for files to include. Not used if `files` is provided. */
   readonly include?: readonly string[];
-  /** Glob patterns for files to exclude. */
+  /** Glob patterns for files to exclude. Not used if `files` is provided. */
   readonly ignore?: readonly string[];
-  /** Disables the use of .gitignore. @default false */
+  /** Disables the use of .gitignore. Not used if `files` is provided. @default false */
   readonly noGitignore?: boolean;
   /** The ranking strategy to use. @default 'pagerank' */
   readonly rankingStrategy?: 'pagerank' | 'git-changes';
@@ -162,6 +168,12 @@ export type RepoGraphOptions = {
   readonly maxWorkers?: number;
   /** Logging level. @default 'info' */
   readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
+  /**
+   * Optional. An array of file content objects to analyze.
+   * If provided, the file discovery step (including `root`, `include`, `ignore`, `noGitignore`) will be skipped.
+   * This is useful for browser-based environments or when file discovery is handled externally.
+   */
+  readonly files?: readonly FileContent[];
 };
 
 // Low-Level Functional Pipeline Contracts

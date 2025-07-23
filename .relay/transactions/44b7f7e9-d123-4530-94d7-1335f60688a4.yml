@@ -1,0 +1,1382 @@
+uuid: 44b7f7e9-d123-4530-94d7-1335f60688a4
+projectId: repograph
+createdAt: '2025-07-23T10:37:24.691Z'
+linesAdded: 142
+linesRemoved: 36
+gitCommitMsg: 'feat: make library browser-friendly and add wasm helper'
+promptSummary: >-
+  The user wants to make the `repograph` library browser-friendly. This involves
+  allowing file analysis from in-memory objects instead of direct FS access,
+  making WASM file loading configurable for web environments, and adding a CLI
+  utility to help users copy WASM files into their public web directory.
+reasoning:
+  - >-
+    As an expert AI programmer, I've analyzed your request to make `repograph`
+    more browser-friendly and versatile. I will now apply the necessary
+    modifications. My plan involves updating the API to accept in-memory file
+    content, making WASM loading configurable for browsers, and adding a CLI
+    helper to manage WASM files for web projects.
+  - '### Step 1: Update Core Types'
+  - >-
+    First, I'll update the main options type `RepoGraphOptions` in
+    `src/types.ts` to accept an array of file contents directly. This is the key
+    to bypassing Node.js-specific file discovery in browser environments. I will
+    also clarify the documentation for options that behave differently in
+    Node.js versus the browser.
+  - '### Step 2: Adapt Tree-Sitter WASM Loading'
+  - >-
+    Next, I'll modify `src/tree-sitter/languages.ts` to handle WASM file loading
+    in the browser. I will introduce a new `initializeParser` function that
+    accepts a `wasmBaseUrl`. This URL will be used to fetch the parsers instead
+    of reading from the filesystem. The existing Node.js logic will be preserved
+    as a fallback.
+  - '### Step 3: Make Node-specific Rankers Browser-safe'
+  - >-
+    The `createGitRanker` in `src/pipeline/rank.ts` uses `child_process`, which
+    is unavailable in the browser. I'll add a check to ensure it fails
+    gracefully and logs a warning when used in a web environment.
+  - '### Step 4: Adapt High-Level APIs for Browser Usage'
+  - >-
+    I will refactor `analyzeProject` and `generateMap` in `src/high-level.ts`.
+    `analyzeProject` will now check for the `files` option and skip file
+    discovery if it's provided. `generateMap`, which writes to disk, will be
+    disabled in the browser with an informative error message.
+  - '### Step 5: Add CLI Helper and Finalize Exports'
+  - >-
+    Finally, I'll enhance the library's entry point, `src/index.ts`. I will add
+    the new `copy-wasm` CLI command to help users set up their web projects.
+    I'll also export the new `initializeParser` function and its options type to
+    make them accessible to library consumers.
+  - >-
+    These changes make the library significantly more flexible, enabling its use
+    in browser-based tools while maintaining full functionality in Node.js
+    environments.
+operations:
+  - type: write
+    path: src/types.ts
+    content: |-
+      <<<<<<< SEARCH
+      /** Configuration options for the main `generateMap` function. */
+      export type RepoGraphOptions = {
+        /** Root directory to analyze. @default process.cwd() */
+        readonly root?: string;
+        /** Output path for the Markdown file. @default './repograph.md' */
+        readonly output?: string;
+        /** Glob patterns for files to include. */
+        readonly include?: readonly string[];
+        /** Glob patterns for files to exclude. */
+        readonly ignore?: readonly string[];
+        /** Disables the use of .gitignore. @default false */
+        readonly noGitignore?: boolean;
+      =======
+      /** Configuration options for the main `generateMap` function. */
+      export type RepoGraphOptions = {
+        /**
+         * Root directory to analyze. Not used if `files` is provided.
+         * @default process.cwd() in Node.js.
+         */
+        readonly root?: string;
+        /**
+         * Output path for the Markdown file. Writing files is not supported in the browser.
+         * @default './repograph.md'
+         */
+        readonly output?: string;
+        /** Glob patterns for files to include. Not used if `files` is provided. */
+        readonly include?: readonly string[];
+        /** Glob patterns for files to exclude. Not used if `files` is provided. */
+        readonly ignore?: readonly string[];
+        /** Disables the use of .gitignore. Not used if `files` is provided. @default false */
+        readonly noGitignore?: boolean;
+      >>>>>>> REPLACE
+      <<<<<<< SEARCH
+        /** Logging level. @default 'info' */
+        readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
+      };
+      =======
+        /** Logging level. @default 'info' */
+        readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
+        /**
+         * Optional. An array of file content objects to analyze.
+         * If provided, the file discovery step (including `root`, `include`, `ignore`, `noGitignore`) will be skipped.
+         * This is useful for browser-based environments or when file discovery is handled externally.
+         */
+        readonly files?: readonly FileContent[];
+      };
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+  - type: write
+    path: src/tree-sitter/languages.ts
+    content: >-
+      --- src/tree-sitter/languages.ts
+
+      +++ src/tree-sitter/languages.ts
+
+      @@ -6,17 +6,32 @@
+       // Helper to get the correct path in different environments
+       const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
+       
+      +const isBrowser = typeof window !== 'undefined' && typeof window.document
+      !== 'undefined';
+
+      +
+
+      +export interface ParserInitializationOptions {
+
+      +  /**
+
+      +   * For browser environments, sets the base URL from which to load
+      Tree-sitter WASM files.
+
+      +   * For example, if your WASM files are in `public/wasm`, you would set
+      this to `/wasm/`.
+
+      +   * This option is ignored in Node.js environments.
+
+      +   */
+
+      +  wasmBaseUrl?: string;
+
+      +}
+
+      +
+
+      +let wasmBaseUrl: string | null = null;
+       let isInitialized = false;
+       const loadedLanguages = new Map<string, LoadedLanguage>();
+       
+       /**
+        * Initializes the Tree-sitter parser system.
+      + * This must be called before any other parser functions.
+        * This function is idempotent.
+        */
+      -export const initializeParser = async (): Promise<void> => {
+
+      +export const initializeParser = async (options:
+      ParserInitializationOptions = {}): Promise<void> => {
+         if (isInitialized) {
+           return;
+         }
+      +  if (isBrowser && options.wasmBaseUrl) wasmBaseUrl =
+      options.wasmBaseUrl;
+       
+         await Parser.Parser.init();
+         isInitialized = true;
+      @@ -35,32 +50,42 @@
+       
+         await initializeParser();
+       
+         try {
+      -    // Try dist/wasm first (for published package), fallback to
+      node_modules (for development)
+
+      -    // In published package: getDirname() =
+      /path/to/node_modules/repograph/dist/tree-sitter
+
+      -    // In development: getDirname() = /path/to/repograph/src/tree-sitter
+
+      -    
+
+      -    // For published package: getDirname() =
+      /path/to/node_modules/repograph/dist (chunk file location)
+
+      -    const distWasmPath = path.resolve(getDirname(), 'wasm',
+      config.wasmPath.split('/')[1]);
+
+      -    // For development: go from src/tree-sitter ->
+      ../../node_modules/tree-sitter-*/
+
+      -    const nodeModulesWasmPath = path.resolve(getDirname(), '..', '..',
+      'node_modules', config.wasmPath);
+
+      -    
+
+      -    logger.debug(`getDirname(): ${getDirname()}`);
+
+      -    logger.debug(`Trying WASM paths: dist=${distWasmPath},
+      nodeModules=${nodeModulesWasmPath}`);
+
+      -    
+
+      -    const fs = await import('fs');
+
+      -    let wasmPath = distWasmPath;
+
+      -    if (!fs.existsSync(distWasmPath)) {
+
+      -      wasmPath = nodeModulesWasmPath;
+
+      -      if (!fs.existsSync(nodeModulesWasmPath)) {
+
+      -        throw new Error(`WASM file not found at ${distWasmPath} or
+      ${nodeModulesWasmPath}`);
+
+      -      }
+
+      +    let finalWasmPath: string;
+
+      +
+
+      +    if (isBrowser) {
+
+      +      if (!wasmBaseUrl) {
+
+      +        throw new ParserError(
+
+      +          'In a browser environment, you must call initializeParser({
+      wasmBaseUrl: "..." }) before loading languages.',
+
+      +          config.name
+
+      +        );
+
+      +      }
+
+      +      const wasmFileName = config.wasmPath.split('/')[1];
+
+      +      const baseUrl = wasmBaseUrl.endsWith('/') ? wasmBaseUrl :
+      `${wasmBaseUrl}/`;
+
+      +      finalWasmPath = new URL(baseUrl + wasmFileName,
+      window.location.href).href;
+
+      +    } else {
+
+      +      // Node.js logic
+
+      +      const distWasmPath = path.resolve(getDirname(), '..', 'wasm',
+      config.wasmPath.split('/')[1]);
+
+      +      const nodeModulesWasmPath = path.resolve(getDirname(), '..', '..',
+      'node_modules', config.wasmPath);
+
+      +      
+
+      +      logger.debug(`Trying WASM paths: dist=${distWasmPath},
+      nodeModules=${nodeModulesWasmPath}`);
+
+      +      
+
+      +      const fs = await import('node:fs');
+
+      +      if (fs.existsSync(distWasmPath)) {
+
+      +        finalWasmPath = distWasmPath;
+
+      +      } else if (fs.existsSync(nodeModulesWasmPath)) {
+
+      +        finalWasmPath = nodeModulesWasmPath;
+
+      +      } else {
+
+      +        throw new Error(`WASM file not found at either ${distWasmPath} or
+      ${nodeModulesWasmPath}`);
+
+      +      }
+           }
+           
+      -    logger.debug(`Loading WASM from: ${wasmPath}`);
+
+      -    const language = await Parser.Language.load(wasmPath);
+
+      +    logger.debug(`Loading WASM from: ${finalWasmPath}`);
+
+      +    const language = await Parser.Language.load(finalWasmPath);
+           
+           const loadedLanguage: LoadedLanguage = {
+             config,
+      @@ -107,6 +132,7 @@
+       export const preloadAllLanguages = async (): Promise<void> => {
+         await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
+       };
+      +
+       
+       // Legacy function for backward compatibility
+       export const getParser = async (): Promise<Parser.Parser> => {
+    patchStrategy: new-unified
+  - type: write
+    path: src/pipeline/rank.ts
+    content: >-
+      --- src/pipeline/rank.ts
+
+      +++ src/pipeline/rank.ts
+
+      @@ -40,6 +40,18 @@
+        */
+       export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
+         return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+      +    const isBrowser = typeof window !== 'undefined' && typeof
+      window.document !== 'undefined';
+
+      +    if (isBrowser) {
+
+      +      logger.warn('GitRanker is not supported in the browser. Returning 0
+      for all ranks.');
+
+      +      const ranks = new Map<string, number>();
+
+      +      for (const [nodeId] of graph.nodes) {
+
+      +        ranks.set(nodeId, 0);
+
+      +      }
+
+      +      return { ...graph, ranks };
+
+      +    }
+
+      +
+           const { maxCommits = 500 } = options;
+           const ranks = new Map<string, number>();
+    patchStrategy: new-unified
+  - type: write
+    path: src/high-level.ts
+    content: >-
+      --- src/high-level.ts
+
+      +++ src/high-level.ts
+
+      @@ -21,21 +21,28 @@
+        * @returns The generated `RankedCodeGraph`.
+        */
+       export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
+      -  const { root = process.cwd(), logLevel, include, ignore, noGitignore,
+      maxWorkers } = options;
+
+      +  const { root, logLevel, include, ignore, noGitignore, maxWorkers,
+      files: inputFiles } = options;
+
+      +  const isBrowser = typeof window !== 'undefined' && typeof
+      window.document !== 'undefined';
+       
+         if (logLevel) {
+           logger.setLevel(logLevel);
+         }
+       
+         // Validate options before entering the main try...catch block to provide clear errors.
+         const ranker = selectRanker(options.rankingStrategy);
+       
+         try {
+      -    logger.info('1/3 Discovering files...');
+
+      -    const discoverer = createDefaultDiscoverer();
+
+      -    const files = await discoverer({ root: path.resolve(root), include,
+      ignore, noGitignore });
+
+      +    let files: readonly FileContent[];
+
+      +    if (inputFiles && inputFiles.length > 0) {
+
+      +      logger.info('1/3 Using provided files...');
+
+      +      files = inputFiles;
+
+      +    } else {
+
+      +      if (isBrowser) {
+
+      +        throw new RepoGraphError('File discovery is not supported in the
+      browser. Please provide the `files` option with file content.');
+
+      +      }
+
+      +      const effectiveRoot = root || process.cwd();
+
+      +      logger.info(`1/3 Discovering files in "${effectiveRoot}"...`);
+
+      +      const discoverer = createDefaultDiscoverer();
+
+      +      files = await discoverer({ root: path.resolve(effectiveRoot),
+      include, ignore, noGitignore });
+
+      +    }
+           logger.debug(`  -> Found ${files.length} files to analyze.`);
+       
+           logger.info('2/3 Analyzing code and building graph...');
+      @@ -58,6 +65,11 @@
+        * @param options The configuration object for generating the map.
+        */
+       export const generateMap = async (options: RepoGraphOptions = {}): Promise<void> => {
+      +  const isBrowser = typeof window !== 'undefined' && typeof
+      window.document !== 'undefined';
+
+      +  if (isBrowser) {
+
+      +    throw new RepoGraphError('`generateMap` is not supported in the
+      browser because it cannot write to the file system. Use `analyzeProject`
+      and a `Renderer` instead.');
+
+      +  }
+
+      +
+         const finalOptions = { ...options, logLevel: options.logLevel ?? 'info' };
+       
+         const {
+      @@ -65,7 +77,6 @@
+           output = './repograph.md',
+         } = finalOptions;
+       
+         try {
+           // We get the full ranked graph first
+           const rankedGraph = await analyzeProject(finalOptions);
+    patchStrategy: new-unified
+  - type: write
+    path: src/index.ts
+    content: >-
+      --- src/index.ts
+
+      +++ src/index.ts
+
+      @@ -3,7 +3,8 @@
+       import { RepoGraphError } from './utils/error.util';
+       // High-Level API for simple use cases
+       import { generateMap as executeGenerateMap } from './high-level';
+      -import type { RepoGraphOptions as IRepoGraphOptions } from './types';
+
+      +import { type RepoGraphOptions as IRepoGraphOptions } from './types';
+       
+      -export { generateMap, analyzeProject } from './high-level';
+
+      +export { analyzeProject, generateMap } from './high-level';
+
+      +export { initializeParser } from './tree-sitter/languages';
+       
+       // Low-Level API for composition and advanced use cases
+       export { createMapGenerator } from './composer';
+      @@ -15,10 +16,12 @@
+       
+       // Logger utilities
+       export { logger } from './utils/logger.util';
+      -export type { Logger, LogLevel } from './utils/logger.util';
+
+      +export type { LogLevel, Logger } from './utils/logger.util';
+
+      +export type { ParserInitializationOptions } from
+      './tree-sitter/languages';
+       
+       // Core types for building custom components
+       export type {
+      +  Analyzer,
+         FileContent,
+         CodeNode,
+         CodeNodeType,
+      @@ -28,9 +31,7 @@
+         RankedCodeGraph,
+         RepoGraphMap,
+         RepoGraphOptions,
+      -  RendererOptions,
+
+      -  FileDiscoverer,
+         CssIntent,
+      -  Analyzer,
+         Ranker,
+         Renderer,
+      +  RendererOptions,
+
+      +  FileDiscoverer,
+       } from './types';
+       
+       // This section runs only when the script is executed directly from the CLI
+      @@ -43,6 +44,35 @@
+         return runningFile === currentFile;
+       };
+       
+      +const copyWasmFiles = async (destination: string) => {
+
+      +  const isBrowser = typeof window !== 'undefined' && typeof
+      window.document !== 'undefined';
+
+      +  if (isBrowser) {
+
+      +    logger.error('File system operations are not available in the
+      browser.');
+
+      +    return;
+
+      +  }
+
+      +
+
+      +  try {
+
+      +    const { promises: fs } = await import('node:fs');
+
+      +    const path = await import('node:path');
+
+      +
+
+      +    // Source is relative to the running script (dist/index.js)
+
+      +    const sourceDir = path.resolve(fileURLToPath(import.meta.url), '..',
+      'wasm');
+
+      +    
+
+      +    await fs.mkdir(destination, { recursive: true });
+
+      +
+
+      +    const wasmFiles = (await fs.readdir(sourceDir)).filter(file =>
+      file.endsWith('.wasm'));
+
+      +    for (const file of wasmFiles) {
+
+      +      const srcPath = path.join(sourceDir, file);
+
+      +      const destPath = path.join(destination, file);
+
+      +      await fs.copyFile(srcPath, destPath);
+
+      +      logger.info(`Copied ${file} to ${path.relative(process.cwd(),
+      destPath)}`);
+
+      +    }
+
+      +    logger.info(`\n✅ All ${wasmFiles.length} WASM files copied
+      successfully.`);
+
+      +  } catch (err) {
+
+      +    logger.error('Error copying WASM files.', err);
+
+      +  }
+
+      +};
+
+      +
+       if (isRunningDirectly()) {
+         (async () => {
+           const args = process.argv.slice(2);
+      @@ -50,6 +80,14 @@
+           if (args.includes('--help') || args.includes('-h')) {
+             console.log(`
+       Usage: repograph [root] [options]
+      +       repograph copy-wasm [destination]
+
+      +
+
+      +Commands:
+
+      +  [root]                   Analyze a repository at the given root path.
+      This is the default command.
+
+      +  copy-wasm [destination]  Copy the necessary Tree-sitter WASM files to a
+      specified directory
+
+      +                           for browser-based usage.
+
+      +                           (default destination: "./public/wasm")
+       
+       Arguments:
+         root                     The root directory of the repository to analyze. Defaults to the current working directory.
+      @@ -75,6 +113,13 @@
+             process.exit(0);
+           }
+       
+      +    if (args[0] === 'copy-wasm') {
+
+      +      const destDir = args[1] || './public/wasm';
+
+      +      logger.info(`Copying WASM files to "${path.resolve(destDir)}"...`);
+
+      +      await copyWasmFiles(destDir);
+
+      +      process.exit(0);
+
+      +    }
+
+      +
+           if (args.includes('--version') || args.includes('-v')) {
+             const { readFileSync } = await import('node:fs');
+             const pkgPath = new URL('../package.json', import.meta.url);
+    patchStrategy: new-unified
+snapshot:
+  src/types.ts: >-
+    // Core Data Structures
+
+
+    /** Represents a single file read from disk. Immutable. */
+
+    export type FileContent = {
+      readonly path: string;
+      readonly content: string;
+    };
+
+
+    /** The type of a symbol identified in the code. */
+
+    export type CodeNodeType =
+      | 'file'
+      | 'class'
+      | 'function'
+      | 'interface'
+      | 'variable'
+      | 'type'
+      | 'arrow_function'
+      | 'method'
+      | 'field'
+      | 'struct'
+      | 'enum'
+      | 'namespace'
+      | 'trait'
+      | 'impl'
+      | 'constructor'
+      | 'property'
+      | 'constant'
+      | 'static'
+      | 'union'
+      | 'template'
+      | 'html_element'
+      | 'css_rule';
+
+    /** For CSS nodes, a semantic grouping of its properties. */
+
+    export type CssIntent = 'layout' | 'typography' | 'appearance';
+
+
+    /** New type for access modifiers. */
+
+    export type CodeNodeVisibility = 'public' | 'private' | 'protected' |
+    'internal' | 'default';
+
+
+    /** Represents a single, identifiable symbol (or a file) in the code.
+    Immutable. */
+
+    export type CodeNode = {
+      readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
+      readonly type: CodeNodeType;
+      readonly name: string; // e.g., 'MyClass'
+      readonly filePath: string;
+      readonly startLine: number;
+      readonly endLine: number;
+      readonly language?: string; // For file nodes, the detected language
+      readonly codeSnippet?: string; // e.g., function signature
+
+      // --- NEW FIELDS from scn-ts report ---
+      /** The access modifier of the symbol (e.g., public, private). Maps to SCN '+' or '-'. */
+      readonly visibility?: CodeNodeVisibility;
+      /** Whether the symbol (e.g., a function or method) is asynchronous. Maps to SCN '...'. */
+      readonly isAsync?: boolean;
+      /** Whether the symbol is a static member of a class/struct. */
+      readonly isStatic?: boolean;
+      /** The return type of a function/method, as a string. Maps to SCN '#(type)'. */
+      readonly returnType?: string;
+      /** An array of parameters for functions/methods. */
+      readonly parameters?: { name: string; type?: string }[];
+      /** Whether a function is known to throw exceptions. Maps to SCN '!' */
+      readonly canThrow?: boolean; // Populated by analyzer
+      /** Whether a function is believed to be pure. Maps to SCN 'o' */
+      readonly isPure?: boolean; // Not implemented yet
+      /** For UI nodes, the HTML tag name (e.g., 'div'). */
+      readonly htmlTag?: string;
+      /** For UI nodes, a map of attributes. */
+      readonly attributes?: ReadonlyMap<string, string>; // Not used yet
+      /** For CSS nodes, the full selector. */
+      readonly cssSelector?: string;
+      /** For CSS rules, a list of semantic intents. */
+      readonly cssIntents?: readonly CssIntent[]; // Not implemented yet
+    };
+
+
+    /** Represents a directed relationship between two CodeNodes. Immutable. */
+
+    export type CodeEdge = {
+      readonly fromId: string; // ID of the source CodeNode
+      readonly toId: string;   // ID of the target CodeNode
+      readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
+    };
+
+
+    /** Represents a potential relationship discovered in a file, to be resolved
+    later. */
+
+    export type UnresolvedRelation = {
+      readonly fromId: string;
+      readonly toName: string;
+      readonly type: 'imports' | 'calls' | 'inherits' | 'implements' | 'reference';
+    };
+
+
+    /** The complete, raw model of the repository's structure. Immutable. */
+
+    export type CodeGraph = {
+      readonly nodes: ReadonlyMap<string, CodeNode>;
+      readonly edges: readonly CodeEdge[];
+    };
+
+
+    /** A CodeGraph with an added 'rank' score for each node. Immutable. */
+
+    export type RankedCodeGraph = CodeGraph & {
+      readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
+    };
+
+
+    /** The output of a map generation process, containing the graph and
+    rendered output. */
+
+    export type RepoGraphMap = {
+      readonly graph: RankedCodeGraph;
+      readonly markdown: string;
+    };
+
+
+    // High-Level API Options
+
+
+    /** Configuration for the final Markdown output. */
+
+    export type RendererOptions = {
+      /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */
+      readonly customHeader?: string;
+      /** Include the default `RepoGraph` header. @default true */
+      readonly includeHeader?: boolean;
+      /** Include the project overview section. @default true */
+      readonly includeOverview?: boolean;
+      /** Include a Mermaid.js dependency graph. @default true */
+      readonly includeMermaidGraph?: boolean;
+      /** Include the list of top-ranked files. @default true */
+      readonly includeFileList?: boolean;
+      /** Number of files to show in the top list. @default 10 */
+      readonly topFileCount?: number;
+      /** Include detailed breakdowns for each symbol. @default true */
+      readonly includeSymbolDetails?: boolean;
+      /** String to use as a separator between file sections. @default '---' */
+      readonly fileSectionSeparator?: string;
+
+      /** Options for how individual symbols are rendered */
+      readonly symbolDetailOptions?: {
+        /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */
+        readonly includeRelations?: boolean;
+        /** Include the starting line number. @default true */
+        readonly includeLineNumber?: boolean;
+        /** Include the code snippet for the symbol. @default true */
+        readonly includeCodeSnippet?: boolean;
+        /** Max number of relations to show per type (e.g., 'calls'). @default 3 */
+        readonly maxRelationsToShow?: number;
+      };
+    };
+
+
+    /** Configuration options for the main `generateMap` function. */
+
+    export type RepoGraphOptions = {
+      /** Root directory to analyze. @default process.cwd() */
+      readonly root?: string;
+      /** Output path for the Markdown file. @default './repograph.md' */
+      readonly output?: string;
+      /** Glob patterns for files to include. */
+      readonly include?: readonly string[];
+      /** Glob patterns for files to exclude. */
+      readonly ignore?: readonly string[];
+      /** Disables the use of .gitignore. @default false */
+      readonly noGitignore?: boolean;
+      /** The ranking strategy to use. @default 'pagerank' */
+      readonly rankingStrategy?: 'pagerank' | 'git-changes';
+      /** Configuration for the final Markdown output. */
+      readonly rendererOptions?: RendererOptions;
+      /**
+       * The maximum number of parallel workers to use for analysis.
+       * When set to 1, analysis runs in the main thread without workers.
+       * @default 1
+       */
+      readonly maxWorkers?: number;
+      /** Logging level. @default 'info' */
+      readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
+    };
+
+
+    // Low-Level Functional Pipeline Contracts
+
+
+    /** Discovers files and returns their content. */
+
+    export type FileDiscoverer = (config: {
+      readonly root: string;
+      readonly include?: readonly string[];
+      readonly ignore?: readonly string[];
+      readonly noGitignore?: boolean;
+    }) => Promise<readonly FileContent[]>;
+
+
+    /** Analyzes file content and builds the dependency graph. */
+
+    export type Analyzer = (files: readonly FileContent[]) =>
+    Promise<CodeGraph>;
+
+
+    /** Ranks the nodes in a graph. */
+
+    export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
+
+
+    /** Renders a ranked graph into a string format. */
+
+    export type Renderer = (rankedGraph: RankedCodeGraph, options?:
+    RendererOptions) => string;
+  src/tree-sitter/languages.ts: >-
+    import * as Parser from 'web-tree-sitter';
+
+    import path from 'node:path';
+
+    import { fileURLToPath } from 'node:url';
+
+    import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from
+    './language-config';
+
+    import { logger } from '../utils/logger.util';
+
+    import { ParserError } from '../utils/error.util';
+
+
+    // Helper to get the correct path in different environments
+
+    const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
+
+
+    let isInitialized = false;
+
+    const loadedLanguages = new Map<string, LoadedLanguage>();
+
+
+    /**
+     * Initializes the Tree-sitter parser system.
+     * This function is idempotent.
+     */
+    export const initializeParser = async (): Promise<void> => {
+      if (isInitialized) {
+        return;
+      }
+
+      await Parser.Parser.init();
+      isInitialized = true;
+    };
+
+
+    /**
+     * Loads a specific language grammar.
+     * @param config The language configuration to load
+     * @returns A LoadedLanguage object containing the config and language
+     */
+    export const loadLanguage = async (config: LanguageConfig):
+    Promise<LoadedLanguage> => {
+      if (loadedLanguages.has(config.name)) {
+        return loadedLanguages.get(config.name)!;
+      }
+
+      await initializeParser();
+
+      try {
+        // Try dist/wasm first (for published package), fallback to node_modules (for development)
+        // In published package: getDirname() = /path/to/node_modules/repograph/dist/tree-sitter
+        // In development: getDirname() = /path/to/repograph/src/tree-sitter
+        
+        // For published package: getDirname() = /path/to/node_modules/repograph/dist (chunk file location)
+        const distWasmPath = path.resolve(getDirname(), 'wasm', config.wasmPath.split('/')[1]);
+        // For development: go from src/tree-sitter -> ../../node_modules/tree-sitter-*/
+        const nodeModulesWasmPath = path.resolve(getDirname(), '..', '..', 'node_modules', config.wasmPath);
+        
+        logger.debug(`getDirname(): ${getDirname()}`);
+        logger.debug(`Trying WASM paths: dist=${distWasmPath}, nodeModules=${nodeModulesWasmPath}`);
+        
+        const fs = await import('fs');
+        let wasmPath = distWasmPath;
+        if (!fs.existsSync(distWasmPath)) {
+          wasmPath = nodeModulesWasmPath;
+          if (!fs.existsSync(nodeModulesWasmPath)) {
+            throw new Error(`WASM file not found at ${distWasmPath} or ${nodeModulesWasmPath}`);
+          }
+        }
+        
+        logger.debug(`Loading WASM from: ${wasmPath}`);
+        const language = await Parser.Language.load(wasmPath);
+        
+        const loadedLanguage: LoadedLanguage = {
+          config,
+          language
+        };
+        
+        loadedLanguages.set(config.name, loadedLanguage);
+        return loadedLanguage;
+      } catch (error) {
+        const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure '${config.wasmPath.split('/')[0]}' is installed.`;
+        logger.error(message, error);
+        throw new ParserError(message, config.name, error);
+      }
+    };
+
+
+    /**
+     * Creates a parser instance for a specific language.
+     * @param config The language configuration
+     * @returns A parser instance configured for the specified language
+     */
+    export const createParserForLanguage = async (config: LanguageConfig):
+    Promise<Parser.Parser> => {
+      const loadedLanguage = await loadLanguage(config);
+      const parser = new Parser.Parser();
+      parser.setLanguage(loadedLanguage.language);
+      return parser;
+    };
+
+
+    /**
+     * Gets all loaded languages.
+     * @returns A map of language names to LoadedLanguage objects
+     */
+    export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
+      return new Map(loadedLanguages);
+    };
+
+
+    /**
+     * Preloads all supported languages.
+     * This can be called to eagerly load all language parsers.
+     */
+    export const preloadAllLanguages = async (): Promise<void> => {
+      await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
+    };
+
+
+    // Legacy function for backward compatibility
+
+    export const getParser = async (): Promise<Parser.Parser> => {
+      const tsConfig = LANGUAGE_CONFIGS.find(config => config.name === 'typescript');
+      if (!tsConfig) {
+        throw new Error('TypeScript configuration not found');
+      }
+      return createParserForLanguage(tsConfig);
+    };
+  src/pipeline/rank.ts: >-
+    import pagerank from 'graphology-pagerank';
+
+    import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
+
+    import Graph from 'graphology';
+
+    import { execSync } from 'node:child_process';
+
+    import { logger } from '../utils/logger.util';
+
+
+    /**
+     * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
+     * other important nodes will receive a higher rank.
+     * @returns A Ranker function.
+     */
+    export const createPageRanker = (): Ranker => {
+      return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+        // PageRank can only be computed on graphs with nodes.
+        if (graph.nodes.size === 0) {
+          return { ...graph, ranks: new Map() };
+        }
+
+        // Pagerank lib requires a graphology instance.
+        const simpleGraph = new Graph({ type: 'directed' });
+        for (const [nodeId, node] of graph.nodes) {
+          simpleGraph.addNode(nodeId, node);
+        }
+        for (const edge of graph.edges) {
+          if (!simpleGraph.hasEdge(edge.fromId, edge.toId)) {
+            simpleGraph.addDirectedEdge(edge.fromId, edge.toId);
+          }
+        }
+
+        const graphForRank = simpleGraph;
+        const ranksData = pagerank(graphForRank);
+        const ranks = new Map<string, number>();
+        for (const node in ranksData) {
+          ranks.set(node, ranksData[node] ?? 0);
+        }
+        return { ...graph, ranks };
+      };
+    };
+
+
+    /**
+     * Creates a ranker based on Git commit history. Files changed more frequently are considered
+     * more important. Requires Git to be installed.
+     * @returns A Ranker function.
+     */
+    export const createGitRanker = (options: { maxCommits?: number } = {}):
+    Ranker => {
+      return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+        const { maxCommits = 500 } = options;
+        const ranks = new Map<string, number>();
+
+        if (graph.nodes.size === 0) {
+          return { ...graph, ranks };
+        }
+
+        try {
+          const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
+          const output = execSync(command, { encoding: 'utf-8' });
+          const files = output.split('\n').filter(Boolean);
+
+          const changeCounts: Record<string, number> = {};
+          for (const file of files) {
+            changeCounts[file] = (changeCounts[file] || 0) + 1;
+          }
+
+          const maxChanges = Math.max(...Object.values(changeCounts), 1);
+
+          for (const [nodeId, attributes] of graph.nodes) {
+            // We only rank file nodes with this strategy
+            if (attributes.type === 'file') {
+              const count = changeCounts[attributes.filePath] ?? 0;
+              ranks.set(nodeId, count / maxChanges); // Normalize score
+            } else {
+              ranks.set(nodeId, 0);
+            }
+          }
+        } catch (e) {
+          // This is not a fatal error for the whole process, but this ranker cannot proceed.
+          logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
+          for (const [nodeId] of graph.nodes) {
+            ranks.set(nodeId, 0);
+          }
+        }
+
+        return { ...graph, ranks };
+      };
+    };
+  src/index.ts: |
+    #!/usr/bin/env bun
+
+    import { logger } from './utils/logger.util';
+    import { RepoGraphError } from './utils/error.util';
+    // High-Level API for simple use cases
+    import { generateMap as executeGenerateMap } from './high-level';
+    import type { RepoGraphOptions as IRepoGraphOptions } from './types';
+
+    export { generateMap, analyzeProject } from './high-level';
+
+    // Low-Level API for composition and advanced use cases
+    export { createMapGenerator } from './composer';
+
+    // Default pipeline component factories
+    export { createDefaultDiscoverer } from './pipeline/discover';
+    export { createTreeSitterAnalyzer } from './pipeline/analyze';
+    export { createPageRanker, createGitRanker } from './pipeline/rank';
+    export { createMarkdownRenderer } from './pipeline/render';
+
+    // Logger utilities
+    export { logger } from './utils/logger.util';
+    export type { Logger, LogLevel } from './utils/logger.util';
+
+    // Core types for building custom components
+    export type {
+      FileContent,
+      CodeNode,
+      CodeNodeType,
+      CodeNodeVisibility,
+      CodeEdge,
+      CodeGraph,
+      RankedCodeGraph,
+      RepoGraphMap,
+      RepoGraphOptions,
+      RendererOptions,
+      FileDiscoverer,
+      CssIntent,
+      Analyzer,
+      Ranker,
+      Renderer,
+    } from './types';
+
+    // This section runs only when the script is executed directly from the CLI
+    import { fileURLToPath } from 'node:url';
+    import path from 'node:path';
+
+    const isRunningDirectly = () => {
+      if (typeof process.argv[1] === 'undefined') return false;
+      const runningFile = path.resolve(process.argv[1]);
+      const currentFile = fileURLToPath(import.meta.url);
+      return runningFile === currentFile;
+    };
+
+    if (isRunningDirectly()) {
+      (async () => {
+        const args = process.argv.slice(2);
+
+        if (args.includes('--help') || args.includes('-h')) {
+          console.log(`
+    Usage: repograph [root] [options]
+
+    Arguments:
+      root                     The root directory of the repository to analyze. Defaults to the current working directory.
+
+    Options:
+      -h, --help               Display this help message.
+      -v, --version            Display the version number.
+      --output <path>          Path to the output Markdown file. (default: "repograph.md")
+      --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
+      --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
+      --no-gitignore           Do not respect .gitignore files.
+      --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
+      --max-workers <num>      Set the maximum number of parallel workers for analysis. (default: 1)
+      --log-level <level>      Set the logging level. (default: "info", options: "silent", "error", "warn", "info", "debug")
+
+    Output Formatting:
+      --no-header              Do not include the main "RepoGraph" header.
+      --no-overview            Do not include the project overview section.
+      --no-mermaid             Do not include the Mermaid dependency graph.
+      --no-file-list           Do not include the list of top-ranked files.
+      --no-symbol-details      Do not include the detailed file and symbol breakdown.
+      --top-file-count <num>   Set the number of files in the top list. (default: 10)
+      --file-section-separator <str> Custom separator for file sections. (default: "---")
+      --no-symbol-relations    Hide symbol relationship details (e.g., calls, implements).
+      --no-symbol-line-numbers Hide line numbers for symbols.
+      --no-symbol-snippets     Hide code snippets for symbols.
+      --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
+        `);
+          process.exit(0);
+        }
+
+        if (args.includes('--version') || args.includes('-v')) {
+          const { readFileSync } = await import('node:fs');
+          const pkgPath = new URL('../package.json', import.meta.url);
+          const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+          console.log(pkg.version);
+          process.exit(0);
+        }
+
+        // We need a mutable version of the options to build it from arguments.
+        const options: {
+          root?: string;
+          output?: string;
+          include?: readonly string[];
+          ignore?: readonly string[];
+          noGitignore?: boolean;
+          maxWorkers?: number;
+          rankingStrategy?: 'pagerank' | 'git-changes';
+          logLevel?: IRepoGraphOptions['logLevel'];
+          rendererOptions?: IRepoGraphOptions['rendererOptions'];
+        } = {};
+        const includePatterns: string[] = [];
+        const ignorePatterns: string[] = [];
+        // We need a mutable version of rendererOptions to build from CLI args
+        const rendererOptions: {
+          customHeader?: string;
+          includeHeader?: boolean;
+          includeOverview?: boolean;
+          includeMermaidGraph?: boolean;
+          includeFileList?: boolean;
+          topFileCount?: number;
+          includeSymbolDetails?: boolean;
+          fileSectionSeparator?: string;
+          symbolDetailOptions?: {
+            includeRelations?: boolean;
+            includeLineNumber?: boolean;
+            includeCodeSnippet?: boolean;
+            maxRelationsToShow?: number;
+          };
+        } = {};
+
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i];
+          if (!arg) {
+            continue;
+          }
+          switch (arg) {
+            case '--output':
+              options.output = args[++i];
+              break;
+            case '--include':
+              includePatterns.push(args[++i] as string);
+              break;
+            case '--ignore':
+              ignorePatterns.push(args[++i] as string);
+              break;
+            case '--no-gitignore':
+              options.noGitignore = true;
+              break;
+            case '--ranking-strategy':
+              options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
+              break;
+            case '--max-workers':
+              options.maxWorkers = parseInt(args[++i] as string, 10);
+              break;
+            case '--log-level':
+              options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
+              break;
+            // --- Renderer Options ---
+            case '--no-header':
+              rendererOptions.includeHeader = false;
+              break;
+            case '--no-overview':
+              rendererOptions.includeOverview = false;
+              break;
+            case '--no-mermaid':
+              rendererOptions.includeMermaidGraph = false;
+              break;
+            case '--no-file-list':
+              rendererOptions.includeFileList = false;
+              break;
+            case '--no-symbol-details':
+              rendererOptions.includeSymbolDetails = false;
+              break;
+            case '--top-file-count':
+              rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
+              break;
+            case '--file-section-separator':
+              rendererOptions.fileSectionSeparator = args[++i];
+              break;
+            case '--no-symbol-relations':
+              rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
+              break;
+            case '--no-symbol-line-numbers':
+              rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
+              break;
+            case '--no-symbol-snippets':
+              rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
+              break;
+            case '--max-relations-to-show':
+              rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
+              break;
+            default:
+              if (!arg.startsWith('-')) {
+                options.root = arg;
+              }
+              break;
+          }
+        }
+
+        if (includePatterns.length > 0) {
+          options.include = includePatterns;
+        }
+        if (ignorePatterns.length > 0) {
+          options.ignore = ignorePatterns;
+        }
+        if (Object.keys(rendererOptions).length > 0) {
+          options.rendererOptions = rendererOptions;
+        }
+
+        const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
+
+        logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
+
+        try {
+          await executeGenerateMap(options);
+          const relativePath = path.relative(process.cwd(), finalOutput);
+          logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
+        } catch (error: unknown) {
+          if (error instanceof RepoGraphError) {
+            logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
+          } else {
+            logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
+          }
+          process.exit(1);
+        }
+      })().catch((error) => {
+        console.error('Fatal error:', error);
+        process.exit(1);
+      });
+    }
+  src/high-level.ts: >-
+    import { createDefaultDiscoverer } from './pipeline/discover';
+
+    import { createTreeSitterAnalyzer } from './pipeline/analyze';
+
+    import { createPageRanker, createGitRanker } from './pipeline/rank';
+
+    import { createMarkdownRenderer } from './pipeline/render';
+
+    import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types';
+
+    import path from 'node:path';
+
+    import { logger } from './utils/logger.util';
+
+    import { writeFile } from './utils/fs.util';
+
+    import { RepoGraphError } from './utils/error.util';
+
+
+    const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] =
+    'pagerank'): Ranker => {
+      if (rankingStrategy === 'git-changes') {
+        return createGitRanker();
+      }
+      if (rankingStrategy === 'pagerank') {
+        return createPageRanker();
+      }
+      throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+    };
+
+
+    /**
+     * A mid-level API for programmatically generating and receiving the code graph
+     * without rendering it to a file. Ideal for integration with other tools.
+     *
+     * @param options The configuration object for generating the map.
+     * @returns The generated `RankedCodeGraph`.
+     */
+    export const analyzeProject = async (options: RepoGraphOptions = {}):
+    Promise<RankedCodeGraph> => {
+      const { root = process.cwd(), logLevel, include, ignore, noGitignore, maxWorkers } = options;
+
+      if (logLevel) {
+        logger.setLevel(logLevel);
+      }
+
+      // Validate options before entering the main try...catch block to provide clear errors.
+      const ranker = selectRanker(options.rankingStrategy);
+
+      try {
+        logger.info('1/3 Discovering files...');
+        const discoverer = createDefaultDiscoverer();
+        const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+        logger.debug(`  -> Found ${files.length} files to analyze.`);
+
+        logger.info('2/3 Analyzing code and building graph...');
+        const analyzer = createTreeSitterAnalyzer({ maxWorkers });
+        const graph = await analyzer(files);
+        logger.debug(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+        logger.info('3/3 Ranking graph nodes...');
+        const rankedGraph = await ranker(graph);
+        logger.debug('  -> Ranking complete.');
+
+        return rankedGraph;
+      } catch (error) {
+        throw new RepoGraphError(`Failed to analyze project`, error);
+      }
+    };
+
+
+    /**
+     * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+     * default pipeline based on a configuration object to generate a codemap.
+     *
+     * @param options The configuration object for generating the map.
+     */
+    export const generateMap = async (options: RepoGraphOptions = {}):
+    Promise<void> => {
+      const finalOptions = { ...options, logLevel: options.logLevel ?? 'info' };
+
+      const {
+        root = process.cwd(),
+        output = './repograph.md',
+      } = finalOptions;
+
+      try {
+        // We get the full ranked graph first
+        const rankedGraph = await analyzeProject(finalOptions);
+
+        logger.info('4/4 Rendering output...');
+        const renderer = createMarkdownRenderer();
+        const markdown = renderer(rankedGraph, finalOptions.rendererOptions);
+        logger.debug('  -> Rendering complete.');
+
+        const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+        logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+        await writeFile(outputPath, markdown);
+        logger.info('  -> Report saved.');
+      } catch (error) {
+        // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+        throw error;
+      }
+    };
+approved: true

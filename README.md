@@ -6,7 +6,7 @@
 
 ### Your Codebase, Visualized & Understood.
 
-**Generate rich, semantic, and interactive codemaps to navigate, analyze, and master any repository.**
+**Generate rich, semantic, and interactive codemaps to navigate, analyze, and master any repository, in any environment.**
 
 [![NPM Version](https://img.shields.io/npm/v/repograph?style=for-the-badge&color=CB3837)](https://www.npmjs.com/package/repograph)
 [![License](https://img.shields.io/npm/l/repograph?style=for-the-badge&color=blue)](./LICENSE)
@@ -17,9 +17,9 @@
 
 ---
 
-Ever felt lost in a new codebase? Struggled to see the big picture or find the most critical files? RepoGraph is your solution. It's a powerful command-line tool and library that analyzes your code, builds a dependency graph, ranks key files and symbols, and generates a beautiful, detailed Markdown report.
+Ever felt lost in a new codebase? Struggled to see the big picture or find the most critical files? RepoGraph is your solution. It's a powerful **isomorphic** tool and library that analyzes your code, builds a dependency graph, ranks key files and symbols, and generates a beautiful, detailed Markdown report.
 
-Whether you're onboarding new engineers, planning a large-scale refactor, or even providing context to an AI, RepoGraph gives you the map you need to navigate with confidence.
+Whether you're onboarding new engineers, planning a large-scale refactor, or even providing context to an AI, RepoGraph gives you the map you need to navigate with confidence—**both in your terminal and in the browser**.
 
 ## ✨ Key Features & Benefits
 
@@ -29,8 +29,8 @@ Whether you're onboarding new engineers, planning a large-scale refactor, or eve
 | **⚡ Parallel Processing**              | Leverages **worker threads** to analyze files in parallel, dramatically speeding up analysis for large codebases with configurable worker pools.        |
 | **⭐ Intelligent Ranking Algorithms**   | Go beyond file names. Rank code by importance using **PageRank** (centrality) or **Git Hot-Spots** (change frequency) to immediately find what matters.       |
 | **🎯 Rich Symbol Qualifiers**           | Extract deep metadata including visibility (`public`/`private`), `async`/`static` status, purity, exception handling, parameter types, and return types. |
+| **🌐 Browser & Node.js Support**       | Run analysis anywhere. Use the powerful CLI in your terminal or integrate the library directly into your web-based IDE or analysis tools.                 |
 | **🎨 Comprehensive Markdown Reports**  | Generates a `repograph.md` file with a project overview, dependency graphs, ranked file lists, and detailed symbol breakdowns.                              |
-| **📊 Automatic Mermaid.js Graphs**     | Visualize your module dependencies with an automatically generated, easy-to-read Mermaid diagram right in your report.                                       |
 | **🧩 Composable Pipeline API**         | A fully functional, composable API allows you to replace or extend any part of the pipeline: **Discover → Analyze → Rank → Render**.                         |
 | **⚙️ Highly Configurable CLI**          | Fine-tune your analysis and output with a rich set of command-line flags to include/ignore files, customize the report, and more.                            |
 
@@ -40,7 +40,7 @@ Whether you're onboarding new engineers, planning a large-scale refactor, or eve
 -   **Master Code Navigation:** Understand how components are interconnected, making it easier to trace logic and predict the impact of changes.
 -   **Prioritize Refactoring:** Identify highly-central but frequently changed files—prime candidates for refactoring and stabilization.
 -   **Enhance AI Context:** Feed a structured, ranked, and semantically-rich overview of your codebase to LLMs for vastly improved code generation, analysis, and Q&A.
--   **Power Advanced Tooling:** The rich, structured data output is a perfect foundation for sophisticated tools like `scn-ts` to generate specialized visualizations and representations.
+-   **Build In-Browser Tools:** Integrate RepoGraph into your web applications to create live code explorers, visualizers, or educational platforms without a server-side component.
 -   **Streamline Architectural Reviews:** Get a high-level, data-driven view of your system's architecture to facilitate design discussions.
 
 ## 📸 Gallery: Example Output
@@ -138,18 +138,17 @@ This rich metadata enables sophisticated integrations with tools like **`scn-ts`
 
 ## 📦 Installation
 
-Install RepoGraph globally to use it as a CLI tool from anywhere on your system.
-
 ```bash
 # Using npm
-npm install -g repograph
+npm install repograph
 
 # Using yarn
-yarn global add repograph
+yarn add repograph
 
 # Using pnpm
-pnpm add -g repograph
+pnpm add repograph
 ```
+To use the CLI globally, install with a `-g` flag.
 
 ## 🛠️ Usage
 
@@ -178,117 +177,107 @@ repograph ./my-cool-project \
 
 #### All CLI Options
 
-| Argument                      | Alias | Description                                                     | Default          |
-| :---------------------------- | :---- | :-------------------------------------------------------------- | :--------------- |
-| `root`                        |       | The root directory of the repository to analyze.                | `.`              |
-| `--output <path>`             |       | Path to the output Markdown file.                               | `repograph.md`   |
-| `--include <pattern>`         |       | Glob pattern for files to include. Can be specified multiple times. | `**/*`           |
-| `--ignore <pattern>`          |       | Glob pattern for files to ignore. Can be specified multiple times. |                  |
-| `--no-gitignore`              |       | Do not respect `.gitignore` files.                              | `false`          |
-| `--ranking-strategy <name>`   |       | Ranking strategy: `pagerank` or `git-changes`.                  | `pagerank`       |
-| `--max-workers <num>`         |       | Number of parallel workers for analysis. Set to 1 for single-threaded. | `1`              |
-| `--log-level <level>`         |       | Logging level: `silent`, `error`, `warn`, `info`, `debug`.      | `info`           |
-| `--help`                      | `-h`  | Display the help message.                                       |                  |
-| `--version`                   | `-v`  | Display the version number.                                     |                  |
-| **Output Formatting**         |       |                                                                 |                  |
-| `--no-header`                 |       | Do not include the main "RepoGraph" header.                     | `false`          |
-| `--no-overview`               |       | Do not include the project overview section.                    | `false`          |
-| `--no-mermaid`                |       | Do not include the Mermaid dependency graph.                    | `false`          |
-| `--no-file-list`              |       | Do not include the list of top-ranked files.                    | `false`          |
-| `--no-symbol-details`         |       | Do not include the detailed file and symbol breakdown.          | `false`          |
-| `--top-file-count <num>`      |       | Number of files in the top list.                                | `10`             |
-| `--file-section-separator <str>`| | Custom separator for file sections.                               | `---`            |
-| `--no-symbol-relations`       |       | Hide symbol relationship details (e.g., `calls`).               | `false`          |
-| `--no-symbol-line-numbers`    |       | Hide line numbers for symbols.                                  | `false`          |
-| `--no-symbol-snippets`        |       | Hide code snippets for symbols.                                 | `false`          |
-| `--max-relations-to-show <num>` |       | Max number of 'calls' relations to show per symbol.             | `3`              |
+| Command / Argument              | Alias | Description                                                                   | Default                     |
+| :------------------------------ | :---- | :---------------------------------------------------------------------------- | :-------------------------- |
+| **Commands**                    |       |                                                                               |                             |
+| `[root]`                        |       | Analyze a repository at the given root path. This is the default command.     | `.`                         |
+| `copy-wasm [destination]`       |       | Copy Tree-sitter WASM files to a directory for browser usage.                   | `./public/wasm`             |
+| **Arguments & Options**         |       |                                                                               |                             |
+| `--output <path>`               |       | Path to the output Markdown file.                                             | `repograph.md`              |
+| `--include <pattern>`           |       | Glob pattern for files to include. Can be specified multiple times.             | `**/*`                      |
+| `--ignore <pattern>`            |       | Glob pattern for files to ignore. Can be specified multiple times.              |                             |
+| `--no-gitignore`                |       | Do not respect `.gitignore` files.                                              | `false`                     |
+| `--ranking-strategy <name>`     |       | Ranking strategy: `pagerank` or `git-changes`.                                  | `pagerank`                  |
+| `--max-workers <num>`           |       | Number of parallel workers for analysis. Set to 1 for single-threaded.          | `1`                         |
+| `--log-level <level>`           |       | Logging level: `silent`, `error`, `warn`, `info`, `debug`.                      | `info`                      |
+| `--help`                        | `-h`  | Display the help message.                                                     |                             |
+| `--version`                     | `-v`  | Display the version number.                                                     |                             |
+| **Output Formatting**           |       |                                                                               |                             |
+| `--no-header`                   |       | Do not include the main "RepoGraph" header.                                     | `false`                     |
+| `--no-overview`                 |       | Do not include the project overview section.                                    | `false`                     |
+| `--no-mermaid`                  |       | Do not include the Mermaid dependency graph.                                    | `false`                     |
+| `--no-file-list`                |       | Do not include the list of top-ranked files.                                    | `false`                     |
+| `--no-symbol-details`           |       | Do not include the detailed file and symbol breakdown.                          | `false`                     |
+| `--top-file-count <num>`        |       | Number of files in the top list.                                                | `10`                        |
+| `--file-section-separator <str>`|       | Custom separator for file sections.                                             | `---`                       |
+| `--no-symbol-relations`         |       | Hide symbol relationship details (e.g., `calls`).                               | `false`                     |
+| `--no-symbol-line-numbers`      |       | Hide line numbers for symbols.                                                  | `false`                     |
+| `--no-symbol-snippets`          |       | Hide code snippets for symbols.                                                 | `false`                     |
+| `--max-relations-to-show <num>` |       | Max number of 'calls' relations to show per symbol.                             | `3`                         |
 
 ### 📚 Programmatic API
 
 For ultimate flexibility, use the RepoGraph programmatic API. Integrate it into your own tools, build custom pipelines, and invent new ways to analyze code.
 
-#### High-Level API (`generateMap`)
+#### High-Level API (`analyzeProject`)
 
-The easiest way to get started. It uses the default, battle-tested pipeline.
+This is the main entry point for both Node.js and browser environments.
+
+**Node.js Usage (File Discovery)**
 
 ```typescript
-// my-script.ts
-import { generateMap } from 'repograph';
+// my-node-script.ts
+import { analyzeProject, createMarkdownRenderer } from 'repograph';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 
-await generateMap({
+// Analyze files on disk
+const rankedGraph = await analyzeProject({
   root: path.resolve('./path/to/your/project'),
-  output: 'my-custom-report.md',
   rankingStrategy: 'git-changes',
-  maxWorkers: 4, // Use 4 parallel workers for faster analysis
-  rendererOptions: {
-    includeMermaidGraph: false,
-    topFileCount: 20,
-    symbolDetailOptions: {
-      includeCodeSnippet: false,
-    },
-  },
+  maxWorkers: 4,
 });
 
+// Render the output
+const renderer = createMarkdownRenderer();
+const markdown = renderer(rankedGraph);
+
+await fs.writeFile('report.md', markdown);
 console.log('✅ Report generated!');
 ```
 
-#### Low-Level API (`createMapGenerator`)
+**Browser Usage (In-Memory Files)**
 
-Unleash the full power of RepoGraph's composable architecture. Swap out any part of the pipeline with your own implementation, and get the raw data back for custom processing.
+To use RepoGraph in the browser, you must provide the file content directly.
 
-```typescript
-// my-advanced-script.ts
-import {
-  createMapGenerator,
-  createDefaultDiscoverer,
-  createTreeSitterAnalyzer,
-  createMarkdownRenderer,
-} from 'repograph';
-import type { Ranker, CodeGraph, RankedCodeGraph, RepoGraphMap } from 'repograph';
-import fs from 'node:fs/promises';
+1.  **Copy WASM files:** First, copy the necessary parser files into your public web directory.
 
-// 1. Define our custom ranker
-const createLineCountRanker = (): Ranker => {
-  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
-    const ranks = new Map<string, number>();
-    for (const [id, node] of graph.nodes) {
-      if (node.type === 'file') {
-        ranks.set(id, node.endLine - node.startLine); // More lines = higher rank
-      } else {
-        ranks.set(id, 0);
-      }
+    ```bash
+    npx repograph copy-wasm ./public/wasm
+    ```
+
+2.  **Initialize and Analyze:** In your application code, initialize the parser with the location of the WASM files and then pass your in-memory file data to `analyzeProject`.
+
+    ```typescript
+    // my-browser-app.ts
+    import { initializeParser, analyzeProject, createMarkdownRenderer } from 'repograph';
+
+    // In-memory file data (e.g., from a file upload, API, or Monaco editor)
+    const files = [
+      { path: 'src/index.ts', content: 'import { a } from "./utils";' },
+      { path: 'src/utils.ts', content: 'export const a = 1;' },
+    ];
+
+    async function runAnalysis() {
+      // 1. Initialize parser with the path to your WASM files
+      await initializeParser({ wasmBaseUrl: '/wasm/' });
+
+      // 2. Analyze the in-memory files
+      const rankedGraph = await analyzeProject({
+        files: files, // This skips file-system discovery
+        rankingStrategy: 'pagerank', // 'git-changes' is not available in browser
+      });
+
+      // 3. Render the output to a string
+      const renderer = createMarkdownRenderer();
+      const markdown = renderer(rankedGraph, { includeMermaidGraph: true });
+
+      // 4. Display the markdown in your app
+      document.getElementById('report-container').innerText = markdown;
     }
-    // Normalize ranks
-    const maxRank = Math.max(...ranks.values(), 1);
-    for (const [id, rank] of ranks.entries()) {
-      ranks.set(id, rank / maxRank);
-    }
-    return { ...graph, ranks };
-  };
-};
 
-// 2. Compose the pipeline with our custom ranker
-const myCustomGenerator = createMapGenerator({
-  discover: createDefaultDiscoverer(),
-  analyze: createTreeSitterAnalyzer({ maxWorkers: 8 }), // <-- Use 8 workers for parallel analysis
-  rank: createLineCountRanker(), // <-- Use our custom ranker!
-  render: createMarkdownRenderer(),
-});
-
-// 3. Run the generator to get the map object (no 'output' means it returns the data)
-const map: RepoGraphMap = await myCustomGenerator({
-  root: './path/to/your/project',
-});
-
-// 4. Now you have full control over the output data
-console.log(`Generated map with ${map.graph.nodes.size} nodes.`);
-// ... perform custom analysis on map.graph ...
-
-// 5. You can still write the markdown to a file if you want
-await fs.writeFile('line-count-report.md', map.markdown);
-console.log('✅ Custom report generated and saved!');
-```
+    runAnalysis();
+    ```
 
 ## 🧩 The RepoGraph Pipeline
 
@@ -296,7 +285,7 @@ RepoGraph processes your code in four distinct, composable stages:
 
 1.  **`🔍 Discover`**
     -   Scans the filesystem using glob patterns, respecting `.gitignore`.
-    -   Reads all matching files into memory.
+    -   Reads all matching files into memory. (Skipped when `files` are provided).
 
 2.  **`🧠 Analyze`**
     -   Parses files using **Tree-sitter** and language-specific queries.

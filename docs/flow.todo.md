@@ -1,3 +1,16 @@
+- make this lib in-browser friendly especially vite. its very good to make repograph optionally no need to
+direct fs dir just via object passing in-memory so that only the end scn-ts lib user manually feed from fs.
+
+- also good if the fs is extensible
+
+- also it so good if there is cli helper that auto Copy WASM files node_modules/repograph/dist/wasm/*.wasm to user public/wasm/ directory
+
+- repograph should smartly understand if the lib programmatic api usage run in browser or not
+
+do it DRYly without adding new files
+
+===
+
 use tsup instead, also I dont like imports with .js
 
 ===

@@ -4,9 +4,10 @@ import { logger } from './utils/logger.util';
 import { RepoGraphError } from './utils/error.util';
 // High-Level API for simple use cases
 import { generateMap as executeGenerateMap } from './high-level';
-import type { RepoGraphOptions as IRepoGraphOptions } from './types';
+import { type RepoGraphOptions as IRepoGraphOptions } from './types';
 
-export { generateMap, analyzeProject } from './high-level';
+export { analyzeProject, generateMap } from './high-level';
+export { initializeParser } from './tree-sitter/languages';
 
 // Low-Level API for composition and advanced use cases
 export { createMapGenerator } from './composer';
@@ -19,10 +20,12 @@ export { createMarkdownRenderer } from './pipeline/render';
 
 // Logger utilities
 export { logger } from './utils/logger.util';
-export type { Logger, LogLevel } from './utils/logger.util';
+export type { LogLevel, Logger } from './utils/logger.util';
+export type { ParserInitializationOptions } from './tree-sitter/languages';
 
 // Core types for building custom components
 export type {
+  Analyzer,
   FileContent,
   CodeNode,
   CodeNodeType,
@@ -32,12 +35,11 @@ export type {
   RankedCodeGraph,
   RepoGraphMap,
   RepoGraphOptions,
-  RendererOptions,
-  FileDiscoverer,
   CssIntent,
-  Analyzer,
   Ranker,
   Renderer,
+  RendererOptions,
+  FileDiscoverer,
 } from './types';
 
 // This section runs only when the script is executed directly from the CLI
@@ -51,6 +53,35 @@ const isRunningDirectly = () => {
   return runningFile === currentFile;
 };
 
+const copyWasmFiles = async (destination: string) => {
+  const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+  if (isBrowser) {
+    logger.error('File system operations are not available in the browser.');
+    return;
+  }
+
+  try {
+    const { promises: fs } = await import('node:fs');
+    const path = await import('node:path');
+
+    // Source is relative to the running script (dist/index.js)
+    const sourceDir = path.resolve(fileURLToPath(import.meta.url), '..', 'wasm');
+    
+    await fs.mkdir(destination, { recursive: true });
+
+    const wasmFiles = (await fs.readdir(sourceDir)).filter(file => file.endsWith('.wasm'));
+    for (const file of wasmFiles) {
+      const srcPath = path.join(sourceDir, file);
+      const destPath = path.join(destination, file);
+      await fs.copyFile(srcPath, destPath);
+      logger.info(`Copied ${file} to ${path.relative(process.cwd(), destPath)}`);
+    }
+    logger.info(`\n✅ All ${wasmFiles.length} WASM files copied successfully.`);
+  } catch (err) {
+    logger.error('Error copying WASM files.', err);
+  }
+};
+
 if (isRunningDirectly()) {
   (async () => {
     const args = process.argv.slice(2);
@@ -58,6 +89,13 @@ if (isRunningDirectly()) {
     if (args.includes('--help') || args.includes('-h')) {
       console.log(`
 Usage: repograph [root] [options]
+       repograph copy-wasm [destination]
+
+Commands:
+  [root]                   Analyze a repository at the given root path. This is the default command.
+  copy-wasm [destination]  Copy the necessary Tree-sitter WASM files to a specified directory
+                           for browser-based usage.
+                           (default destination: "./public/wasm")
 
 Arguments:
   root                     The root directory of the repository to analyze. Defaults to the current working directory.
@@ -86,6 +124,13 @@ Output Formatting:
   --no-symbol-snippets     Hide code snippets for symbols.
   --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
     `);
+      process.exit(0);
+    }
+
+    if (args[0] === 'copy-wasm') {
+      const destDir = args[1] || './public/wasm';
+      logger.info(`Copying WASM files to "${path.resolve(destDir)}"...`);
+      await copyWasmFiles(destDir);
       process.exit(0);
     }
 
