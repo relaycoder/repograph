@@ -4,12 +4,12 @@ import { join } from 'path';
 
 export default defineConfig({
   entry: ['src/index.ts', 'src/pipeline/analyzer.worker.ts'],
-  format: ['esm'],
+  format: ['esm', 'cjs'],
   target: 'es2022',
   dts: true,
   sourcemap: true,
   clean: true,
-  splitting: true,
+  splitting: false, // Disable splitting for CJS compatibility
   treeshake: true,
   minify: false,
   outDir: 'dist',
