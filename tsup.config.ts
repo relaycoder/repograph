@@ -2,17 +2,18 @@ import { defineConfig } from 'tsup';
 import { copyFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
-export default defineConfig({
-  entry: ['src/index.ts', 'src/pipeline/analyzer.worker.ts'],
-  format: ['esm'],
-  target: 'es2022',
-  dts: true,
-  sourcemap: true,
-  clean: true,
-  splitting: true,
-  treeshake: true,
-  minify: false,
-  outDir: 'dist',
+export default defineConfig([
+  {
+    entry: ['src/index.ts', 'src/pipeline/analyzer.worker.ts'],
+    format: ['esm'],
+    target: 'es2022',
+    dts: true,
+    sourcemap: true,
+    clean: true,
+    splitting: true,
+    treeshake: true,
+    minify: false,
+    outDir: 'dist',
   onSuccess: async () => {
     // Copy WASM files to dist folder
     const wasmDir = join('dist', 'wasm');
@@ -49,4 +50,19 @@ export default defineConfig({
       }
     }
   },
-});
+  },
+  {
+    entry: ['src/index.browser.ts'],
+    format: ['esm'],
+    target: 'es2022',
+    dts: true,
+    sourcemap: true,
+    splitting: true,
+    treeshake: true,
+    minify: false,
+    outDir: 'dist',
+    outExtension: () => ({ js: '.browser.js' }),
+    platform: 'browser',
+    external: ['fs', 'path', 'process', 'node:*', 'bun:*'],
+  }
+]);
