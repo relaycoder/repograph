@@ -66,7 +66,7 @@ const copyWasmFiles = async (destination: string) => {
 
     // Source is relative to the running script (dist/index.js)
     const sourceDir = path.resolve(fileURLToPath(import.meta.url), '..', 'wasm');
-    
+
     await fs.mkdir(destination, { recursive: true });
 
     const wasmFiles = (await fs.readdir(sourceDir)).filter(file => file.endsWith('.wasm'));

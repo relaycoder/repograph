@@ -1,65 +1,32 @@
-const browserPath = {
-  normalize: (p: string) => p.replace(/\\/g, '/'),
-  dirname: (p: string) => {
-    const i = p.lastIndexOf('/');
-    return i > -1 ? p.substring(0, i) : '.';
-  },
-  join: (...args: string[]): string => {
-    const path = args.join('/');
-    // This is a simplified resolver that handles '..' and '.'
-    const segments = path.split('/');
-    const resolved: string[] = [];
-    for (const segment of segments) {
-      if (segment === '..') {
-        resolved.pop();
-      } else if (segment !== '.' || resolved.length === 0) {
-        if (segment !== '') resolved.push(segment);
-      }
-    }
-    return resolved.join('/') || (segments.length > 0 && segments.every(s => s === '.' || s === '') ? '.' : '');
-  },
-  extname: (p: string) => {
-    const i = p.lastIndexOf('.');
-    return i > p.lastIndexOf('/') ? p.substring(i) : '';
-  },
-  parse: (p: string) => {
-    const ext = browserPath.extname(p);
-    const base = p.substring(p.lastIndexOf('/') + 1);
-    const name = base.substring(0, base.length - ext.length);
-    const dir = browserPath.dirname(p);
-    return { dir, base, name, ext, root: '' };
-  },
-  basename: (p: string) => p.substring(p.lastIndexOf('/') + 1),
-};
-
 import type { Analyzer, CodeNode, CodeEdge, FileContent, UnresolvedRelation } from '../types';
 import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config';
 import { logger } from '../utils/logger.util';
 import { ParserError } from '../utils/error.util';
 import processFileInWorker from './analyzer.worker';
+import { isomorphicPath } from '../utils/path.util';
 
-const normalizePath = browserPath.normalize;
+const normalizePath = isomorphicPath.normalize;
 
 // --- LANGUAGE-SPECIFIC IMPORT RESOLUTION LOGIC ---
 // This part is needed on the main thread to resolve import paths.
 
 const createModuleResolver = (extensions: string[]) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-  const basedir = normalizePath(browserPath.dirname(fromFile));
-  const importPath = normalizePath(browserPath.join(basedir, sourcePath));
+  const basedir = normalizePath(isomorphicPath.dirname(fromFile));
+  const importPath = normalizePath(isomorphicPath.join(basedir, sourcePath));
 
   // First, check if the path as-is (with extension) exists
-  if (browserPath.extname(importPath) && allFiles.includes(importPath)) {
+  if (isomorphicPath.extname(importPath) && allFiles.includes(importPath)) {
     return importPath;
   }
   
   // Also try without the './' prefix for root-level files with extensions
-  if (browserPath.extname(importPath) && importPath.startsWith('./')) {
+  if (isomorphicPath.extname(importPath) && importPath.startsWith('./')) {
     const withoutDotSlash = importPath.substring(2);
     if (allFiles.includes(withoutDotSlash)) return withoutDotSlash;
   }
 
-  const parsedPath = browserPath.parse(importPath);
-  const basePath = normalizePath(browserPath.join(parsedPath.dir, parsedPath.name));
+  const parsedPath = isomorphicPath.parse(importPath);
+  const basePath = normalizePath(isomorphicPath.join(parsedPath.dir, parsedPath.name));
   
   // Try with extensions
   for (const ext of extensions) {
@@ -74,7 +41,7 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
   }
   
   for (const ext of extensions) {
-      const potentialIndexFile = normalizePath(browserPath.join(importPath, 'index' + ext));
+      const potentialIndexFile = normalizePath(isomorphicPath.join(importPath, 'index' + ext));
       if (allFiles.includes(potentialIndexFile)) return potentialIndexFile;
       
       // Also try without the './' prefix for root-level files
@@ -89,12 +56,12 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
 };
 
 const resolveImportFactory = (endings: string[], packageStyle: boolean = false) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-  const basedir = normalizePath(browserPath.dirname(fromFile));
-  const resolvedPathAsIs = normalizePath(browserPath.join(basedir, sourcePath));
+  const basedir = normalizePath(isomorphicPath.dirname(fromFile));
+  const resolvedPathAsIs = normalizePath(isomorphicPath.join(basedir, sourcePath));
   if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
 
-  const parsedSourcePath = browserPath.parse(sourcePath);
-  const basePath = normalizePath(browserPath.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
+  const parsedSourcePath = isomorphicPath.parse(sourcePath);
+  const basePath = normalizePath(isomorphicPath.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
   for (const end of endings) {
     const potentialPath = basePath + end;
     if (allFiles.includes(potentialPath)) return potentialPath;
@@ -114,7 +81,7 @@ type ImportResolver = (fromFile: string, sourcePath: string, allFiles: string[])
 
 const languageImportResolvers: Record<string, ImportResolver> = {
   default: (fromFile, sourcePath, allFiles) => {
-    const resolvedPathAsIs = browserPath.normalize(browserPath.join(browserPath.dirname(fromFile), sourcePath));
+    const resolvedPathAsIs = isomorphicPath.normalize(isomorphicPath.join(isomorphicPath.dirname(fromFile), sourcePath));
     return allFiles.includes(resolvedPathAsIs) ? resolvedPathAsIs : null;
   },
   typescript: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
@@ -124,11 +91,11 @@ const languageImportResolvers: Record<string, ImportResolver> = {
     if (sourcePath.startsWith('.')) {
       const level = sourcePath.match(/^\.+/)?.[0]?.length ?? 0;
       const modulePath = sourcePath.substring(level).replace(/\./g, '/');
-      let currentDir = normalizePath(browserPath.dirname(fromFile));
-      for (let i = 1; i < level; i++) currentDir = browserPath.dirname(currentDir);
-      const targetPyFile = normalizePath(browserPath.join(currentDir, modulePath) + '.py');
+      let currentDir = normalizePath(isomorphicPath.dirname(fromFile));
+      for (let i = 1; i < level; i++) currentDir = isomorphicPath.dirname(currentDir);
+      const targetPyFile = normalizePath(isomorphicPath.join(currentDir, modulePath) + '.py');
       if (allFiles.includes(targetPyFile)) return targetPyFile;
-      const resolvedPath = normalizePath(browserPath.join(currentDir, modulePath, '__init__.py'));
+      const resolvedPath = normalizePath(isomorphicPath.join(currentDir, modulePath, '__init__.py'));
       if (allFiles.includes(resolvedPath)) return resolvedPath;
     }
     return resolveImportFactory(['.py', '/__init__.py'])(fromFile, sourcePath, allFiles);
@@ -137,8 +104,8 @@ const languageImportResolvers: Record<string, ImportResolver> = {
   csharp: resolveImportFactory(['.cs'], true),
   php: resolveImportFactory(['.php']),
   rust: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-    const basedir = normalizePath(browserPath.dirname(fromFile));
-    const resolvedPath = normalizePath(browserPath.join(basedir, sourcePath + '.rs'));
+    const basedir = normalizePath(isomorphicPath.dirname(fromFile));
+    const resolvedPath = normalizePath(isomorphicPath.join(basedir, sourcePath + '.rs'));
     if (allFiles.includes(resolvedPath)) return resolvedPath;
     return resolveImportFactory(['.rs', '/mod.rs'])(fromFile, sourcePath, allFiles);
   },
@@ -197,7 +164,7 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
     for (const file of files) {
       const langConfig = getLanguageConfigForFile(normalizePath(file.path));
       nodes.set(file.path, {
-        id: file.path, type: 'file', name: browserPath.basename(file.path),
+        id: file.path, type: 'file', name: isomorphicPath.basename(file.path),
         filePath: file.path, startLine: 1, endLine: file.content.split('\n').length,
         language: langConfig?.name,
       });

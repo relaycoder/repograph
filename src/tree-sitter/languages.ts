@@ -60,18 +60,14 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
           config.name
         );
       }
-      const wasmFileName = config.wasmPath.split('/')[1];
-      if (!wasmFileName) {
-        throw new ParserError(`Invalid wasmPath for ${config.name}: ${config.wasmPath}`, config.name);
-      }
+      const wasmFileName = config.wasmPath.split('/').pop();
+      if (!wasmFileName) throw new ParserError(`Invalid wasmPath for ${config.name}: ${config.wasmPath}`, config.name);
       const baseUrl = wasmBaseUrl.endsWith('/') ? wasmBaseUrl : `${wasmBaseUrl}/`;
-      finalWasmPath = new URL(baseUrl + wasmFileName, window.location.href).href;
+      finalWasmPath = new URL(wasmFileName, new URL(baseUrl, window.location.origin)).href;
     } else {
       // Node.js logic
-      const wasmFileName = config.wasmPath.split('/')[1];
-      if (!wasmFileName) {
-        throw new ParserError(`Invalid wasmPath format for ${config.name}: ${config.wasmPath}. Expected 'package/file.wasm'.`, config.name);
-      }
+      const wasmFileName = config.wasmPath.split('/').pop();
+      if (!wasmFileName) throw new ParserError(`Invalid wasmPath format for ${config.name}: ${config.wasmPath}. Expected 'package/file.wasm'.`, config.name);
       // Try multiple possible paths for WASM files
       const currentDir = getDirname();
       const distWasmPath = path.resolve(currentDir, '..', 'wasm', wasmFileName);
@@ -108,7 +104,7 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
     loadedLanguages.set(config.name, loadedLanguage);
     return loadedLanguage;
   } catch (error) {
-    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure '${config.wasmPath.split('/')[0]}' is installed.`;
+    const message = `Failed to load Tree-sitter WASM for ${config.name}. In Node.js, ensure wasm files are in 'dist/wasm' or its package is installed. In browser, ensure files are served from the specified wasmBaseUrl.`;
     logger.error(message, error);
     throw new ParserError(message, config.name, error);
   }
