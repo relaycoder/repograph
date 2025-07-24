@@ -4,10 +4,13 @@ src/
   pipeline/
     analyze.ts
     analyzer.worker.ts
+    browser-analyze.ts
+    browser-rank.ts
     discover.ts
     rank.ts
     render.ts
   tree-sitter/
+    browser-languages.ts
     language-config.ts
     languages.ts
     queries.ts
@@ -17,6 +20,8 @@ src/
     error.util.ts
     fs.util.ts
     logger.util.ts
+  browser-high-level.ts
+  browser.ts
   composer.ts
   high-level.ts
   index.ts
@@ -53,6 +58,196 @@ export class ParserError extends RepoGraphError {
     this.name = 'ParserError';
   }
 }
+````
+
+## File: src/pipeline/browser-rank.ts
+````typescript
+import pagerank from 'graphology-pagerank';
+import Graph from 'graphology';
+import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
+
+
+/**
+ * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
+ * other important nodes will receive a higher rank.
+ * @returns A Ranker function.
+ */
+export const createPageRanker = (): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    // PageRank can only be computed on graphs with nodes.
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks: new Map() };
+    }
+
+    // Convert CodeGraph to graphology Graph
+    const graphologyGraph = new Graph();
+    
+    // Add all nodes
+    for (const [nodeId] of graph.nodes) {
+      (graphologyGraph as any).addNode(nodeId);
+    }
+    
+    // Add all edges
+    for (const edge of graph.edges) {
+      // Only add edge if both nodes exist
+      if ((graphologyGraph as any).hasNode(edge.fromId) && (graphologyGraph as any).hasNode(edge.toId)) {
+        try {
+          (graphologyGraph as any).addEdge(edge.fromId, edge.toId);
+        } catch (error) {
+          // Edge might already exist, ignore duplicate edge errors
+        }
+      }
+    }
+    
+    const ranksData = pagerank(graphologyGraph);
+    const ranks = new Map<string, number>();
+    for (const node in ranksData) {
+      ranks.set(node, ranksData[node] ?? 0);
+    }
+    return { ...graph, ranks };
+  };
+};
+
+/**
+ * Git ranker is not available in browser environment.
+ * This function throws an error if called.
+ */
+export const createGitRanker = (): Ranker => {
+  return async (): Promise<RankedCodeGraph> => {
+    throw new Error('GitRanker is not supported in the browser environment. Use PageRank instead.');
+  };
+};
+````
+
+## File: src/tree-sitter/browser-languages.ts
+````typescript
+import * as Parser from 'web-tree-sitter';
+import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config';
+import { logger } from '../utils/logger.util';
+import { ParserError } from '../utils/error.util';
+
+export interface ParserInitializationOptions {
+  /**
+   * For browser environments, sets the base URL from which to load Tree-sitter WASM files.
+   * For example, if your WASM files are in `public/wasm`, you would set this to `/wasm/`.
+   */
+  wasmBaseUrl?: string;
+}
+
+let wasmBaseUrl: string | null = null;
+let isInitialized = false;
+const loadedLanguages = new Map<string, LoadedLanguage>();
+
+/**
+ * Initializes the Tree-sitter parser system.
+ * This must be called before any other parser functions.
+ * This function is idempotent.
+ */
+export const initializeParser = async (options: ParserInitializationOptions = {}): Promise<void> => {
+  if (isInitialized) {
+    return;
+  }
+  if (options.wasmBaseUrl) wasmBaseUrl = options.wasmBaseUrl;
+
+  // Configure Tree-sitter to locate the main WASM file
+  await Parser.Parser.init({});
+  isInitialized = true;
+};
+
+/**
+ * Loads a specific language grammar.
+ * @param config The language configuration to load
+ * @returns A LoadedLanguage object containing the config and language
+ */
+export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLanguage> => {
+  if (loadedLanguages.has(config.name)) {
+    return loadedLanguages.get(config.name)!;
+  }
+
+  await initializeParser();
+
+  try {
+    if (!wasmBaseUrl) {
+      throw new ParserError(
+        'In a browser environment, you must call initializeParser({ wasmBaseUrl: "..." }) before loading languages.',
+        config.name
+      );
+    }
+    
+    const wasmFileName = config.wasmPath.split('/').pop();
+    if (!wasmFileName) {
+      throw new ParserError(`Invalid wasmPath for ${config.name}: ${config.wasmPath}`, config.name);
+    }
+    
+    const baseUrl = wasmBaseUrl.endsWith('/') ? wasmBaseUrl : `${wasmBaseUrl}/`;
+    const finalWasmPath = new URL(wasmFileName, new URL(baseUrl, window.location.origin)).href;
+
+    logger.debug(`Loading WASM from: ${finalWasmPath}`);
+    console.log(`[DEBUG] wasmBaseUrl: ${wasmBaseUrl}`);
+    console.log(`[DEBUG] wasmFileName: ${wasmFileName}`);
+    console.log(`[DEBUG] baseUrl: ${baseUrl}`);
+    console.log(`[DEBUG] finalWasmPath: ${finalWasmPath}`);
+    
+    // Fetch the WASM file to check if it's accessible
+    const response = await fetch(finalWasmPath);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch WASM file: ${response.status} ${response.statusText}`);
+    }
+    const wasmBytes = await response.arrayBuffer();
+    console.log(`[DEBUG] WASM file loaded, size: ${wasmBytes.byteLength} bytes`);
+    
+    const language = await Parser.Language.load(new Uint8Array(wasmBytes));
+
+    const loadedLanguage: LoadedLanguage = {
+      config,
+      language
+    };
+    
+    loadedLanguages.set(config.name, loadedLanguage);
+    return loadedLanguage;
+  } catch (error) {
+    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure WASM files are available.`;
+    logger.error(message, error);
+    throw new ParserError(message, config.name, error);
+  }
+};
+
+/**
+ * Creates a parser instance for a specific language.
+ * @param config The language configuration
+ * @returns A parser instance configured for the specified language
+ */
+export const createParserForLanguage = async (config: LanguageConfig): Promise<Parser.Parser> => {
+  const loadedLanguage = await loadLanguage(config);
+  const parser = new Parser.Parser();
+  parser.setLanguage(loadedLanguage.language);
+  return parser;
+};
+
+/**
+ * Gets all loaded languages.
+ * @returns A map of language names to LoadedLanguage objects
+ */
+export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
+  return new Map(loadedLanguages);
+};
+
+/**
+ * Preloads all supported languages.
+ * This can be called to eagerly load all language parsers.
+ */
+export const preloadAllLanguages = async (): Promise<void> => {
+  await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
+};
+
+// Legacy function for backward compatibility
+export const getParser = async (): Promise<Parser.Parser> => {
+  const tsConfig = LANGUAGE_CONFIGS.find(config => config.name === 'typescript');
+  if (!tsConfig) {
+    throw new Error('TypeScript configuration not found');
+  }
+  return createParserForLanguage(tsConfig);
+};
 ````
 
 ## File: src/types/graphology-pagerank.d.ts
@@ -111,6 +306,276 @@ export const isDirectory = async (filePath: string): Promise<boolean> => {
     throw new FileSystemError('Failed to check if path is a directory', filePath, e);
   }
 };
+````
+
+## File: src/browser-high-level.ts
+````typescript
+// Browser-compatible version of high-level.ts
+import { createTreeSitterAnalyzer } from './pipeline/browser-analyze';
+import { createPageRanker } from './pipeline/browser-rank';
+import type { RepoGraphOptions, Ranker, RankedCodeGraph, FileContent } from './types';
+import { logger } from './utils/logger.util';
+import { RepoGraphError } from './utils/error.util';
+
+const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pagerank'): Ranker => {
+  if (rankingStrategy === 'pagerank') {
+    return createPageRanker();
+  }
+  // Git ranker is not available in browser
+  throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Only 'pagerank' is available in browser environment.`);
+};
+
+/**
+ * A mid-level API for programmatically generating and receiving the code graph
+ * without rendering it to a file. Ideal for integration with other tools.
+ * Browser-compatible version that requires files to be provided.
+ *
+ * @param options The configuration object for generating the map.
+ * @returns The generated `RankedCodeGraph`.
+ */
+export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
+  const { logLevel, maxWorkers, files: inputFiles } = options;
+
+  if (logLevel) {
+    logger.setLevel(logLevel);
+  }
+
+  // Validate options before entering the main try...catch block to provide clear errors.
+  const ranker = selectRanker(options.rankingStrategy);
+
+  try {
+    let files: readonly FileContent[];
+    if (inputFiles && inputFiles.length > 0) {
+      logger.info('1/3 Using provided files...');
+      files = inputFiles;
+    } else {
+      throw new RepoGraphError('File discovery is not supported in the browser. Please provide the `files` option with file content.');
+    }
+    logger.debug(`  -> Found ${files.length} files to analyze.`);
+
+    logger.info('2/3 Analyzing code and building graph...');
+    const analyzer = createTreeSitterAnalyzer({ maxWorkers });
+    const graph = await analyzer(files);
+    logger.debug(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+    logger.info('3/3 Ranking graph nodes...');
+    const rankedGraph = await ranker(graph);
+    logger.debug('  -> Ranking complete.');
+
+    return rankedGraph;
+  } catch (error) {
+    throw new RepoGraphError(`Failed to analyze project`, error);
+  }
+};
+````
+
+## File: src/browser.ts
+````typescript
+// Browser-compatible entry point for repograph
+// Only exports functions that work in the browser environment
+
+// High-level API - analyzeProject works in browser when files are provided
+export { analyzeProject } from './browser-high-level';
+export { initializeParser } from './tree-sitter/browser-languages';
+
+// Browser-compatible pipeline components only
+export { createTreeSitterAnalyzer } from './pipeline/browser-analyze';
+export { createPageRanker } from './pipeline/browser-rank';
+export { createMarkdownRenderer } from './pipeline/render';
+
+// Logger utilities
+export { logger } from './utils/logger.util';
+export type { LogLevel, Logger } from './utils/logger.util';
+export type { ParserInitializationOptions } from './tree-sitter/languages';
+
+// Core types for building custom components
+export type {
+  Analyzer,
+  FileContent,
+  CodeNode,
+  CodeNodeType,
+  CodeNodeVisibility,
+  CodeEdge,
+  CodeGraph,
+  RankedCodeGraph,
+  RepoGraphMap,
+  RepoGraphOptions,
+  CssIntent,
+  Ranker,
+  Renderer,
+  RendererOptions,
+} from './types';
+````
+
+## File: src/pipeline/browser-analyze.ts
+````typescript
+// Browser-compatible version of analyze.ts
+// Removes worker functionality and Node.js dependencies
+
+import type { Analyzer, FileContent, CodeGraph, CodeNode, CodeEdge } from '../types';
+import { createParserForLanguage } from '../tree-sitter/browser-languages';
+import { LANGUAGE_CONFIGS } from '../tree-sitter/language-config';
+import { getQueryForLanguage } from '../tree-sitter/queries';
+import { logger } from '../utils/logger.util';
+import { ParserError } from '../utils/error.util';
+
+// Browser path utilities (simplified)
+const browserPath = {
+  extname: (filePath: string): string => {
+    const lastDot = filePath.lastIndexOf('.');
+    return lastDot === -1 ? '' : filePath.slice(lastDot);
+  },
+  basename: (filePath: string, ext?: string): string => {
+    const name = filePath.split('/').pop() || filePath;
+    return ext && name.endsWith(ext) ? name.slice(0, -ext.length) : name;
+  }
+};
+
+interface AnalyzerOptions {
+  maxWorkers?: number; // Ignored in browser version
+}
+
+/**
+ * Creates a Tree-sitter based analyzer that processes files and builds a code graph.
+ * Browser version - runs analysis in main thread only.
+ */
+export const createTreeSitterAnalyzer = (_options: AnalyzerOptions = {}): Analyzer => {
+  return async (files: readonly FileContent[]): Promise<CodeGraph> => {
+    logger.debug(`Starting analysis of ${files.length} files (browser mode - single threaded)`);
+    
+    const nodes = new Map<string, CodeNode>();
+    const edges: CodeEdge[] = [];
+    
+    // Phase 1: Add all files as nodes
+    for (const file of files) {
+      const ext = browserPath.extname(file.path);
+      const config = LANGUAGE_CONFIGS.find(c => c.extensions.includes(ext));
+      
+      const fileNode = {
+        id: file.path,
+        type: 'file' as const,
+        name: browserPath.basename(file.path),
+        filePath: file.path,
+        startLine: 1,
+        endLine: file.content.split('\n').length,
+        language: config?.name,
+      };
+      
+      nodes.set(file.path, fileNode);
+      console.debug(`[DEBUG] Added file node: ${file.path}, type: ${fileNode.type}`);
+    }
+    
+    // Phase 2: Process files sequentially in browser to extract symbols
+    for (const file of files) {
+      try {
+        await processFile(file, nodes, edges);
+      } catch (error) {
+        logger.warn(`Failed to process file ${file.path}:`, error instanceof Error ? error.message : error);
+      }
+    }
+    
+    logger.debug(`Analysis complete: ${nodes.size} nodes, ${edges.length} edges`);
+    return { nodes, edges };
+  };
+};
+
+async function processFile(
+  file: FileContent,
+  nodes: Map<string, CodeNode>,
+  edges: CodeEdge[]
+): Promise<void> {
+  const ext = browserPath.extname(file.path);
+  const config = LANGUAGE_CONFIGS.find(c => c.extensions.includes(ext));
+  
+  if (!config) {
+    logger.debug(`No language config found for extension: ${ext}`);
+    return;
+  }
+
+  try {
+    const parser = await createParserForLanguage(config);
+    const tree = parser.parse(file.content);
+    const queryString = getQueryForLanguage(config);
+    
+    if (!queryString) {
+      logger.debug(`No query available for ${config.name}`);
+      return;
+    }
+    
+    try {
+      const loadedLanguage = await import('../tree-sitter/browser-languages').then(m => m.loadLanguage(config));
+      const Query = (await import('web-tree-sitter')).Query;
+      const query = new Query(loadedLanguage.language, queryString);
+      const captures = query.captures(tree!.rootNode);
+      
+      for (const capture of captures) {
+        processCapture(capture, file, nodes, edges);
+      }
+    } catch (error) {
+      logger.debug(`Query processing failed in ${file.path}:`, error);
+    }
+  } catch (error) {
+    throw new ParserError(`Failed to analyze file ${file.path}`, config.name, error);
+  }
+}
+
+function processCapture(
+  capture: any,
+  file: FileContent,
+  nodes: Map<string, CodeNode>,
+  edges: CodeEdge[]
+): void {
+  const { node, name: captureName } = capture;
+  
+  // Create node ID
+  const nodeId = `${file.path}:${node.startPosition.row}:${node.startPosition.column}`;
+  
+  // Determine node type and visibility
+  let nodeType: CodeNode['type'] = 'variable';
+  let visibility: CodeNode['visibility'] = 'public';
+  
+  if (captureName.includes('function')) {
+    nodeType = 'function';
+  } else if (captureName.includes('class')) {
+    nodeType = 'class';
+  } else if (captureName.includes('interface')) {
+    nodeType = 'interface';
+  }
+  
+  // Create or update node
+  if (!nodes.has(nodeId)) {
+    const codeNode: CodeNode = {
+      id: nodeId,
+      name: node.text.split('\n')[0].trim().slice(0, 100), // First line, truncated
+      type: nodeType,
+      visibility,
+      filePath: file.path,
+      startLine: node.startPosition.row + 1,
+      endLine: node.endPosition.row + 1,
+      codeSnippet: node.text.slice(0, 200), // Truncated snippet
+    };
+    
+    nodes.set(nodeId, codeNode);
+  }
+  
+  // Handle relationships (simplified)
+  if (captureName.includes('import') && node.text.includes('from')) {
+    // Create import edge
+    const importPath = extractImportPath(node.text);
+    if (importPath) {
+      edges.push({
+        fromId: nodeId,
+        toId: `${importPath}:0:0`, // Simplified target
+        type: 'imports',
+      });
+    }
+  }
+}
+
+function extractImportPath(importText: string): string | null {
+  const match = importText.match(/from\s+['"]([^'"]+)['"]/);
+  return match?.[1] ?? null;
+}
 ````
 
 ## File: src/utils/logger.util.ts
@@ -177,7 +642,7 @@ import { copyFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/pipeline/analyzer.worker.ts'],
+  entry: ['src/index.ts', 'src/browser.ts', 'src/pipeline/analyzer.worker.ts'],
   format: ['esm', 'cjs'],
   target: 'es2022',
   dts: true,
@@ -261,9 +726,22 @@ export default defineConfig({
     "noImplicitAny": true,
     "noPropertyAccessFromIndexSignature": true,
 
-    // Type roots
-    "typeRoots": ["./node_modules/@types", "./src/types", "./test/**/*"]
-  }
+    // Include bun types
+    "types": ["bun-types"]
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "web-demo/src/**/*",
+    "bun.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "docs",
+    ".relay",
+    ".relaycode"
+  ]
 }
 ````
 
@@ -868,6 +1346,13 @@ export const createMarkdownRenderer = (): Renderer => {
     const fileNodes = [...nodes.values()].filter(attrs => attrs.type === 'file');
     const sortedFiles = fileNodes
       .sort((a, b) => getRank(b.id, ranks) - getRank(a.id, ranks));
+    
+    // Debug logging
+    console.debug(`[DEBUG] Total nodes: ${nodes.size}, File nodes: ${fileNodes.length}, Node types:`, 
+      [...nodes.values()].map(n => n.type).reduce((acc, type) => {
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>));
 
     let md = '';
     if (customHeader) {
@@ -1031,18 +1516,22 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
       const nodeModulesWasmPath = path.resolve(currentDir, '..', '..', 'node_modules', config.wasmPath);
       // For published packages, the WASM files should be in the same dist directory
       const publishedWasmPath = path.resolve(currentDir, 'wasm', wasmFileName);
+      // When running from source, look in the project's dist/wasm directory
+      const projectDistWasmPath = path.resolve(currentDir, '..', '..', 'dist', 'wasm', wasmFileName);
 
-      logger.debug(`Trying WASM paths: dist=${distWasmPath}, nodeModules=${nodeModulesWasmPath}, published=${publishedWasmPath}`);
+      logger.debug(`Trying WASM paths: dist=${distWasmPath}, published=${publishedWasmPath}, projectDist=${projectDistWasmPath}, nodeModules=${nodeModulesWasmPath}`);
 
       const fs = await import('node:fs');
       if (fs.existsSync(distWasmPath)) {
         finalWasmPath = distWasmPath;
       } else if (fs.existsSync(publishedWasmPath)) {
         finalWasmPath = publishedWasmPath;
+      } else if (fs.existsSync(projectDistWasmPath)) {
+        finalWasmPath = projectDistWasmPath;
       } else if (fs.existsSync(nodeModulesWasmPath)) {
         finalWasmPath = nodeModulesWasmPath;
       } else {
-        throw new Error(`WASM file not found at any of: ${distWasmPath}, ${publishedWasmPath}, ${nodeModulesWasmPath}`);
+        throw new Error(`WASM file not found at any of: ${distWasmPath}, ${publishedWasmPath}, ${projectDistWasmPath}, ${nodeModulesWasmPath}`);
       }
     }
 
@@ -1201,105 +1690,6 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     );
 
     return fileContents.filter((c): c is FileContent => c !== null);
-  };
-};
-````
-
-## File: src/pipeline/rank.ts
-````typescript
-import pagerank from 'graphology-pagerank';
-import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
-import Graph from 'graphology';
-import { execSync } from 'node:child_process';
-import { logger } from '../utils/logger.util';
-
-/**
- * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
- * other important nodes will receive a higher rank.
- * @returns A Ranker function.
- */
-export const createPageRanker = (): Ranker => {
-  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
-    // PageRank can only be computed on graphs with nodes.
-    if (graph.nodes.size === 0) {
-      return { ...graph, ranks: new Map() };
-    }
-
-    // Pagerank lib requires a graphology instance.
-    const simpleGraph = new Graph({ type: 'directed' });
-    for (const [nodeId, node] of graph.nodes) {
-      simpleGraph.addNode(nodeId, node);
-    }
-    for (const edge of graph.edges) {
-      if (!simpleGraph.hasEdge(edge.fromId, edge.toId)) {
-        simpleGraph.addDirectedEdge(edge.fromId, edge.toId);
-      }
-    }
-
-    const graphForRank = simpleGraph;
-    const ranksData = pagerank(graphForRank);
-    const ranks = new Map<string, number>();
-    for (const node in ranksData) {
-      ranks.set(node, ranksData[node] ?? 0);
-    }
-    return { ...graph, ranks };
-  };
-};
-
-/**
- * Creates a ranker based on Git commit history. Files changed more frequently are considered
- * more important. Requires Git to be installed.
- * @returns A Ranker function.
- */
-export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
-  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
-    const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
-    if (isBrowser) {
-      logger.warn('GitRanker is not supported in the browser. Returning 0 for all ranks.');
-      const ranks = new Map<string, number>();
-      for (const [nodeId] of graph.nodes) {
-        ranks.set(nodeId, 0);
-      }
-      return { ...graph, ranks };
-    }
-
-    const { maxCommits = 500 } = options;
-    const ranks = new Map<string, number>();
-
-    if (graph.nodes.size === 0) {
-      return { ...graph, ranks };
-    }
-
-    try {
-      const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
-      const output = execSync(command, { encoding: 'utf-8' });
-      const files = output.split('\n').filter(Boolean);
-
-      const changeCounts: Record<string, number> = {};
-      for (const file of files) {
-        changeCounts[file] = (changeCounts[file] || 0) + 1;
-      }
-
-      const maxChanges = Math.max(...Object.values(changeCounts), 1);
-
-      for (const [nodeId, attributes] of graph.nodes) {
-        // We only rank file nodes with this strategy
-        if (attributes.type === 'file') {
-          const count = changeCounts[attributes.filePath] ?? 0;
-          ranks.set(nodeId, count / maxChanges); // Normalize score
-        } else {
-          ranks.set(nodeId, 0);
-        }
-      }
-    } catch (e) {
-      // This is not a fatal error for the whole process, but this ranker cannot proceed.
-      logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
-      for (const [nodeId] of graph.nodes) {
-        ranks.set(nodeId, 0);
-      }
-    }
-
-    return { ...graph, ranks };
   };
 };
 ````
@@ -1501,6 +1891,114 @@ export const generateMap = async (options: RepoGraphOptions = {}): Promise<void>
 };
 ````
 
+## File: src/pipeline/rank.ts
+````typescript
+import pagerank from 'graphology-pagerank';
+import Graph from 'graphology';
+import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
+
+import { execSync } from 'node:child_process';
+import { logger } from '../utils/logger.util';
+
+/**
+ * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
+ * other important nodes will receive a higher rank.
+ * @returns A Ranker function.
+ */
+export const createPageRanker = (): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    // PageRank can only be computed on graphs with nodes.
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks: new Map() };
+    }
+
+    // Convert CodeGraph to graphology Graph
+    const graphologyGraph = new Graph();
+    
+    // Add all nodes
+    for (const [nodeId] of graph.nodes) {
+      (graphologyGraph as any).addNode(nodeId);
+    }
+    
+    // Add all edges
+    for (const edge of graph.edges) {
+      // Only add edge if both nodes exist
+      if ((graphologyGraph as any).hasNode(edge.fromId) && (graphologyGraph as any).hasNode(edge.toId)) {
+        try {
+          (graphologyGraph as any).addEdge(edge.fromId, edge.toId);
+        } catch (error) {
+          // Edge might already exist, ignore duplicate edge errors
+        }
+      }
+    }
+    
+    const ranksData = pagerank(graphologyGraph);
+    const ranks = new Map<string, number>();
+    for (const node in ranksData) {
+      ranks.set(node, ranksData[node] ?? 0);
+    }
+    return { ...graph, ranks };
+  };
+};
+
+/**
+ * Creates a ranker based on Git commit history. Files changed more frequently are considered
+ * more important. Requires Git to be installed.
+ * @returns A Ranker function.
+ */
+export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+    if (isBrowser) {
+      logger.warn('GitRanker is not supported in the browser. Returning 0 for all ranks.');
+      const ranks = new Map<string, number>();
+      for (const [nodeId] of graph.nodes) {
+        ranks.set(nodeId, 0);
+      }
+      return { ...graph, ranks };
+    }
+
+    const { maxCommits = 500 } = options;
+    const ranks = new Map<string, number>();
+
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks };
+    }
+
+    try {
+      const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
+      const output = execSync(command, { encoding: 'utf-8' });
+      const files = output.split('\n').filter(Boolean);
+
+      const changeCounts: Record<string, number> = {};
+      for (const file of files) {
+        changeCounts[file] = (changeCounts[file] || 0) + 1;
+      }
+
+      const maxChanges = Math.max(...Object.values(changeCounts), 1);
+
+      for (const [nodeId, attributes] of graph.nodes) {
+        // We only rank file nodes with this strategy
+        if (attributes.type === 'file') {
+          const count = changeCounts[attributes.filePath] ?? 0;
+          ranks.set(nodeId, count / maxChanges); // Normalize score
+        } else {
+          ranks.set(nodeId, 0);
+        }
+      }
+    } catch (e) {
+      // This is not a fatal error for the whole process, but this ranker cannot proceed.
+      logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
+      for (const [nodeId] of graph.nodes) {
+        ranks.set(nodeId, 0);
+      }
+    }
+
+    return { ...graph, ranks };
+  };
+};
+````
+
 ## File: src/tree-sitter/language-config.ts
 ````typescript
 import type { Language } from 'web-tree-sitter';
@@ -1655,19 +2153,19 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'typescript',
     extensions: ['.ts', '.js', '.mjs', '.cjs'],
-    wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
+    wasmPath: 'wasm/tree-sitter-typescript.wasm',
     query: TS_BASE_QUERY
   },
   {
     name: 'tsx',
     extensions: ['.tsx', '.jsx'],
-    wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
+    wasmPath: 'wasm/tree-sitter-tsx.wasm',
     query: `${TS_BASE_QUERY}\n${TSX_SPECIFIC_QUERY}`
   },
   {
     name: 'python',
     extensions: ['.py', '.pyw'],
-    wasmPath: 'tree-sitter-python/tree-sitter-python.wasm',
+    wasmPath: 'wasm/tree-sitter-python.wasm',
     query: `
 (import_statement) @import.statement
 (import_from_statement
@@ -1701,7 +2199,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'java',
     extensions: ['.java'],
-    wasmPath: 'tree-sitter-java/tree-sitter-java.wasm',
+    wasmPath: 'wasm/tree-sitter-java.wasm',
     query: `
 (import_declaration
   (scoped_identifier) @import.source) @import.statement
@@ -1729,7 +2227,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'cpp',
     extensions: ['.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx'],
-    wasmPath: 'tree-sitter-cpp/tree-sitter-cpp.wasm',
+    wasmPath: 'wasm/tree-sitter-cpp.wasm',
     query: `
 (preproc_include) @import.statement
 
@@ -1756,7 +2254,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'c',
     extensions: ['.c'],
-    wasmPath: 'tree-sitter-c/tree-sitter-c.wasm',
+    wasmPath: 'wasm/tree-sitter-c.wasm',
     query: `
 (preproc_include) @import.statement
 
@@ -1771,7 +2269,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'go',
     extensions: ['.go'],
-    wasmPath: 'tree-sitter-go/tree-sitter-go.wasm',
+    wasmPath: 'wasm/tree-sitter-go.wasm',
     query: `
 (import_declaration) @import.statement
 
@@ -1787,7 +2285,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'rust',
     extensions: ['.rs'],
-    wasmPath: 'tree-sitter-rust/tree-sitter-rust.wasm',
+    wasmPath: 'wasm/tree-sitter-rust.wasm',
     query: `
 (mod_item
   name: (identifier) @import.source) @import.statement
@@ -1833,7 +2331,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'php',
     extensions: ['.php'],
-    wasmPath: 'tree-sitter-php/tree-sitter-php.wasm',
+    wasmPath: 'wasm/tree-sitter-php.wasm',
     query: `
       (namespace_definition) @namespace.definition
       (class_declaration) @class.definition
@@ -1844,7 +2342,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'ruby',
     extensions: ['.rb'],
-    wasmPath: 'tree-sitter-ruby/tree-sitter-ruby.wasm',
+    wasmPath: 'wasm/tree-sitter-ruby.wasm',
     query: `
       (module) @module.definition
       (class) @class.definition
@@ -1895,7 +2393,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'css',
     extensions: ['.css'],
-    wasmPath: 'tree-sitter-css/tree-sitter-css.wasm',
+    wasmPath: 'wasm/tree-sitter-css.wasm',
     query: `
       (rule_set) @css.rule.definition
     `
@@ -2409,7 +2907,7 @@ Output Formatting:
 ````json
 {
   "name": "repograph",
-  "version": "0.1.17",
+  "version": "0.1.19",
   "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
   "type": "module",
   "main": "./dist/index.js",
@@ -2556,17 +3054,37 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
   if (browserPath.extname(importPath) && allFiles.includes(importPath)) {
     return importPath;
   }
+  
+  // Also try without the './' prefix for root-level files with extensions
+  if (browserPath.extname(importPath) && importPath.startsWith('./')) {
+    const withoutDotSlash = importPath.substring(2);
+    if (allFiles.includes(withoutDotSlash)) return withoutDotSlash;
+  }
 
   const parsedPath = browserPath.parse(importPath);
   const basePath = normalizePath(browserPath.join(parsedPath.dir, parsedPath.name));
+  
+  // Try with extensions
   for (const ext of extensions) {
       const potentialFile = basePath + ext;
       if (allFiles.includes(potentialFile)) return potentialFile;
+      
+      // Also try without the './' prefix for root-level files
+      if (potentialFile.startsWith('./')) {
+        const withoutDotSlash = potentialFile.substring(2);
+        if (allFiles.includes(withoutDotSlash)) return withoutDotSlash;
+      }
   }
   
   for (const ext of extensions) {
       const potentialIndexFile = normalizePath(browserPath.join(importPath, 'index' + ext));
       if (allFiles.includes(potentialIndexFile)) return potentialIndexFile;
+      
+      // Also try without the './' prefix for root-level files
+      if (potentialIndexFile.startsWith('./')) {
+        const withoutDotSlash = potentialIndexFile.substring(2);
+        if (allFiles.includes(withoutDotSlash)) return withoutDotSlash;
+      }
   }
 
   if (allFiles.includes(importPath)) return importPath;
@@ -2623,7 +3141,7 @@ const languageImportResolvers: Record<string, ImportResolver> = {
   php: resolveImportFactory(['.php']),
   rust: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
     const basedir = normalizePath(browserPath.dirname(fromFile));
-    const resolvedPath = normalizePath(browserPbrowserPath.join(basedir, sourcePath + '.rs'));
+    const resolvedPath = normalizePath(browserPath.join(basedir, sourcePath + '.rs'));
     if (allFiles.includes(resolvedPath)) return resolvedPath;
     return resolveImportFactory(['.rs', '/mod.rs'])(fromFile, sourcePath, allFiles);
   },
