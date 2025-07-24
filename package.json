@@ -1,6 +1,6 @@
 {
   "name": "repograph",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
   "type": "module",
   "main": "./dist/index.js",
