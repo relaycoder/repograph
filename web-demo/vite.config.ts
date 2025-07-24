@@ -12,7 +12,7 @@ export default defineConfig({
     topLevelAwait()
   ],
   optimizeDeps: {
-    exclude: ['repograph']
+    exclude: ['repograph', 'web-tree-sitter']
   },
   resolve: {
     alias: {
@@ -24,9 +24,6 @@ export default defineConfig({
     'process.env': {},
     'process.platform': '"browser"',
     'process.version': '"v18.0.0"'
-  },
-  optimizeDeps: {
-    exclude: ['repograph', 'web-tree-sitter']
   },
   server: {
     fs: {

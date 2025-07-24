@@ -70,7 +70,7 @@ describe('Multi-Language Support', () => {
     },
   ];
 
-  it.each(testCases)('should correctly analyze $language', async ({ files, expectedNodeIds, expectedEdges }) => {
+  it.each(testCases)('should correctly analyze $language', async ({ files, expectedNodeIds, expectedEdges }: TestCase) => {
     const graph = await runAnalyzerForTests(files);
 
     // Verify all expected nodes exist

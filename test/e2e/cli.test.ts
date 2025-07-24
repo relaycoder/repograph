@@ -306,7 +306,7 @@ export function onemore() {}`
       { name: 'max-relations-to-show', args: ['--max-relations-to-show', '1'], toContain: 'calls `helper`...', notToContain: '`another`' },
     ];
 
-    it.each(flagTestCases)('should handle flag $name', async ({ args, toContain, notToContain }) => {
+    it.each(flagTestCases)('should handle flag $name', async ({ args, toContain, notToContain }: any) => {
       await runCLI([tempDir, ...args]);
       const content = await readFile(path.join(tempDir, 'repograph.md'));
       if (toContain) {

@@ -26,7 +26,20 @@
     "noImplicitAny": true,
     "noPropertyAccessFromIndexSignature": true,
 
-    // Type roots
-    "typeRoots": ["./node_modules/@types", "./src/types", "./test/**/*"]
-  }
+    // Include bun types
+    "types": ["bun-types"]
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "web-demo/src/**/*",
+    "bun.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "docs",
+    ".relay",
+    ".relaycode"
+  ]
 }

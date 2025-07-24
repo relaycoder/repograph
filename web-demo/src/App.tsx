@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, FC } from 'react';
+import { useState, useEffect, useCallback, type FC } from 'react';
 
 // Declare global TreeSitterModule for TypeScript
 declare global {
@@ -13,8 +13,8 @@ import {
   analyzeProject,
   createMarkdownRenderer,
   logger,
-  FileContent,
-  LogLevel,
+  type FileContent,
+  type LogLevel,
 } from 'repograph';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -56,7 +56,7 @@ const MarkdownRenderer: FC<{ children: string }> = ({ children }) => {
       children={children}
       remarkPlugins={[remarkGfm]}
       components={{
-        code({ node, inline, className, children, ...props }) {
+        code({ node, inline, className, children, ...props }: any) {
           const match = /language-(\w+)/.exec(className || '');
           return !inline && match ? (
             <SyntaxHighlighter
@@ -89,7 +89,7 @@ function App() {
 
     const originalConsole = { ...console };
     const intercept = (level: LogLevel | 'log', ...args: any[]) => {
-      originalConsole[level](...args);
+      (originalConsole as any)[level](...args);
       setLogs(prev => [...prev, { level, args, timestamp: Date.now() }]);
     };
 
