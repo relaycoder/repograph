@@ -1,15 +1,15 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
-import wasm from 'vite-plugin-wasm'
-import topLevelAwait from 'vite-plugin-top-level-await'
+// import wasm from 'vite-plugin-wasm'
+// import topLevelAwait from 'vite-plugin-top-level-await'
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
-    wasm(),
-    topLevelAwait()``
+    // wasm(),
+    // topLevelAwait()
   ],
   optimizeDeps: {
     exclude: ['repograph', 'web-tree-sitter']
@@ -36,8 +36,8 @@ export default defineConfig({
   },
   worker: {
     plugins: () => [
-      wasm(),
-      topLevelAwait()
+      // wasm(),
+      // topLevelAwait()
     ]
   },
   assetsInclude: ['**/*.wasm'],
