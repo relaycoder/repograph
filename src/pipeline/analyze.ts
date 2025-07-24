@@ -51,17 +51,37 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
   if (browserPath.extname(importPath) && allFiles.includes(importPath)) {
     return importPath;
   }
+  
+  // Also try without the './' prefix for root-level files with extensions
+  if (browserPath.extname(importPath) && importPath.startsWith('./')) {
+    const withoutDotSlash = importPath.substring(2);
+    if (allFiles.includes(withoutDotSlash)) return withoutDotSlash;
+  }
 
   const parsedPath = browserPath.parse(importPath);
   const basePath = normalizePath(browserPath.join(parsedPath.dir, parsedPath.name));
+  
+  // Try with extensions
   for (const ext of extensions) {
       const potentialFile = basePath + ext;
       if (allFiles.includes(potentialFile)) return potentialFile;
+      
+      // Also try without the './' prefix for root-level files
+      if (potentialFile.startsWith('./')) {
+        const withoutDotSlash = potentialFile.substring(2);
+        if (allFiles.includes(withoutDotSlash)) return withoutDotSlash;
+      }
   }
   
   for (const ext of extensions) {
       const potentialIndexFile = normalizePath(browserPath.join(importPath, 'index' + ext));
       if (allFiles.includes(potentialIndexFile)) return potentialIndexFile;
+      
+      // Also try without the './' prefix for root-level files
+      if (potentialIndexFile.startsWith('./')) {
+        const withoutDotSlash = potentialIndexFile.substring(2);
+        if (allFiles.includes(withoutDotSlash)) return withoutDotSlash;
+      }
   }
 
   if (allFiles.includes(importPath)) return importPath;
