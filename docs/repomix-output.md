@@ -1107,7 +1107,6 @@ export const getParser = async (): Promise<Parser.Parser> => {
 import { globby } from 'globby';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
-import Ignore from 'ignore';
 import type { FileContent, FileDiscoverer } from '../types';
 import { isDirectory, readFile } from '../utils/fs.util';
 import { FileSystemError } from '../utils/error.util';
@@ -1119,7 +1118,7 @@ import { logger } from '../utils/logger.util';
  * @returns A FileDiscoverer function.
  */
 export const createDefaultDiscoverer = (): FileDiscoverer => {
-  return async ({ root, include, ignore, noGitignore = false }) => {
+  return async ({ root, include, ignore: userIgnore, noGitignore = false }) => {
     try {
       if (!(await isDirectory(root))) {
         throw new FileSystemError('Root path is not a directory or does not exist', root);
@@ -1129,39 +1128,36 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     }
     const patterns = include && include.length > 0 ? [...include] : ['**/*'];
     
-    // Use the ignore package for proper gitignore handling
-    const ignoreFilter = Ignore();
+    // Manually build the ignore list to replicate the old logic without the `ignore` package.
+    const ignorePatterns = [
+      '**/node_modules/**',
+      '**/.git/**',
+      '.gitignore', // Always ignore the gitignore file itself
+    ];
+
+    if (userIgnore && userIgnore.length > 0) {
+      ignorePatterns.push(...userIgnore);
+    }
     
-    // Always ignore node_modules and .git
-    ignoreFilter.add('**/node_modules/**');
-    ignoreFilter.add('**/.git/**');
-    ignoreFilter.add('.gitignore');
-    
-    // Add .gitignore patterns if not disabled
     if (!noGitignore) {
-      let gitignoreContent = '';
       try {
-        gitignoreContent = await readFile(path.join(root, '.gitignore'));
+        const gitignoreContent = await readFile(path.join(root, '.gitignore'));
+        const gitignoreLines = gitignoreContent
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0 && !line.startsWith('#'));
+        ignorePatterns.push(...gitignoreLines);
       } catch {
         // .gitignore is optional, so we can ignore errors here.
       }
-      if (gitignoreContent) {
-        ignoreFilter.add(gitignoreContent);
-      }
-    }
-    
-    // Add user-specified ignore patterns
-    if (ignore && ignore.length > 0) {
-      ignoreFilter.add(ignore.join('\n'));
     }
 
-    // Use globby to find all files matching the include patterns.
-    // Globby might return absolute paths if the patterns are absolute. We ensure
-    // all paths are absolute first, then make them relative to the root for
-    // consistent processing, which is required by the `ignore` package.
+    // Use globby to find all files, passing our manually constructed ignore list.
+    // We set `gitignore: false` because we are handling it ourselves.
     const foundPaths = await globby(patterns, {
       cwd: root,
       gitignore: false, // We handle gitignore patterns manually
+      ignore: ignorePatterns,
       dot: true,
       absolute: true,
       followSymbolicLinks: true,
@@ -1170,7 +1166,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
 
     const relativePaths = foundPaths.map(p => path.relative(root, p).replace(/\\/g, '/'));
 
-    // Filter out files that would cause symlink cycles
+    // Filter out files that are duplicates via symlinks
     const visitedRealPaths = new Set<string>();
     const safeRelativePaths: string[] = [];
     
@@ -1188,8 +1184,8 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       }
     }
     
-    // Filter the paths using the ignore package. Paths are now guaranteed to be relative.
-    const filteredPaths = safeRelativePaths.filter(p => !ignoreFilter.ignores(p));
+    // The `ignore` option in globby should have already done the filtering.
+    const filteredPaths = safeRelativePaths;
 
     const fileContents = await Promise.all(
       filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
@@ -2452,7 +2448,6 @@ Output Formatting:
     "globby": "^14.1.0",
     "graphology": "^0.26.0",
     "graphology-pagerank": "^1.1.0",
-    "ignore": "^7.0.5",
     "js-yaml": "^4.1.0",
     "tree-sitter-c": "^0.24.1",
     "tree-sitter-c-sharp": "^0.23.1",
@@ -2508,38 +2503,69 @@ Output Formatting:
 
 ## File: src/pipeline/analyze.ts
 ````typescript
-import path from 'node:path';
+const browserPath = {
+  normalize: (p: string) => p.replace(/\\/g, '/'),
+  dirname: (p: string) => {
+    const i = p.lastIndexOf('/');
+    return i > -1 ? p.substring(0, i) : '.';
+  },
+  join: (...args: string[]): string => {
+    const path = args.join('/');
+    // This is a simplified resolver that handles '..' and '.'
+    const segments = path.split('/');
+    const resolved: string[] = [];
+    for (const segment of segments) {
+      if (segment === '..') {
+        resolved.pop();
+      } else if (segment !== '.' || resolved.length === 0) {
+        if (segment !== '') resolved.push(segment);
+      }
+    }
+    return resolved.join('/') || (segments.length > 0 && segments.every(s => s === '.' || s === '') ? '.' : '');
+  },
+  extname: (p: string) => {
+    const i = p.lastIndexOf('.');
+    return i > p.lastIndexOf('/') ? p.substring(i) : '';
+  },
+  parse: (p: string) => {
+    const ext = browserPath.extname(p);
+    const base = p.substring(p.lastIndexOf('/') + 1);
+    const name = base.substring(0, base.length - ext.length);
+    const dir = browserPath.dirname(p);
+    return { dir, base, name, ext, root: '' };
+  },
+  basename: (p: string) => p.substring(p.lastIndexOf('/') + 1),
+};
+
 import type { Analyzer, CodeNode, CodeEdge, FileContent, UnresolvedRelation } from '../types';
 import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config';
 import { logger } from '../utils/logger.util';
 import { ParserError } from '../utils/error.util';
-import { fileURLToPath } from 'node:url';
-import Tinypool from 'tinypool';
 import processFileInWorker from './analyzer.worker';
 
-const normalizePath = (p: string) => p.replace(/\\/g, '/');
+const normalizePath = browserPath.normalize;
 
 // --- LANGUAGE-SPECIFIC IMPORT RESOLUTION LOGIC ---
 // This part is needed on the main thread to resolve import paths.
 
 const createModuleResolver = (extensions: string[]) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-  const basedir = normalizePath(path.dirname(fromFile));
-  const importPath = normalizePath(path.join(basedir, sourcePath));
+  const basedir = normalizePath(browserPath.dirname(fromFile));
+  const importPath = normalizePath(browserPath.join(basedir, sourcePath));
 
   // First, check if the path as-is (with extension) exists
-  if (path.extname(importPath) && allFiles.includes(importPath)) {
+  if (browserPath.extname(importPath) && allFiles.includes(importPath)) {
     return importPath;
   }
 
-  const parsedPath = path.parse(importPath);
-  const basePath = normalizePath(path.join(parsedPath.dir, parsedPath.name));
+  const parsedPath = browserPath.parse(importPath);
+  const basePath = normalizePath(browserPath.join(parsedPath.dir, parsedPath.name));
   for (const ext of extensions) {
       const potentialFile = basePath + ext;
       if (allFiles.includes(potentialFile)) return potentialFile;
   }
   
   for (const ext of extensions) {
-      const potentialIndexFile = normalizePath(path.join(importPath, 'index' + ext));
+      const potentialIndexFile = normalizePath(browserPath.join(importPath, 'index' + ext));
       if (allFiles.includes(potentialIndexFile)) return potentialIndexFile;
   }
 
@@ -2548,12 +2574,12 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
 };
 
 const resolveImportFactory = (endings: string[], packageStyle: boolean = false) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-  const basedir = normalizePath(path.dirname(fromFile));
-  const resolvedPathAsIs = normalizePath(path.join(basedir, sourcePath));
+  const basedir = normalizePath(browserPath.dirname(fromFile));
+  const resolvedPathAsIs = normalizePath(browserPath.join(basedir, sourcePath));
   if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
 
-  const parsedSourcePath = path.parse(sourcePath);
-  const basePath = normalizePath(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
+  const parsedSourcePath = browserPath.parse(sourcePath);
+  const basePath = normalizePath(browserPath.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
   for (const end of endings) {
     const potentialPath = basePath + end;
     if (allFiles.includes(potentialPath)) return potentialPath;
@@ -2573,22 +2599,21 @@ type ImportResolver = (fromFile: string, sourcePath: string, allFiles: string[])
 
 const languageImportResolvers: Record<string, ImportResolver> = {
   default: (fromFile, sourcePath, allFiles) => {
-    const resolvedPathAsIs = path.normalize(path.join(path.dirname(fromFile), sourcePath));
+    const resolvedPathAsIs = browserPath.normalize(browserPath.join(browserPath.dirname(fromFile), sourcePath));
     return allFiles.includes(resolvedPathAsIs) ? resolvedPathAsIs : null;
   },
   typescript: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
   javascript: createModuleResolver(['.js', 'jsx', '.mjs', '.cjs']),
   tsx: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
   python: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-    const basedir = normalizePath(path.dirname(fromFile));
     if (sourcePath.startsWith('.')) {
       const level = sourcePath.match(/^\.+/)?.[0]?.length ?? 0;
       const modulePath = sourcePath.substring(level).replace(/\./g, '/');
-      let currentDir = basedir;
-      for (let i = 1; i < level; i++) currentDir = path.dirname(currentDir);
-      const targetPyFile = normalizePath(path.join(currentDir, modulePath) + '.py');
+      let currentDir = normalizePath(browserPath.dirname(fromFile));
+      for (let i = 1; i < level; i++) currentDir = browserPath.dirname(currentDir);
+      const targetPyFile = normalizePath(browserPath.join(currentDir, modulePath) + '.py');
       if (allFiles.includes(targetPyFile)) return targetPyFile;
-      const resolvedPath = normalizePath(path.join(currentDir, modulePath, '__init__.py'));
+      const resolvedPath = normalizePath(browserPath.join(currentDir, modulePath, '__init__.py'));
       if (allFiles.includes(resolvedPath)) return resolvedPath;
     }
     return resolveImportFactory(['.py', '/__init__.py'])(fromFile, sourcePath, allFiles);
@@ -2597,8 +2622,8 @@ const languageImportResolvers: Record<string, ImportResolver> = {
   csharp: resolveImportFactory(['.cs'], true),
   php: resolveImportFactory(['.php']),
   rust: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
-    const basedir = normalizePath(path.dirname(fromFile));
-    const resolvedPath = normalizePath(path.join(basedir, sourcePath + '.rs'));
+    const basedir = normalizePath(browserPath.dirname(fromFile));
+    const resolvedPath = normalizePath(browserPbrowserPath.join(basedir, sourcePath + '.rs'));
     if (allFiles.includes(resolvedPath)) return resolvedPath;
     return resolveImportFactory(['.rs', '/mod.rs'])(fromFile, sourcePath, allFiles);
   },
@@ -2657,17 +2682,22 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
     for (const file of files) {
       const langConfig = getLanguageConfigForFile(normalizePath(file.path));
       nodes.set(file.path, {
-        id: file.path, type: 'file', name: path.basename(file.path),
+        id: file.path, type: 'file', name: browserPath.basename(file.path),
         filePath: file.path, startLine: 1, endLine: file.content.split('\n').length,
         language: langConfig?.name,
       });
     }
 
+    const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
     const filesToProcess = files.map(file => ({ file, langConfig: getLanguageConfigForFile(normalizePath(file.path)) }))
       .filter((item): item is { file: FileContent, langConfig: LanguageConfig } => !!item.langConfig);
     
-    if (maxWorkers > 1) {
+    if (maxWorkers > 1 && !isBrowser) {
       logger.debug(`Analyzing files in parallel with ${maxWorkers} workers.`);
+      const { default: Tinypool } = await import('tinypool');
+      const { fileURLToPath } = await import('node:url');
+      const { URL } = await import('node:url');
+
       const pool = new Tinypool({
         filename: fileURLToPath(new URL('analyzer.worker.js', import.meta.url)),
         maxThreads: maxWorkers,
@@ -2683,6 +2713,9 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
         }
       }
     } else {
+      if (maxWorkers > 1 && isBrowser) {
+        logger.warn('Parallel analysis with workers is not supported in the browser. Falling back to sequential analysis.');
+      }
       logger.debug(`Analyzing files sequentially in the main thread.`);
       for (const item of filesToProcess) {
         try {

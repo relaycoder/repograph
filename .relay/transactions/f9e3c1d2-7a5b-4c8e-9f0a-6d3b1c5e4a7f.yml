@@ -1,0 +1,1003 @@
+uuid: f9e3c1d2-7a5b-4c8e-9f0a-6d3b1c5e4a7f
+projectId: repograph
+createdAt: '2025-07-24T01:46:41.493Z'
+linesAdded: 426
+linesRemoved: 24
+gitCommitMsg: 'feat(web): add browser-based demo application'
+promptSummary: >-
+  Create a single-page React/Vite app to battle-test the repograph library in a
+  browser environment, including input/output areas and a log viewer.
+reasoning:
+  - >-
+    To create a single-page application to battle-test `repograph` in the
+    browser, I'll perform two main actions:
+  - >-
+    1.  **Refactor the analysis pipeline** (`src/pipeline/analyze.ts`) to be
+    browser-compatible. This involves removing Node.js-specific dependencies
+    like `path` and `tinypool` (for worker threads) from the browser execution
+    path. I'll introduce a lightweight, browser-safe path utility and make the
+    multi-threaded analysis conditional, ensuring it only runs in a Node.js
+    environment.
+  - >-
+    2.  **Create a new `web-demo` directory** containing a complete Vite + React
+    application. This application will serve as the testing ground and will
+    include:
+  - >-
+    *   A user interface with a text area to paste file content (`FileContent[]`
+    as JSON).
+  - '*   A button to trigger the `repograph` analysis pipeline.'
+  - >-
+    *   A viewer for the generated Markdown output, complete with syntax
+    highlighting.
+  - >-
+    *   A log viewer to display messages and errors from the library, which is
+    crucial for debugging.
+  - >-
+    *   Instructions on how to get the necessary WebAssembly files for
+    Tree-sitter.
+  - >-
+    This setup will allow for robust testing of the library's core analysis and
+    rendering features in a sandboxed browser environment, which was the goal of
+    the request.
+  - '### 1. Make the analysis pipeline browser-compatible'
+  - >-
+    I'll start by modifying `src/pipeline/analyze.ts` to replace Node.js `path`
+    module usage with a browser-compatible equivalent and make the worker pool
+    usage conditional.
+  - '### 2. Create the Web Demo Application'
+  - >-
+    Now, I'll create all the necessary files for the Vite + React demo
+    application inside a new `web-demo` directory.
+  - typescript // web-demo/src/vite-env.d.ts
+  - /// <reference types="vite/client" />
+  - '```'
+  - '```typescript // web-demo/src/main.tsx'
+  - import React from 'react'
+  - import ReactDOM from 'react-dom/client'
+  - import App from './App.tsx'
+  - import './App.css'
+  - ReactDOM.createRoot(document.getElementById('root')!).render(
+  - <React.StrictMode>
+  - <App />
+  - </React.StrictMode>,
+  - )
+  - '```'
+operations:
+  - type: write
+    path: src/pipeline/analyze.ts
+    content: >-
+      --- src/pipeline/analyze.ts
+
+      +++ src/pipeline/analyze.ts
+
+      @@ -1,15 +1,41 @@
+
+      -import path from 'node:path';
+
+      +const browserPath = {
+
+      +  normalize: (p: string) => p.replace(/\\/g, '/'),
+
+      +  dirname: (p: string) => {
+
+      +    const i = p.lastIndexOf('/');
+
+      +    return i > -1 ? p.substring(0, i) : '.';
+
+      +  },
+
+      +  join: (...args: string[]): string => {
+
+      +    const path = args.join('/');
+
+      +    // This is a simplified resolver that handles '..' and '.'
+
+      +    const segments = path.split('/');
+
+      +    const resolved: string[] = [];
+
+      +    for (const segment of segments) {
+
+      +      if (segment === '..') {
+
+      +        resolved.pop();
+
+      +      } else if (segment !== '.' || resolved.length === 0) {
+
+      +        if (segment !== '') resolved.push(segment);
+
+      +      }
+
+      +    }
+
+      +    return resolved.join('/') || (segments.length > 0 && segments.every(s
+      => s === '.' || s === '') ? '.' : '');
+
+      +  },
+
+      +  extname: (p: string) => {
+
+      +    const i = p.lastIndexOf('.');
+
+      +    return i > p.lastIndexOf('/') ? p.substring(i) : '';
+
+      +  },
+
+      +  parse: (p: string) => {
+
+      +    const ext = browserPath.extname(p);
+
+      +    const base = p.substring(p.lastIndexOf('/') + 1);
+
+      +    const name = base.substring(0, base.length - ext.length);
+
+      +    const dir = browserPath.dirname(p);
+
+      +    return { dir, base, name, ext, root: '' };
+
+      +  },
+
+      +  basename: (p: string) => p.substring(p.lastIndexOf('/') + 1),
+
+      +};
+
+      +
+       import type { Analyzer, CodeNode, CodeEdge, FileContent, UnresolvedRelation } from '../types';
+       import { getLanguageConfigForFile, type LanguageConfig } from '../tree-sitter/language-config';
+       import { logger } from '../utils/logger.util';
+       import { ParserError } from '../utils/error.util';
+      -import { fileURLToPath } from 'node:url';
+
+      -import Tinypool from 'tinypool';
+       import processFileInWorker from './analyzer.worker';
+       
+      -const normalizePath = (p: string) => p.replace(/\\/g, '/');
+
+      +const normalizePath = browserPath.normalize;
+       
+       // --- LANGUAGE-SPECIFIC IMPORT RESOLUTION LOGIC ---
+       // This part is needed on the main thread to resolve import paths.
+       
+       const createModuleResolver = (extensions: string[]) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+      -  const basedir = normalizePath(path.dirname(fromFile));
+
+      -  const importPath = normalizePath(path.join(basedir, sourcePath));
+
+      +  const basedir = normalizePath(browserPath.dirname(fromFile));
+
+      +  const importPath = normalizePath(browserPath.join(basedir,
+      sourcePath));
+       
+         // First, check if the path as-is (with extension) exists
+      -  if (path.extname(importPath) && allFiles.includes(importPath)) {
+
+      +  if (browserPath.extname(importPath) && allFiles.includes(importPath)) {
+           return importPath;
+         }
+       
+      -  const parsedPath = path.parse(importPath);
+
+      -  const basePath = normalizePath(path.join(parsedPath.dir,
+      parsedPath.name));
+
+      +  const parsedPath = browserPath.parse(importPath);
+
+      +  const basePath = normalizePath(browserPath.join(parsedPath.dir,
+      parsedPath.name));
+         for (const ext of extensions) {
+             const potentialFile = basePath + ext;
+             if (allFiles.includes(potentialFile)) return potentialFile;
+         }
+         
+         for (const ext of extensions) {
+      -      const potentialIndexFile = normalizePath(path.join(importPath,
+      'index' + ext));
+
+      +      const potentialIndexFile =
+      normalizePath(browserPath.join(importPath, 'index' + ext));
+             if (allFiles.includes(potentialIndexFile)) return potentialIndexFile;
+         }
+       
+      @@ -18,11 +44,11 @@
+       };
+       
+       const resolveImportFactory = (endings: string[], packageStyle: boolean = false) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+      -  const basedir = normalizePath(path.dirname(fromFile));
+
+      -  const resolvedPathAsIs = normalizePath(path.join(basedir, sourcePath));
+
+      +  const basedir = normalizePath(browserPath.dirname(fromFile));
+
+      +  const resolvedPathAsIs = normalizePath(browserPath.join(basedir,
+      sourcePath));
+         if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
+       
+      -  const parsedSourcePath = path.parse(sourcePath);
+
+      -  const basePath = normalizePath(path.join(basedir, parsedSourcePath.dir,
+      parsedSourcePath.name));
+
+      +  const parsedSourcePath = browserPath.parse(sourcePath);
+
+      +  const basePath = normalizePath(browserPath.join(basedir,
+      parsedSourcePath.dir, parsedSourcePath.name));
+         for (const end of endings) {
+           const potentialPath = basePath + end;
+           if (allFiles.includes(potentialPath)) return potentialPath;
+      @@ -41,7 +67,7 @@
+       
+       const languageImportResolvers: Record<string, ImportResolver> = {
+         default: (fromFile, sourcePath, allFiles) => {
+      -    const resolvedPathAsIs =
+      path.normalize(path.join(path.dirname(fromFile), sourcePath));
+
+      +    const resolvedPathAsIs =
+      browserPath.normalize(browserPath.join(browserPath.dirname(fromFile),
+      sourcePath));
+           return allFiles.includes(resolvedPathAsIs) ? resolvedPathAsIs : null;
+         },
+         typescript: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
+      @@ -52,10 +78,10 @@
+           if (sourcePath.startsWith('.')) {
+             const level = sourcePath.match(/^\.+/)?.[0]?.length ?? 0;
+             const modulePath = sourcePath.substring(level).replace(/\./g, '/');
+      -      let currentDir = basedir;
+
+      -      for (let i = 1; i < level; i++) currentDir =
+      path.dirname(currentDir);
+
+      -      const targetPyFile = normalizePath(path.join(currentDir,
+      modulePath) + '.py');
+
+      -      if (allFiles.includes(targetPyFile)) return targetPyFile;
+
+      -      const resolvedPath = normalizePath(path.join(currentDir,
+      modulePath, '__init__.py'));
+
+      +      let currentDir = browserPath.dirname(fromFile);
+
+      +      for (let i = 1; i < level; i++) currentDir =
+      browserPath.dirname(currentDir);
+
+      +      const targetPyFile = normalizePath(browserPath.join(currentDir,
+      modulePath) + '.py');
+
+      +      if (allFiles.includes(targetPyFile)) return targetPyFile;
+
+      +      const resolvedPath = normalizePath(browserPath.join(currentDir,
+      modulePath, '__init__.py'));
+             if (allFiles.includes(resolvedPath)) return resolvedPath;
+           }
+           return resolveImportFactory(['.py', '/__init__.py'])(fromFile, sourcePath, allFiles);
+      @@ -63,8 +89,8 @@
+         java: resolveImportFactory(['.java'], true),
+         csharp: resolveImportFactory(['.cs'], true),
+         php: resolveImportFactory(['.php']),
+      -  rust: (fromFile: string, sourcePath: string, allFiles: string[]):
+      string | null => {
+
+      -    const basedir = normalizePath(path.dirname(fromFile));
+
+      -    const resolvedPath = normalizePath(path.join(basedir, sourcePath +
+      '.rs'));
+
+      +  rust: (fromFile, sourcePath, allFiles) => {
+
+      +    const basedir = normalizePath(browserPath.dirname(fromFile));
+
+      +    const resolvedPath = normalizePath(browserPath.join(basedir,
+      sourcePath + '.rs'));
+           if (allFiles.includes(resolvedPath)) return resolvedPath;
+           return resolveImportFactory(['.rs', '/mod.rs'])(fromFile, sourcePath, allFiles);
+         },
+      @@ -118,20 +144,25 @@
+       
+           for (const file of files) {
+             const langConfig = getLanguageConfigForFile(normalizePath(file.path));
+             nodes.set(file.path, {
+      -        id: file.path, type: 'file', name: path.basename(file.path),
+
+      +        id: file.path, type: 'file', name:
+      browserPath.basename(file.path),
+               filePath: file.path, startLine: 1, endLine: file.content.split('\n').length,
+               language: langConfig?.name,
+             });
+           }
+       
+      +    const isBrowser = typeof window !== 'undefined' && typeof
+      window.document !== 'undefined';
+           const filesToProcess = files.map(file => ({ file, langConfig: getLanguageConfigForFile(normalizePath(file.path)) }))
+             .filter((item): item is { file: FileContent, langConfig: LanguageConfig } => !!item.langConfig);
+           
+      -    if (maxWorkers > 1) {
+
+      +    if (maxWorkers > 1 && !isBrowser) {
+             logger.debug(`Analyzing files in parallel with ${maxWorkers} workers.`);
+      +      const { default: Tinypool } = await import('tinypool');
+
+      +      const { fileURLToPath } = await import('node:url');
+
+      +      const { URL } = await import('node:url');
+
+      +
+             const pool = new Tinypool({
+               filename: fileURLToPath(new URL('analyzer.worker.js', import.meta.url)),
+               maxThreads: maxWorkers,
+             });
+       
+      @@ -145,6 +176,9 @@
+               }
+             }
+           } else {
+      +      if (maxWorkers > 1 && isBrowser) {
+
+      +        logger.warn('Parallel analysis with workers is not supported in
+      the browser. Falling back to sequential analysis.');
+
+      +      }
+             logger.debug(`Analyzing files sequentially in the main thread.`);
+             for (const item of filesToProcess) {
+               try {
+    patchStrategy: new-unified
+  - type: write
+    path: web-demo/package.json
+    content: |-
+      {
+        "name": "repograph-web-demo",
+        "private": true,
+        "version": "0.0.0",
+        "type": "module",
+        "scripts": {
+          "dev": "vite",
+          "build": "tsc && vite build",
+          "preview": "vite preview",
+          "get-wasm": "repograph copy-wasm ./public/wasm"
+        },
+        "dependencies": {
+          "react": "^18.2.0",
+          "react-dom": "^18.2.0",
+          "react-markdown": "^9.0.1",
+          "react-syntax-highlighter": "^15.5.0",
+          "remark-gfm": "^4.0.0",
+          "repograph": "file:.."
+        },
+        "devDependencies": {
+          "@types/react": "^18.2.66",
+          "@types/react-dom": "^18.2.22",
+          "@types/react-syntax-highlighter": "^15.5.13",
+          "@vitejs/plugin-react": "^4.2.1",
+          "typescript": "^5.2.2",
+          "vite": "^5.2.0"
+        }
+      }
+    patchStrategy: replace
+  - type: write
+    path: web-demo/vite.config.ts
+    content: |-
+      import { defineConfig } from 'vite'
+      import react from '@vitejs/plugin-react'
+
+      // https://vitejs.dev/config/
+      export default defineConfig({
+        plugins: [react()],
+        optimizeDeps: {
+          exclude: ['repograph']
+        }
+      })
+    patchStrategy: replace
+  - type: write
+    path: web-demo/tsconfig.json
+    content: |-
+      {
+        "compilerOptions": {
+          "target": "ES2020",
+          "useDefineForClassFields": true,
+          "lib": ["ES2020", "DOM", "DOM.Iterable"],
+          "module": "ESNext",
+          "skipLibCheck": true,
+
+          /* Bundler mode */
+          "moduleResolution": "bundler",
+          "allowImportingTsExtensions": true,
+          "resolveJsonModule": true,
+          "isolatedModules": true,
+          "noEmit": true,
+          "jsx": "react-jsx",
+
+          /* Linting */
+          "strict": true,
+          "noUnusedLocals": true,
+          "noUnusedParameters": true,
+          "noFallthroughCasesInSwitch": true
+        },
+        "include": ["src"],
+        "references": [{ "path": "./tsconfig.node.json" }]
+      }
+    patchStrategy: replace
+  - type: write
+    path: web-demo/index.html
+    content: |-
+      <!doctype html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>RepoGraph Web Demo</title>
+        </head>
+        <body>
+          <div id="root"></div>
+          <script type="module" src="/src/main.tsx"></script>
+        </body>
+      </html>
+    patchStrategy: replace
+  - type: write
+    path: web-demo/public/.gitkeep
+    content: '```'
+    patchStrategy: replace
+  - type: write
+    path: web-demo/src/App.css
+    content: |-
+      :root {
+        font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+        line-height: 1.5;
+        font-weight: 400;
+
+        color-scheme: light dark;
+        color: rgba(255, 255, 255, 0.87);
+        background-color: #242424;
+
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        margin: 0;
+        display: flex;
+        place-items: center;
+        min-width: 320px;
+        min-height: 100vh;
+      }
+
+      #root {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 2rem;
+        width: 100%;
+      }
+
+      h1 {
+        font-size: 2.5em;
+        line-height: 1.1;
+        margin-block-start: 0;
+      }
+
+      .container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+        height: calc(100vh - 8rem);
+      }
+
+      .panel {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        overflow: hidden;
+      }
+
+      textarea {
+        width: 100%;
+        height: 100%;
+        resize: none;
+        background-color: #1e1e1e;
+        border: 1px solid #444;
+        border-radius: 8px;
+        color: #d4d4d4;
+        font-family: monospace;
+        font-size: 14px;
+        padding: 1rem;
+        box-sizing: border-box;
+      }
+
+      button {
+        border-radius: 8px;
+        border: 1px solid transparent;
+        padding: 0.6em 1.2em;
+        font-size: 1em;
+        font-weight: 500;
+        font-family: inherit;
+        background-color: #1a1a1a;
+        cursor: pointer;
+        transition: border-color 0.25s;
+      }
+      button:hover {
+        border-color: #646cff;
+      }
+      button:disabled {
+          cursor: not-allowed;
+          opacity: 0.5;
+      }
+
+      .output-panel, .logs-panel {
+        border: 1px solid #444;
+        border-radius: 8px;
+        padding: 1rem;
+        overflow-y: auto;
+        background-color: #1e1e1e;
+      }
+
+      .logs-panel {
+          height: 150px;
+          flex-shrink: 0;
+      }
+
+      .log-entry {
+        font-family: monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+        padding: 2px 4px;
+        border-radius: 4px;
+      }
+      .log-error { color: #f87171; background-color: #450a0a; }
+      .log-warn { color: #facc15; background-color: #422006; }
+      .log-info { color: #60a5fa; }
+      .log-debug { color: #888; }
+
+      pre {
+          background-color: #2d2d2d !important;
+          border-radius: 4px;
+          padding: 1em !important;
+      }
+    patchStrategy: replace
+  - type: write
+    path: web-demo/src/App.tsx
+    content: >-
+      import { useState, useEffect, useCallback, FC } from 'react';
+
+      import {
+        initializeParser,
+        analyzeProject,
+        createMarkdownRenderer,
+        logger,
+        FileContent,
+        LogLevel,
+      } from 'repograph';
+
+      import ReactMarkdown from 'react-markdown';
+
+      import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+
+      import { vscDarkPlus } from
+      'react-syntax-highlighter/dist/esm/styles/prism';
+
+      import remarkGfm from 'remark-gfm';
+
+
+      const defaultInput = JSON.stringify(
+        [
+          {
+            path: 'src/components/Button.tsx',
+            content: `import { styled } from '../styles';\n\nexport const Button = () => <button>Click me</button>;`,
+          },
+          {
+            path: 'src/styles.ts',
+            content: `export function styled(component: any) { return component; }`,
+          },
+          {
+            path: 'src/api/client.ts',
+            content: `export class ApiClient {\n  constructor() {}\n  fetchData() { return Promise.resolve(true); }\n}`
+          },
+           {
+            path: 'src/main.ts',
+            content: `import { Button } from './components/Button';\nimport { ApiClient } from './api/client';\n\nconst client = new ApiClient();\n\nfunction main() {\n  console.log('App started');\n  client.fetchData();\n}\n\nmain();`
+          }
+        ],
+        null,
+        2
+      );
+
+
+      type LogEntry = {
+        level: LogLevel | 'log';
+        args: any[];
+        timestamp: number;
+      }
+
+
+      const MarkdownRenderer: FC<{ children: string }> = ({ children }) => {
+        return (
+          <ReactMarkdown
+            children={children}
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code({ node, inline, className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || '');
+                return !inline && match ? (
+                  <SyntaxHighlighter
+                    {...props}
+                    children={String(children).replace(/\n$/, '')}
+                    style={vscDarkPlus as any}
+                    language={match[1]}
+                    PreTag="div"
+                  />
+                ) : (
+                  <code {...props} className={className}>
+                    {children}
+                  </code>
+                );
+              },
+            }}
+          />
+        );
+      };
+
+
+
+      function App() {
+        const [input, setInput] = useState(defaultInput);
+        const [output, setOutput] = useState('');
+        const [logs, setLogs] = useState<LogEntry[]>([]);
+        const [isAnalyzing, setIsAnalyzing] = useState(false);
+        
+        useEffect(() => {
+          logger.setLevel('debug');
+
+          const originalConsole = { ...console };
+          const intercept = (level: LogLevel | 'log', ...args: any[]) => {
+            originalConsole[level](...args);
+            setLogs(prev => [...prev, { level, args, timestamp: Date.now() }]);
+          };
+
+          console.log = (...args) => intercept('log', ...args);
+          console.info = (...args) => intercept('info', ...args);
+          console.warn = (...args) => intercept('warn', ...args);
+          console.error = (...args) => intercept('error', ...args);
+          console.debug = (...args) => intercept('debug', ...args);
+
+          return () => {
+            Object.assign(console, originalConsole);
+          };
+        }, []);
+
+        const handleAnalyze = useCallback(async () => {
+          setIsAnalyzing(true);
+          setOutput('');
+          setLogs([]);
+          console.info('Starting analysis...');
+
+          try {
+            const files: FileContent[] = JSON.parse(input);
+            if (!Array.isArray(files) || !files.every(f => f.path && typeof f.content === 'string')) {
+                throw new Error('Invalid input format. Must be an array of {path: string, content: string}');
+            }
+            
+            console.info('Initializing parser...');
+            await initializeParser({ wasmBaseUrl: '/wasm/' });
+            console.info('Parser initialized.');
+
+            console.info(`Analyzing ${files.length} files...`);
+            const rankedGraph = await analyzeProject({
+              files,
+              rankingStrategy: 'pagerank',
+              maxWorkers: 1, // Important for browser
+            });
+            console.info(`Analysis complete. Found ${rankedGraph.nodes.size} nodes.`);
+
+            console.info('Rendering output...');
+            const renderer = createMarkdownRenderer();
+            const markdown = renderer(rankedGraph, {
+              includeMermaidGraph: true,
+            });
+            setOutput(markdown);
+            console.info('Render complete.');
+
+          } catch (e: any) {
+            console.error('Analysis failed:', e.message, e);
+            setOutput(`# Analysis Failed\n\n**Error:**\n\`\`\`\n${e.stack || e.message}\n\`\`\``);
+          } finally {
+            setIsAnalyzing(false);
+          }
+        }, [input]);
+
+        return (
+          <>
+            <h1>RepoGraph Web Demo</h1>
+            <div className="container">
+              <div className="panel">
+                  <h3>Input Files (JSON format)</h3>
+                  <textarea
+                      value={input}
+                      onChange={e => setInput(e.target.value)}
+                      placeholder="Enter FileContent[] as JSON string..."
+                      spellCheck="false"
+                  />
+                  <button onClick={handleAnalyze} disabled={isAnalyzing}>
+                    {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+                  </button>
+              </div>
+              <div className="panel">
+                  <h3>Output Markdown</h3>
+                  <div className="output-panel">
+                      <MarkdownRenderer>{output}</MarkdownRenderer>
+                  </div>
+                  <h3>Logs</h3>
+                  <div className="logs-panel">
+                      {logs.map((log, i) => (
+                          <div key={i} className={`log-entry log-${log.level}`}>
+                              [{log.level.toUpperCase()}] {log.args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ')}
+                          </div>
+                      ))}
+                  </div>
+              </div>
+            </div>
+          </>
+        );
+      }
+
+
+      export default App;
+    patchStrategy: replace
+snapshot:
+  web-demo/package.json: null
+  web-demo/vite.config.ts: null
+  web-demo/tsconfig.json: null
+  web-demo/index.html: null
+  web-demo/public/.gitkeep: null
+  web-demo/src/App.css: null
+  web-demo/src/App.tsx: null
+  src/pipeline/analyze.ts: >-
+    import path from 'node:path';
+
+    import type { Analyzer, CodeNode, CodeEdge, FileContent, UnresolvedRelation
+    } from '../types';
+
+    import { getLanguageConfigForFile, type LanguageConfig } from
+    '../tree-sitter/language-config';
+
+    import { logger } from '../utils/logger.util';
+
+    import { ParserError } from '../utils/error.util';
+
+    import { fileURLToPath } from 'node:url';
+
+    import Tinypool from 'tinypool';
+
+    import processFileInWorker from './analyzer.worker';
+
+
+    const normalizePath = (p: string) => p.replace(/\\/g, '/');
+
+
+    // --- LANGUAGE-SPECIFIC IMPORT RESOLUTION LOGIC ---
+
+    // This part is needed on the main thread to resolve import paths.
+
+
+    const createModuleResolver = (extensions: string[]) => (fromFile: string,
+    sourcePath: string, allFiles: string[]): string | null => {
+      const basedir = normalizePath(path.dirname(fromFile));
+      const importPath = normalizePath(path.join(basedir, sourcePath));
+
+      // First, check if the path as-is (with extension) exists
+      if (path.extname(importPath) && allFiles.includes(importPath)) {
+        return importPath;
+      }
+
+      const parsedPath = path.parse(importPath);
+      const basePath = normalizePath(path.join(parsedPath.dir, parsedPath.name));
+      for (const ext of extensions) {
+          const potentialFile = basePath + ext;
+          if (allFiles.includes(potentialFile)) return potentialFile;
+      }
+      
+      for (const ext of extensions) {
+          const potentialIndexFile = normalizePath(path.join(importPath, 'index' + ext));
+          if (allFiles.includes(potentialIndexFile)) return potentialIndexFile;
+      }
+
+      if (allFiles.includes(importPath)) return importPath;
+      return null;      
+    };
+
+
+    const resolveImportFactory = (endings: string[], packageStyle: boolean =
+    false) => (fromFile: string, sourcePath: string, allFiles: string[]): string
+    | null => {
+      const basedir = normalizePath(path.dirname(fromFile));
+      const resolvedPathAsIs = normalizePath(path.join(basedir, sourcePath));
+      if (allFiles.includes(resolvedPathAsIs)) return resolvedPathAsIs;
+
+      const parsedSourcePath = path.parse(sourcePath);
+      const basePath = normalizePath(path.join(basedir, parsedSourcePath.dir, parsedSourcePath.name));
+      for (const end of endings) {
+        const potentialPath = basePath + end;
+        if (allFiles.includes(potentialPath)) return potentialPath;
+      }
+      
+      if (packageStyle && sourcePath.includes('.')) {
+        const packagePath = normalizePath(sourcePath.replace(/\./g, '/'));
+        for (const end of endings) {
+          const fileFromRoot = packagePath + end;
+          if (allFiles.includes(fileFromRoot)) return fileFromRoot;
+        }
+      }
+      return null;
+    };
+
+
+    type ImportResolver = (fromFile: string, sourcePath: string, allFiles:
+    string[]) => string | null;
+
+
+    const languageImportResolvers: Record<string, ImportResolver> = {
+      default: (fromFile, sourcePath, allFiles) => {
+        const resolvedPathAsIs = path.normalize(path.join(path.dirname(fromFile), sourcePath));
+        return allFiles.includes(resolvedPathAsIs) ? resolvedPathAsIs : null;
+      },
+      typescript: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
+      javascript: createModuleResolver(['.js', 'jsx', '.mjs', '.cjs']),
+      tsx: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
+      python: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+        const basedir = normalizePath(path.dirname(fromFile));
+        if (sourcePath.startsWith('.')) {
+          const level = sourcePath.match(/^\.+/)?.[0]?.length ?? 0;
+          const modulePath = sourcePath.substring(level).replace(/\./g, '/');
+          let currentDir = basedir;
+          for (let i = 1; i < level; i++) currentDir = path.dirname(currentDir);
+          const targetPyFile = normalizePath(path.join(currentDir, modulePath) + '.py');
+          if (allFiles.includes(targetPyFile)) return targetPyFile;
+          const resolvedPath = normalizePath(path.join(currentDir, modulePath, '__init__.py'));
+          if (allFiles.includes(resolvedPath)) return resolvedPath;
+        }
+        return resolveImportFactory(['.py', '/__init__.py'])(fromFile, sourcePath, allFiles);
+      },
+      java: resolveImportFactory(['.java'], true),
+      csharp: resolveImportFactory(['.cs'], true),
+      php: resolveImportFactory(['.php']),
+      rust: (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
+        const basedir = normalizePath(path.dirname(fromFile));
+        const resolvedPath = normalizePath(path.join(basedir, sourcePath + '.rs'));
+        if (allFiles.includes(resolvedPath)) return resolvedPath;
+        return resolveImportFactory(['.rs', '/mod.rs'])(fromFile, sourcePath, allFiles);
+      },
+    };
+
+
+    const getImportResolver = (langName: string): ImportResolver =>
+    languageImportResolvers[langName] ?? languageImportResolvers['default']!;
+
+
+    class SymbolResolver {
+      private fileImports = new Map<string, string[]>();
+
+      constructor(private nodes: ReadonlyMap<string, CodeNode>, edges: readonly CodeEdge[]) {
+        for (const edge of edges) {
+          if (edge.type === 'imports') {
+            if (!this.fileImports.has(edge.fromId)) this.fileImports.set(edge.fromId, []);
+            this.fileImports.get(edge.fromId)!.push(edge.toId);
+          }
+        }
+      }
+
+      resolve(symbolName: string, contextFile: string): CodeNode | null {
+        // 1. Same file
+        const sameFileId = `${contextFile}#${symbolName}`;
+        if (this.nodes.has(sameFileId)) return this.nodes.get(sameFileId)!;
+
+        // 2. Imported files
+        const importedFiles = this.fileImports.get(contextFile) || [];
+        for (const file of importedFiles) {
+          const importedId = `${file}#${symbolName}`;
+          if (this.nodes.has(importedId)) return this.nodes.get(importedId)!;
+        }
+        
+        // 3. CSS Selector
+        for (const node of this.nodes.values()) {
+            if (node.type === 'css_rule' && node.cssSelector === symbolName) return node;
+        }
+
+        // 4. Global fallback
+        for (const node of this.nodes.values()) {
+          if (node.name === symbolName && ['class', 'function', 'interface', 'struct', 'type', 'enum'].includes(node.type)) {
+            return node;
+          }
+        }
+
+        return null;
+      }
+    }
+
+
+    export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } =
+    {}): Analyzer => {
+      const { maxWorkers = 1 } = options;
+      
+      return async (files: readonly FileContent[]) => {
+        const nodes = new Map<string, CodeNode>();
+        let unresolvedRelations: UnresolvedRelation[] = [];
+        const allFilePaths = files.map(f => normalizePath(f.path));
+
+        for (const file of files) {
+          const langConfig = getLanguageConfigForFile(normalizePath(file.path));
+          nodes.set(file.path, {
+            id: file.path, type: 'file', name: path.basename(file.path),
+            filePath: file.path, startLine: 1, endLine: file.content.split('\n').length,
+            language: langConfig?.name,
+          });
+        }
+
+        const filesToProcess = files.map(file => ({ file, langConfig: getLanguageConfigForFile(normalizePath(file.path)) }))
+          .filter((item): item is { file: FileContent, langConfig: LanguageConfig } => !!item.langConfig);
+        
+        if (maxWorkers > 1) {
+          logger.debug(`Analyzing files in parallel with ${maxWorkers} workers.`);
+          const pool = new Tinypool({
+            filename: fileURLToPath(new URL('analyzer.worker.js', import.meta.url)),
+            maxThreads: maxWorkers,
+          });
+
+          const tasks = filesToProcess.map(item => pool.run(item));
+          const results = await Promise.all(tasks);
+          
+          for (const result of results) {
+            if (result) {
+              result.nodes.forEach((node: CodeNode) => nodes.set(node.id, node));
+              unresolvedRelations.push(...result.relations);
+            }
+          }
+        } else {
+          logger.debug(`Analyzing files sequentially in the main thread.`);
+          for (const item of filesToProcess) {
+            try {
+              const result = await processFileInWorker(item);
+              if (result) {
+                result.nodes.forEach(node => nodes.set(node.id, node));
+                unresolvedRelations.push(...result.relations);
+              }
+            } catch(error) {
+              logger.warn(new ParserError(`Failed to process ${item.file.path}`, item.langConfig.name, error));
+            }
+          }
+        }
+
+        // --- Phase 3: Resolve all relationships ---
+        const edges: CodeEdge[] = [];
+        const importEdges: CodeEdge[] = [];
+        
+        // Resolve imports first, as they are needed by the SymbolResolver
+        for (const rel of unresolvedRelations) {
+          if (rel.type === 'imports') {
+            const fromNode = nodes.get(rel.fromId);
+            if (!fromNode || fromNode.type !== 'file' || !fromNode.language) continue;
+            
+            const resolver = getImportResolver(fromNode.language);
+            const toId = resolver(rel.fromId, rel.toName, allFilePaths);
+            if (toId && nodes.has(toId)) {
+              importEdges.push({ fromId: rel.fromId, toId, type: 'imports' });
+            }
+          }
+        }
+        
+        const symbolResolver = new SymbolResolver(nodes, importEdges);
+
+        for (const rel of unresolvedRelations) {
+            if (rel.type === 'imports') continue; // Already handled
+            
+            const toNode = symbolResolver.resolve(rel.toName, rel.fromId.split('#')[0]!);
+            if (toNode && rel.fromId !== toNode.id) {
+              const edgeType = rel.type === 'reference' ? 'calls' : rel.type;
+              edges.push({ fromId: rel.fromId, toId: toNode.id, type: edgeType });
+            }
+        }
+        
+        const finalEdges = [...importEdges, ...edges];
+        // Remove duplicates
+        const uniqueEdges = [...new Map(finalEdges.map(e => [`${e.fromId}->${e.toId}->${e.type}`, e])).values()];
+
+        return { nodes: Object.freeze(nodes), edges: Object.freeze(uniqueEdges) };
+      };
+    };
+approved: true

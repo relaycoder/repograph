@@ -1,3 +1,8 @@
+please create single page using react and vite to battle test this lib for browser environment..
+
+the web feature is like demo so there are input, generated output, logger log viewer to see errors and problems.
+
+===
 
 lets ditch
 1. fast-glob - Uses Node.js fs, path, stream modules
