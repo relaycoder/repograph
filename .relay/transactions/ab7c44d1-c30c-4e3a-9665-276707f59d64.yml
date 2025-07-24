@@ -1,0 +1,223 @@
+uuid: ab7c44d1-c30c-4e3a-9665-276707f59d64
+projectId: repograph
+createdAt: '2025-07-24T01:32:22.408Z'
+linesAdded: 24
+linesRemoved: 6
+gitCommitMsg: 'fix(discover): manually parse .gitignore to fix ignore regression'
+promptSummary: >-
+  The user reported that tests are failing due to a regression in file ignoring
+  logic. Files that should be ignored by `.gitignore` are being processed. This
+  change reverts to a more explicit way of handling `.gitignore` by manually
+  reading the file and passing its patterns to `globby`'s `ignore` option,
+  fixing the regression.
+reasoning:
+  - >-
+    I apologize for the failing tests. It seems my previous change to use
+    `globby`'s built-in `gitignore` handling caused a regression. The issue is
+    that `globby`'s `gitignore: true` option was not behaving as expected in the
+    test environments, leading to files that should have been ignored being
+    included in the analysis.
+  - >-
+    To fix this, I will revert to a strategy closer to the original, successful
+    logic, but without re-introducing the `ignore` package. I'll modify
+    `src/pipeline/discover.ts` to:
+  - 1.  Manually read the `.gitignore` file from the root directory.
+  - 2.  Parse its content into a list of patterns.
+  - >-
+    3.  Combine these patterns with the hardcoded ignores (`node_modules`, etc.)
+    and any user-provided ignore patterns.
+  - >-
+    4.  Pass this comprehensive list to `globby`'s `ignore` option, while
+    setting `gitignore: false` to prevent any conflicting behavior.
+  - >-
+    This approach gives us direct control over the ignore logic and ensures it
+    behaves consistently, which should resolve the test failures.
+  - 'Here is the updated file:'
+operations:
+  - type: write
+    path: src/pipeline/discover.ts
+    content: |-
+      import { globby } from 'globby';
+      import path from 'node:path';
+      import { realpath } from 'node:fs/promises';
+      import type { FileContent, FileDiscoverer } from '../types';
+      import { isDirectory, readFile } from '../utils/fs.util';
+      import { FileSystemError } from '../utils/error.util';
+      import { logger } from '../utils/logger.util';
+
+      /**
+       * Creates the default file discoverer. It uses globby to find all files,
+       * respecting .gitignore patterns and custom include/exclude rules.
+       * @returns A FileDiscoverer function.
+       */
+      export const createDefaultDiscoverer = (): FileDiscoverer => {
+        return async ({ root, include, ignore: userIgnore, noGitignore = false }) => {
+          try {
+            if (!(await isDirectory(root))) {
+              throw new FileSystemError('Root path is not a directory or does not exist', root);
+            }
+          } catch (e) {
+            throw e;
+          }
+          const patterns = include && include.length > 0 ? [...include] : ['**/*'];
+          
+          // Manually build the ignore list to replicate the old logic without the `ignore` package.
+          const ignorePatterns = [
+            '**/node_modules/**',
+            '**/.git/**',
+            '.gitignore', // Always ignore the gitignore file itself
+          ];
+
+          if (userIgnore && userIgnore.length > 0) {
+            ignorePatterns.push(...userIgnore);
+          }
+          
+          if (!noGitignore) {
+            try {
+              const gitignoreContent = await readFile(path.join(root, '.gitignore'));
+              const gitignoreLines = gitignoreContent
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0 && !line.startsWith('#'));
+              ignorePatterns.push(...gitignoreLines);
+            } catch {
+              // .gitignore is optional, so we can ignore errors here.
+            }
+          }
+
+          // Use globby to find all files, passing our manually constructed ignore list.
+          // We set `gitignore: false` because we are handling it ourselves.
+          const foundPaths = await globby(patterns, {
+            cwd: root,
+            gitignore: false, // We handle gitignore patterns manually
+            ignore: ignorePatterns,
+            dot: true,
+            absolute: true,
+            followSymbolicLinks: true,
+            onlyFiles: true,
+          });
+
+          const relativePaths = foundPaths.map(p => path.relative(root, p).replace(/\\/g, '/'));
+
+          // Filter out files that are duplicates via symlinks
+          const visitedRealPaths = new Set<string>();
+          const safeRelativePaths: string[] = [];
+          
+          for (const relativePath of relativePaths) {
+            const fullPath = path.resolve(root, relativePath);
+            try {
+              const realPath = await realpath(fullPath);
+              if (!visitedRealPaths.has(realPath)) {
+                visitedRealPaths.add(realPath);
+                safeRelativePaths.push(relativePath);
+              }
+            } catch (error) {
+              // If we can't resolve the real path, skip this file
+              logger.debug(`Skipping file due to symlink resolution error: ${relativePath}`);
+            }
+          }
+          
+          // The `ignore` option in globby should have already done the filtering.
+          const filteredPaths = safeRelativePaths;
+
+          const fileContents = await Promise.all(
+            filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
+              try {
+                const absolutePath = path.join(root, relativePath);
+                const content = await readFile(absolutePath);
+                return { path: relativePath, content };
+              } catch (e) {
+                logger.debug(`Skipping file that could not be read: ${relativePath}`, e instanceof Error ? e.message : e);
+                return null;
+              }
+            })
+          );
+
+          return fileContents.filter((c): c is FileContent => c !== null);
+        };
+      };
+    patchStrategy: replace
+snapshot:
+  src/pipeline/discover.ts: |-
+    import { globby } from 'globby';
+    import path from 'node:path';
+    import { realpath } from 'node:fs/promises';
+    import type { FileContent, FileDiscoverer } from '../types';
+    import { isDirectory, readFile } from '../utils/fs.util';
+    import { FileSystemError } from '../utils/error.util';
+    import { logger } from '../utils/logger.util';
+
+    /**
+     * Creates the default file discoverer. It uses globby to find all files,
+     * respecting .gitignore patterns and custom include/exclude rules.
+     * @returns A FileDiscoverer function.
+     */
+    export const createDefaultDiscoverer = (): FileDiscoverer => {
+      return async ({ root, include, ignore, noGitignore = false }) => {
+        try {
+          if (!(await isDirectory(root))) {
+            throw new FileSystemError('Root path is not a directory or does not exist', root);
+          }
+        } catch (e) {
+          throw e;
+        }
+        const patterns = include && include.length > 0 ? [...include] : ['**/*'];
+        
+        const ignorePatterns = [
+          '**/node_modules/**',
+          '**/.git/**',
+          '.gitignore',
+          ...(ignore || []),
+        ];
+
+        // Use globby to find all files, letting it handle gitignore and other ignore patterns.
+        const foundPaths = await globby(patterns, {
+          cwd: root,
+          gitignore: !noGitignore,
+          ignore: ignorePatterns,
+          dot: true,
+          absolute: true,
+          followSymbolicLinks: true,
+          onlyFiles: true,
+        });
+
+        const relativePaths = foundPaths.map(p => path.relative(root, p).replace(/\\/g, '/'));
+
+        // Filter out files that are duplicates via symlinks
+        const visitedRealPaths = new Set<string>();
+        const safeRelativePaths: string[] = [];
+        
+        for (const relativePath of relativePaths) {
+          const fullPath = path.resolve(root, relativePath);
+          try {
+            const realPath = await realpath(fullPath);
+            if (!visitedRealPaths.has(realPath)) {
+              visitedRealPaths.add(realPath);
+              safeRelativePaths.push(relativePath);
+            }
+          } catch (error) {
+            // If we can't resolve the real path, skip this file
+            logger.debug(`Skipping file due to symlink resolution error: ${relativePath}`);
+          }
+        }
+        
+        // globby has already filtered the paths based on ignore patterns.
+        const filteredPaths = safeRelativePaths;
+
+        const fileContents = await Promise.all(
+          filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
+            try {
+              const absolutePath = path.join(root, relativePath);
+              const content = await readFile(absolutePath);
+              return { path: relativePath, content };
+            } catch (e) {
+              logger.debug(`Skipping file that could not be read: ${relativePath}`, e instanceof Error ? e.message : e);
+              return null;
+            }
+          })
+        );
+
+        return fileContents.filter((c): c is FileContent => c !== null);
+      };
+    };
+approved: true

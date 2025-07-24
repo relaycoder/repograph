@@ -1,3 +1,20 @@
+
+lets ditch
+1. fast-glob - Uses Node.js fs, path, stream modules
+2 ignore - CommonJS module with export issues in browser
+3 globby - Depends on fast-glob and has ES module import issues
+4 unicorn-magic - Export resolution problems in browser environment
+
+to use another lib browser compatible version. or create own.
+
+do it without feature regression ...
+
+I want everything to run in browser via vite build.
+
+dont forget final checks yaml
+
+===
+
 - make this lib in-browser friendly especially vite. its very good to make repograph optionally no need to
 direct fs dir just via object passing in-memory so that only the end scn-ts lib user manually feed from fs.
 

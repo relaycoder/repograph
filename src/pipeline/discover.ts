@@ -1,7 +1,6 @@
 import { globby } from 'globby';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
-import Ignore from 'ignore';
 import type { FileContent, FileDiscoverer } from '../types';
 import { isDirectory, readFile } from '../utils/fs.util';
 import { FileSystemError } from '../utils/error.util';
@@ -13,7 +12,7 @@ import { logger } from '../utils/logger.util';
  * @returns A FileDiscoverer function.
  */
 export const createDefaultDiscoverer = (): FileDiscoverer => {
-  return async ({ root, include, ignore, noGitignore = false }) => {
+  return async ({ root, include, ignore: userIgnore, noGitignore = false }) => {
     try {
       if (!(await isDirectory(root))) {
         throw new FileSystemError('Root path is not a directory or does not exist', root);
@@ -23,39 +22,36 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     }
     const patterns = include && include.length > 0 ? [...include] : ['**/*'];
     
-    // Use the ignore package for proper gitignore handling
-    const ignoreFilter = Ignore();
+    // Manually build the ignore list to replicate the old logic without the `ignore` package.
+    const ignorePatterns = [
+      '**/node_modules/**',
+      '**/.git/**',
+      '.gitignore', // Always ignore the gitignore file itself
+    ];
+
+    if (userIgnore && userIgnore.length > 0) {
+      ignorePatterns.push(...userIgnore);
+    }
     
-    // Always ignore node_modules and .git
-    ignoreFilter.add('**/node_modules/**');
-    ignoreFilter.add('**/.git/**');
-    ignoreFilter.add('.gitignore');
-    
-    // Add .gitignore patterns if not disabled
     if (!noGitignore) {
-      let gitignoreContent = '';
       try {
-        gitignoreContent = await readFile(path.join(root, '.gitignore'));
+        const gitignoreContent = await readFile(path.join(root, '.gitignore'));
+        const gitignoreLines = gitignoreContent
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0 && !line.startsWith('#'));
+        ignorePatterns.push(...gitignoreLines);
       } catch {
         // .gitignore is optional, so we can ignore errors here.
       }
-      if (gitignoreContent) {
-        ignoreFilter.add(gitignoreContent);
-      }
-    }
-    
-    // Add user-specified ignore patterns
-    if (ignore && ignore.length > 0) {
-      ignoreFilter.add(ignore.join('\n'));
     }
 
-    // Use globby to find all files matching the include patterns.
-    // Globby might return absolute paths if the patterns are absolute. We ensure
-    // all paths are absolute first, then make them relative to the root for
-    // consistent processing, which is required by the `ignore` package.
+    // Use globby to find all files, passing our manually constructed ignore list.
+    // We set `gitignore: false` because we are handling it ourselves.
     const foundPaths = await globby(patterns, {
       cwd: root,
       gitignore: false, // We handle gitignore patterns manually
+      ignore: ignorePatterns,
       dot: true,
       absolute: true,
       followSymbolicLinks: true,
@@ -64,7 +60,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
 
     const relativePaths = foundPaths.map(p => path.relative(root, p).replace(/\\/g, '/'));
 
-    // Filter out files that would cause symlink cycles
+    // Filter out files that are duplicates via symlinks
     const visitedRealPaths = new Set<string>();
     const safeRelativePaths: string[] = [];
     
@@ -82,8 +78,8 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       }
     }
     
-    // Filter the paths using the ignore package. Paths are now guaranteed to be relative.
-    const filteredPaths = safeRelativePaths.filter(p => !ignoreFilter.ignores(p));
+    // The `ignore` option in globby should have already done the filtering.
+    const filteredPaths = safeRelativePaths;
 
     const fileContents = await Promise.all(
       filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
