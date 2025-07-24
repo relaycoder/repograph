@@ -1,4 +1,4 @@
-import type { Language } from 'web-tree-sitter';
+import type { Language as Language } from 'web-tree-sitter';
 
 export interface LanguageConfig {
   name: string;
@@ -11,6 +11,14 @@ export interface LoadedLanguage {
   config: LanguageConfig;
   language: Language;
 }
+
+/**
+ * Generates the expected path to a WASM file within its node_modules package.
+ * @param pkg The package name (e.g., 'tree-sitter-typescript')
+ * @param wasmFile The filename of the wasm file (e.g., 'tree-sitter-typescript.wasm')
+ * @returns The relative path to the wasm file.
+ */
+const wasm = (pkg: string, wasmFile: string): string => `${pkg}/${wasmFile}`;
 
 const TS_BASE_QUERY = `
 (import_statement
@@ -146,23 +154,71 @@ const TSX_SPECIFIC_QUERY = `
   (#eq? @_p "id"))
 `;
 
+const C_QUERY = `
+(preproc_include) @import.statement
+
+(function_definition) @function.definition
+(declaration declarator: (function_declarator)) @function.declaration
+(struct_specifier) @struct.definition
+(union_specifier) @union.definition
+(enum_specifier) @enum.definition
+(type_definition) @type.definition
+`;
+
+const CPP_QUERY = `
+${C_QUERY.replace('(type_definition) @type.definition\n', '')}
+(class_specifier) @class.definition
+(namespace_definition) @namespace.definition
+(template_declaration) @template.definition
+(function_definition declarator: (qualified_identifier)) @method.definition
+(field_declaration declarator: (function_declarator)) @method.definition
+(field_declaration) @field.definition
+(throw_expression) @qualifier.throws
+`;
+
+const C_SHARP_FAMILY_BASE = `
+(class_declaration) @class.definition
+(interface_declaration) @interface.definition
+(enum_declaration) @enum.definition
+(method_declaration) @method.definition
+(constructor_declaration) @constructor.definition
+(field_declaration) @field.definition
+(throw_statement) @qualifier.throws
+`;
+
+const JAVA_QUERY = `
+(import_declaration
+  (scoped_identifier) @import.source) @import.statement
+${C_SHARP_FAMILY_BASE.replace('(method_declaration) @method.definition', '(method_declaration (modifiers)? @qualifier.modifiers) @method.definition')}
+(superclass (type_identifier) @class.inheritance)
+(super_interfaces (type_list (type_identifier) @class.implementation))
+`;
+
+const CSHARP_QUERY = `
+(using_directive) @import.statement
+${C_SHARP_FAMILY_BASE}
+(struct_declaration) @struct.definition
+(property_declaration) @property.definition
+(namespace_declaration) @namespace.definition
+`;
+
 export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'typescript',
     extensions: ['.ts', '.js', '.mjs', '.cjs'],
-    wasmPath: 'wasm/tree-sitter-typescript.wasm',
+    wasmPath: wasm('tree-sitter-typescript', 'tree-sitter-typescript.wasm'),
     query: TS_BASE_QUERY
   },
   {
     name: 'tsx',
     extensions: ['.tsx', '.jsx'],
-    wasmPath: 'wasm/tree-sitter-tsx.wasm',
+    wasmPath: wasm('tree-sitter-typescript', 'tree-sitter-tsx.wasm'),
     query: `${TS_BASE_QUERY}\n${TSX_SPECIFIC_QUERY}`
   },
   {
     name: 'python',
     extensions: ['.py', '.pyw'],
-    wasmPath: 'wasm/tree-sitter-python.wasm',
+    wasmPath: wasm('tree-sitter-python', 'tree-sitter-python.wasm'),
     query: `
 (import_statement) @import.statement
 (import_from_statement
@@ -196,77 +252,25 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'java',
     extensions: ['.java'],
-    wasmPath: 'wasm/tree-sitter-java.wasm',
-    query: `
-(import_declaration
-  (scoped_identifier) @import.source) @import.statement
-
-(class_declaration) @class.definition
-(interface_declaration) @interface.definition
-(enum_declaration) @enum.definition
-
-(method_declaration
-  (modifiers)? @qualifier.modifiers
-) @method.definition
-
-(constructor_declaration) @constructor.definition
-
-(field_declaration) @field.definition
-
-(throw_statement) @qualifier.throws
-
-; Java inheritance and implementation patterns
-(superclass (type_identifier) @class.inheritance)
-(super_interfaces (type_list (type_identifier) @class.implementation))
-
-`
+    wasmPath: wasm('tree-sitter-java', 'tree-sitter-java.wasm'),
+    query: JAVA_QUERY
   },
   {
     name: 'cpp',
     extensions: ['.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx'],
-    wasmPath: 'wasm/tree-sitter-cpp.wasm',
-    query: `
-(preproc_include) @import.statement
-
-(function_definition) @function.definition
-(declaration
-  declarator: (function_declarator)) @function.declaration
-
-(class_specifier) @class.definition
-(struct_specifier) @struct.definition
-(union_specifier) @union.definition
-(enum_specifier) @enum.definition
-
-(namespace_definition) @namespace.definition
-
-(template_declaration) @template.definition
-
-(function_definition declarator: (qualified_identifier)) @method.definition
-(field_declaration declarator: (function_declarator)) @method.definition
-(field_declaration) @field.definition
-
-(throw_expression) @qualifier.throws
-`
+    wasmPath: wasm('tree-sitter-cpp', 'tree-sitter-cpp.wasm'),
+    query: CPP_QUERY
   },
   {
     name: 'c',
     extensions: ['.c'],
-    wasmPath: 'wasm/tree-sitter-c.wasm',
-    query: `
-(preproc_include) @import.statement
-
-(function_definition) @function.definition
-(declaration declarator: (function_declarator)) @function.declaration
-(struct_specifier) @struct.definition
-(union_specifier) @union.definition
-(enum_specifier) @enum.definition
-(type_definition) @type.definition
-`
+    wasmPath: wasm('tree-sitter-c', 'tree-sitter-c.wasm'),
+    query: C_QUERY
   },
   {
     name: 'go',
     extensions: ['.go'],
-    wasmPath: 'wasm/tree-sitter-go.wasm',
+    wasmPath: wasm('tree-sitter-go', 'tree-sitter-go.wasm'),
     query: `
 (import_declaration) @import.statement
 
@@ -282,7 +286,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'rust',
     extensions: ['.rs'],
-    wasmPath: 'wasm/tree-sitter-rust.wasm',
+    wasmPath: wasm('tree-sitter-rust', 'tree-sitter-rust.wasm'),
     query: `
 (mod_item
   name: (identifier) @import.source) @import.statement
@@ -305,30 +309,13 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'csharp',
     extensions: ['.cs'],
-    wasmPath: 'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm',
-    query: `
-(using_directive) @import.statement
-
-(class_declaration) @class.definition
-(interface_declaration) @interface.definition
-(struct_declaration) @struct.definition
-(enum_declaration) @enum.definition
-
-(method_declaration) @method.definition
-(constructor_declaration) @constructor.definition
-
-(field_declaration) @field.definition
-(property_declaration) @property.definition
-
-(namespace_declaration) @namespace.definition
-
-(throw_statement) @qualifier.throws
-`
+    wasmPath: wasm('tree-sitter-c-sharp', 'tree-sitter-c_sharp.wasm'),
+    query: CSHARP_QUERY
   },
   {
     name: 'php',
     extensions: ['.php'],
-    wasmPath: 'wasm/tree-sitter-php.wasm',
+    wasmPath: wasm('tree-sitter-php', 'tree-sitter-php.wasm'),
     query: `
       (namespace_definition) @namespace.definition
       (class_declaration) @class.definition
@@ -339,7 +326,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'ruby',
     extensions: ['.rb'],
-    wasmPath: 'wasm/tree-sitter-ruby.wasm',
+    wasmPath: wasm('tree-sitter-ruby', 'tree-sitter-ruby.wasm'),
     query: `
       (module) @module.definition
       (class) @class.definition
@@ -350,7 +337,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'solidity',
     extensions: ['.sol'],
-    wasmPath: 'tree-sitter-solidity/tree-sitter-solidity.wasm',
+    wasmPath: wasm('tree-sitter-solidity', 'tree-sitter-solidity.wasm'),
     query: `
       (contract_declaration) @class.definition
       (function_definition) @function.definition
@@ -360,7 +347,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'swift',
     extensions: ['.swift'],
-    wasmPath: 'tree-sitter-swift/tree-sitter-swift.wasm',
+    wasmPath: wasm('tree-sitter-swift', 'tree-sitter-swift.wasm'),
     query: `
       (class_declaration) @class.definition
       (protocol_declaration) @trait.definition
@@ -372,7 +359,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'vue',
     extensions: ['.vue'],
-    wasmPath: 'tree-sitter-vue/tree-sitter-vue.wasm',
+    wasmPath: wasm('tree-sitter-vue', 'tree-sitter-vue.wasm'),
     query: `
       (script_element .
         [
@@ -390,7 +377,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'css',
     extensions: ['.css'],
-    wasmPath: 'wasm/tree-sitter-css.wasm',
+    wasmPath: wasm('tree-sitter-css', 'tree-sitter-css.wasm'),
     query: `
       (rule_set) @css.rule.definition
     `

@@ -28,7 +28,7 @@ export default defineConfig({
       'tree-sitter-java/tree-sitter-java.wasm',
       'tree-sitter-c/tree-sitter-c.wasm',
       'tree-sitter-cpp/tree-sitter-cpp.wasm',
-      'tree-sitter-c-sharp/tree-sitter-c-sharp.wasm',
+      'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm',
       'tree-sitter-css/tree-sitter-css.wasm',
       'tree-sitter-go/tree-sitter-go.wasm',
       'tree-sitter-php/tree-sitter-php.wasm',

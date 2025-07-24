@@ -142,113 +142,62 @@ Output Formatting:
       process.exit(0);
     }
 
-    // We need a mutable version of the options to build it from arguments.
-    const options: {
-      root?: string;
-      output?: string;
-      include?: readonly string[];
-      ignore?: readonly string[];
-      noGitignore?: boolean;
-      maxWorkers?: number;
-      rankingStrategy?: 'pagerank' | 'git-changes';
-      logLevel?: IRepoGraphOptions['logLevel'];
-      rendererOptions?: IRepoGraphOptions['rendererOptions'];
-    } = {};
+    const options: any = {};
     const includePatterns: string[] = [];
     const ignorePatterns: string[] = [];
-    // We need a mutable version of rendererOptions to build from CLI args
-    const rendererOptions: {
-      customHeader?: string;
-      includeHeader?: boolean;
-      includeOverview?: boolean;
-      includeMermaidGraph?: boolean;
-      includeFileList?: boolean;
-      topFileCount?: number;
-      includeSymbolDetails?: boolean;
-      fileSectionSeparator?: string;
-      symbolDetailOptions?: {
-        includeRelations?: boolean;
-        includeLineNumber?: boolean;
-        includeCodeSnippet?: boolean;
-        maxRelationsToShow?: number;
-      };
-    } = {};
+    const rendererOptions: any = {};
+    const symbolDetailOptions: any = {};
+
+    const argConfig: Record<string, (val?: string) => void> = {
+      '--output': val => options.output = val,
+      '--include': val => val && includePatterns.push(val),
+      '--ignore': val => val && ignorePatterns.push(val),
+      '--no-gitignore': () => options.noGitignore = true,
+      '--ranking-strategy': val => options.rankingStrategy = val as any,
+      '--max-workers': val => options.maxWorkers = parseInt(val!, 10),
+      '--log-level': val => options.logLevel = val as any,
+      '--no-header': () => rendererOptions.includeHeader = false,
+      '--no-overview': () => rendererOptions.includeOverview = false,
+      '--no-mermaid': () => rendererOptions.includeMermaidGraph = false,
+      '--no-file-list': () => rendererOptions.includeFileList = false,
+      '--no-symbol-details': () => rendererOptions.includeSymbolDetails = false,
+      '--top-file-count': val => rendererOptions.topFileCount = parseInt(val!, 10),
+      '--file-section-separator': val => rendererOptions.fileSectionSeparator = val,
+      '--no-symbol-relations': () => symbolDetailOptions.includeRelations = false,
+      '--no-symbol-line-numbers': () => symbolDetailOptions.includeLineNumber = false,
+      '--no-symbol-snippets': () => symbolDetailOptions.includeCodeSnippet = false,
+      '--max-relations-to-show': val => symbolDetailOptions.maxRelationsToShow = parseInt(val!, 10),
+    };
 
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
-      if (!arg) {
-        continue;
-      }
-      switch (arg) {
-        case '--output':
-          options.output = args[++i];
-          break;
-        case '--include':
-          includePatterns.push(args[++i] as string);
-          break;
-        case '--ignore':
-          ignorePatterns.push(args[++i] as string);
-          break;
-        case '--no-gitignore':
-          options.noGitignore = true;
-          break;
-        case '--ranking-strategy':
-          options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
-          break;
-        case '--max-workers':
-          options.maxWorkers = parseInt(args[++i] as string, 10);
-          break;
-        case '--log-level':
-          options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
-          break;
-        // --- Renderer Options ---
-        case '--no-header':
-          rendererOptions.includeHeader = false;
-          break;
-        case '--no-overview':
-          rendererOptions.includeOverview = false;
-          break;
-        case '--no-mermaid':
-          rendererOptions.includeMermaidGraph = false;
-          break;
-        case '--no-file-list':
-          rendererOptions.includeFileList = false;
-          break;
-        case '--no-symbol-details':
-          rendererOptions.includeSymbolDetails = false;
-          break;
-        case '--top-file-count':
-          rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
-          break;
-        case '--file-section-separator':
-          rendererOptions.fileSectionSeparator = args[++i];
-          break;
-        case '--no-symbol-relations':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
-          break;
-        case '--no-symbol-line-numbers':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
-          break;
-        case '--no-symbol-snippets':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
-          break;
-        case '--max-relations-to-show':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
-          break;
-        default:
-          if (!arg.startsWith('-')) {
-            options.root = arg;
-          }
-          break;
+      if (!arg) continue;
+
+      const handler = argConfig[arg];
+      if (handler) {
+        // Check if handler takes a value
+        if (handler.length === 1) {
+          handler(args[++i]);
+        } else {
+          handler();
+        }
+      } else if (!arg.startsWith('-')) {
+        options.root = arg;
       }
     }
 
     if (includePatterns.length > 0) {
       options.include = includePatterns;
     }
+    
     if (ignorePatterns.length > 0) {
       options.ignore = ignorePatterns;
     }
+    
+    if (Object.keys(symbolDetailOptions).length > 0) {
+      rendererOptions.symbolDetailOptions = symbolDetailOptions;
+    }
+    
     if (Object.keys(rendererOptions).length > 0) {
       options.rendererOptions = rendererOptions;
     }
@@ -258,7 +207,8 @@ Output Formatting:
     logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
 
     try {
-      await executeGenerateMap(options);
+      // Cast to the correct type for execution
+      await executeGenerateMap(options as IRepoGraphOptions);
       const relativePath = path.relative(process.cwd(), finalOutput);
       logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
     } catch (error: unknown) {
