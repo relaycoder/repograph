@@ -7,7 +7,7 @@ export { initializeParser } from './tree-sitter/browser-languages';
 
 // Browser-compatible pipeline components only
 export { createTreeSitterAnalyzer } from './pipeline/browser-analyze';
-export { createPageRanker } from './pipeline/rank'; // Git ranker requires Node.js
+export { createPageRanker } from './pipeline/browser-rank';
 export { createMarkdownRenderer } from './pipeline/render';
 
 // Logger utilities

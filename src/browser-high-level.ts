@@ -1,6 +1,6 @@
 // Browser-compatible version of high-level.ts
 import { createTreeSitterAnalyzer } from './pipeline/browser-analyze';
-import { createPageRanker } from './pipeline/rank';
+import { createPageRanker } from './pipeline/browser-rank';
 import type { RepoGraphOptions, Ranker, RankedCodeGraph, FileContent } from './types';
 import { logger } from './utils/logger.util';
 import { RepoGraphError } from './utils/error.util';
