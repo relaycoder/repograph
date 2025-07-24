@@ -1,6 +1,7 @@
 import pagerank from 'graphology-pagerank';
-import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
 import Graph from 'graphology';
+import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
+
 
 /**
  * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
@@ -14,19 +15,27 @@ export const createPageRanker = (): Ranker => {
       return { ...graph, ranks: new Map() };
     }
 
-    // Pagerank lib requires a graphology instance.
-    const simpleGraph = new Graph({ type: 'directed' });
-    for (const [nodeId, node] of graph.nodes) {
-      simpleGraph.addNode(nodeId, node);
+    // Convert CodeGraph to graphology Graph
+    const graphologyGraph = new Graph();
+    
+    // Add all nodes
+    for (const [nodeId] of graph.nodes) {
+      (graphologyGraph as any).addNode(nodeId);
     }
+    
+    // Add all edges
     for (const edge of graph.edges) {
-      if (!simpleGraph.hasEdge(edge.fromId, edge.toId)) {
-        simpleGraph.addDirectedEdge(edge.fromId, edge.toId);
+      // Only add edge if both nodes exist
+      if ((graphologyGraph as any).hasNode(edge.fromId) && (graphologyGraph as any).hasNode(edge.toId)) {
+        try {
+          (graphologyGraph as any).addEdge(edge.fromId, edge.toId);
+        } catch (error) {
+          // Edge might already exist, ignore duplicate edge errors
+        }
       }
     }
-
-    const graphForRank = simpleGraph;
-    const ranksData = pagerank(graphForRank);
+    
+    const ranksData = pagerank(graphologyGraph);
     const ranks = new Map<string, number>();
     for (const node in ranksData) {
       ranks.set(node, ranksData[node] ?? 0);

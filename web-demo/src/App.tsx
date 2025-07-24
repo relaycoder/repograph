@@ -1,4 +1,13 @@
 import { useState, useEffect, useCallback, FC } from 'react';
+
+// Declare global TreeSitterModule for TypeScript
+declare global {
+  interface Window {
+    TreeSitterModule?: {
+      locateFile?: (path: string) => string;
+    };
+  }
+}
 import {
   initializeParser,
   analyzeProject,

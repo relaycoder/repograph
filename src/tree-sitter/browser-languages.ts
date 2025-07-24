@@ -26,7 +26,8 @@ export const initializeParser = async (options: ParserInitializationOptions = {}
   }
   if (options.wasmBaseUrl) wasmBaseUrl = options.wasmBaseUrl;
 
-  await Parser.Parser.init();
+  // Configure Tree-sitter to locate the main WASM file
+  await Parser.Parser.init({});
   isInitialized = true;
 };
 
@@ -50,16 +51,29 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
       );
     }
     
-    const wasmFileName = config.wasmPath.split('/')[1];
+    const wasmFileName = config.wasmPath.split('/').pop();
     if (!wasmFileName) {
       throw new ParserError(`Invalid wasmPath for ${config.name}: ${config.wasmPath}`, config.name);
     }
     
     const baseUrl = wasmBaseUrl.endsWith('/') ? wasmBaseUrl : `${wasmBaseUrl}/`;
-    const finalWasmPath = new URL(baseUrl + wasmFileName, window.location.href).href;
+    const finalWasmPath = new URL(wasmFileName, new URL(baseUrl, window.location.origin)).href;
 
     logger.debug(`Loading WASM from: ${finalWasmPath}`);
-    const language = await Parser.Language.load(finalWasmPath);
+    console.log(`[DEBUG] wasmBaseUrl: ${wasmBaseUrl}`);
+    console.log(`[DEBUG] wasmFileName: ${wasmFileName}`);
+    console.log(`[DEBUG] baseUrl: ${baseUrl}`);
+    console.log(`[DEBUG] finalWasmPath: ${finalWasmPath}`);
+    
+    // Fetch the WASM file to check if it's accessible
+    const response = await fetch(finalWasmPath);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch WASM file: ${response.status} ${response.statusText}`);
+    }
+    const wasmBytes = await response.arrayBuffer();
+    console.log(`[DEBUG] WASM file loaded, size: ${wasmBytes.byteLength} bytes`);
+    
+    const language = await Parser.Language.load(new Uint8Array(wasmBytes));
 
     const loadedLanguage: LoadedLanguage = {
       config,

@@ -150,19 +150,19 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'typescript',
     extensions: ['.ts', '.js', '.mjs', '.cjs'],
-    wasmPath: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
+    wasmPath: 'wasm/tree-sitter-typescript.wasm',
     query: TS_BASE_QUERY
   },
   {
     name: 'tsx',
     extensions: ['.tsx', '.jsx'],
-    wasmPath: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
+    wasmPath: 'wasm/tree-sitter-tsx.wasm',
     query: `${TS_BASE_QUERY}\n${TSX_SPECIFIC_QUERY}`
   },
   {
     name: 'python',
     extensions: ['.py', '.pyw'],
-    wasmPath: 'tree-sitter-python/tree-sitter-python.wasm',
+    wasmPath: 'wasm/tree-sitter-python.wasm',
     query: `
 (import_statement) @import.statement
 (import_from_statement
@@ -196,7 +196,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'java',
     extensions: ['.java'],
-    wasmPath: 'tree-sitter-java/tree-sitter-java.wasm',
+    wasmPath: 'wasm/tree-sitter-java.wasm',
     query: `
 (import_declaration
   (scoped_identifier) @import.source) @import.statement
@@ -224,7 +224,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'cpp',
     extensions: ['.cpp', '.cc', '.cxx', '.h', '.hpp', '.hh', '.hxx'],
-    wasmPath: 'tree-sitter-cpp/tree-sitter-cpp.wasm',
+    wasmPath: 'wasm/tree-sitter-cpp.wasm',
     query: `
 (preproc_include) @import.statement
 
@@ -251,7 +251,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'c',
     extensions: ['.c'],
-    wasmPath: 'tree-sitter-c/tree-sitter-c.wasm',
+    wasmPath: 'wasm/tree-sitter-c.wasm',
     query: `
 (preproc_include) @import.statement
 
@@ -266,7 +266,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'go',
     extensions: ['.go'],
-    wasmPath: 'tree-sitter-go/tree-sitter-go.wasm',
+    wasmPath: 'wasm/tree-sitter-go.wasm',
     query: `
 (import_declaration) @import.statement
 
@@ -282,7 +282,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'rust',
     extensions: ['.rs'],
-    wasmPath: 'tree-sitter-rust/tree-sitter-rust.wasm',
+    wasmPath: 'wasm/tree-sitter-rust.wasm',
     query: `
 (mod_item
   name: (identifier) @import.source) @import.statement
@@ -328,7 +328,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'php',
     extensions: ['.php'],
-    wasmPath: 'tree-sitter-php/tree-sitter-php.wasm',
+    wasmPath: 'wasm/tree-sitter-php.wasm',
     query: `
       (namespace_definition) @namespace.definition
       (class_declaration) @class.definition
@@ -339,7 +339,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'ruby',
     extensions: ['.rb'],
-    wasmPath: 'tree-sitter-ruby/tree-sitter-ruby.wasm',
+    wasmPath: 'wasm/tree-sitter-ruby.wasm',
     query: `
       (module) @module.definition
       (class) @class.definition
@@ -390,7 +390,7 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   {
     name: 'css',
     extensions: ['.css'],
-    wasmPath: 'tree-sitter-css/tree-sitter-css.wasm',
+    wasmPath: 'wasm/tree-sitter-css.wasm',
     query: `
       (rule_set) @css.rule.definition
     `

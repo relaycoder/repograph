@@ -74,7 +74,8 @@ async function processFile(
     
     try {
       const loadedLanguage = await import('../tree-sitter/browser-languages').then(m => m.loadLanguage(config));
-      const query = loadedLanguage.language.query(queryString);
+      const Query = (await import('web-tree-sitter')).Query;
+      const query = new Query(loadedLanguage.language, queryString);
       const captures = query.captures(tree!.rootNode);
       
       for (const capture of captures) {

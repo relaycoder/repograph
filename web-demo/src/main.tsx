@@ -1,3 +1,14 @@
+// Configure web-tree-sitter before any other imports
+(window as any).TreeSitterModule = {
+  locateFile: (path: string) => {
+    console.log(`[DEBUG] Global locateFile called with: ${path}`);
+    if (path === 'tree-sitter.wasm') {
+      return '/tree-sitter.wasm';
+    }
+    return path;
+  }
+};
+
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'

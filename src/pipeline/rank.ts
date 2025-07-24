@@ -1,6 +1,6 @@
 import pagerank from 'graphology-pagerank';
 import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
-import Graph from 'graphology';
+
 import { execSync } from 'node:child_process';
 import { logger } from '../utils/logger.util';
 
@@ -16,18 +16,7 @@ export const createPageRanker = (): Ranker => {
       return { ...graph, ranks: new Map() };
     }
 
-    // Pagerank lib requires a graphology instance.
-    const simpleGraph = new Graph({ type: 'directed' });
-    for (const [nodeId, node] of graph.nodes) {
-      simpleGraph.addNode(nodeId, node);
-    }
-    for (const edge of graph.edges) {
-      if (!simpleGraph.hasEdge(edge.fromId, edge.toId)) {
-        simpleGraph.addDirectedEdge(edge.fromId, edge.toId);
-      }
-    }
-
-    const graphForRank = simpleGraph;
+    const graphForRank = graph;
     const ranksData = pagerank(graphForRank);
     const ranks = new Map<string, number>();
     for (const node in ranksData) {
