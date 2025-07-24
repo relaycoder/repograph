@@ -35,7 +35,26 @@ export const createTreeSitterAnalyzer = (_options: AnalyzerOptions = {}): Analyz
     const nodes = new Map<string, CodeNode>();
     const edges: CodeEdge[] = [];
     
-    // Process files sequentially in browser
+    // Phase 1: Add all files as nodes
+    for (const file of files) {
+      const ext = browserPath.extname(file.path);
+      const config = LANGUAGE_CONFIGS.find(c => c.extensions.includes(ext));
+      
+      const fileNode = {
+        id: file.path,
+        type: 'file' as const,
+        name: browserPath.basename(file.path),
+        filePath: file.path,
+        startLine: 1,
+        endLine: file.content.split('\n').length,
+        language: config?.name,
+      };
+      
+      nodes.set(file.path, fileNode);
+      console.debug(`[DEBUG] Added file node: ${file.path}, type: ${fileNode.type}`);
+    }
+    
+    // Phase 2: Process files sequentially in browser to extract symbols
     for (const file of files) {
       try {
         await processFile(file, nodes, edges);

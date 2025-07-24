@@ -76,6 +76,13 @@ export const createMarkdownRenderer = (): Renderer => {
     const fileNodes = [...nodes.values()].filter(attrs => attrs.type === 'file');
     const sortedFiles = fileNodes
       .sort((a, b) => getRank(b.id, ranks) - getRank(a.id, ranks));
+    
+    // Debug logging
+    console.debug(`[DEBUG] Total nodes: ${nodes.size}, File nodes: ${fileNodes.length}, Node types:`, 
+      [...nodes.values()].map(n => n.type).reduce((acc, type) => {
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>));
 
     let md = '';
     if (customHeader) {
