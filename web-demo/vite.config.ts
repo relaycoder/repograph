@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [
     react(),
     wasm(),
-    topLevelAwait()
+    topLevelAwait()``
   ],
   optimizeDeps: {
     exclude: ['repograph', 'web-tree-sitter']
