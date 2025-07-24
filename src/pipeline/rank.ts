@@ -1,4 +1,5 @@
 import pagerank from 'graphology-pagerank';
+import Graph from 'graphology';
 import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
 
 import { execSync } from 'node:child_process';
@@ -16,8 +17,27 @@ export const createPageRanker = (): Ranker => {
       return { ...graph, ranks: new Map() };
     }
 
-    const graphForRank = graph;
-    const ranksData = pagerank(graphForRank);
+    // Convert CodeGraph to graphology Graph
+    const graphologyGraph = new Graph();
+    
+    // Add all nodes
+    for (const [nodeId] of graph.nodes) {
+      (graphologyGraph as any).addNode(nodeId);
+    }
+    
+    // Add all edges
+    for (const edge of graph.edges) {
+      // Only add edge if both nodes exist
+      if ((graphologyGraph as any).hasNode(edge.fromId) && (graphologyGraph as any).hasNode(edge.toId)) {
+        try {
+          (graphologyGraph as any).addEdge(edge.fromId, edge.toId);
+        } catch (error) {
+          // Edge might already exist, ignore duplicate edge errors
+        }
+      }
+    }
+    
+    const ranksData = pagerank(graphologyGraph);
     const ranks = new Map<string, number>();
     for (const node in ranksData) {
       ranks.set(node, ranksData[node] ?? 0);

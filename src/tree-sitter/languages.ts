@@ -78,18 +78,22 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
       const nodeModulesWasmPath = path.resolve(currentDir, '..', '..', 'node_modules', config.wasmPath);
       // For published packages, the WASM files should be in the same dist directory
       const publishedWasmPath = path.resolve(currentDir, 'wasm', wasmFileName);
+      // When running from source, look in the project's dist/wasm directory
+      const projectDistWasmPath = path.resolve(currentDir, '..', '..', 'dist', 'wasm', wasmFileName);
 
-      logger.debug(`Trying WASM paths: dist=${distWasmPath}, nodeModules=${nodeModulesWasmPath}, published=${publishedWasmPath}`);
+      logger.debug(`Trying WASM paths: dist=${distWasmPath}, published=${publishedWasmPath}, projectDist=${projectDistWasmPath}, nodeModules=${nodeModulesWasmPath}`);
 
       const fs = await import('node:fs');
       if (fs.existsSync(distWasmPath)) {
         finalWasmPath = distWasmPath;
       } else if (fs.existsSync(publishedWasmPath)) {
         finalWasmPath = publishedWasmPath;
+      } else if (fs.existsSync(projectDistWasmPath)) {
+        finalWasmPath = projectDistWasmPath;
       } else if (fs.existsSync(nodeModulesWasmPath)) {
         finalWasmPath = nodeModulesWasmPath;
       } else {
-        throw new Error(`WASM file not found at any of: ${distWasmPath}, ${publishedWasmPath}, ${nodeModulesWasmPath}`);
+        throw new Error(`WASM file not found at any of: ${distWasmPath}, ${publishedWasmPath}, ${projectDistWasmPath}, ${nodeModulesWasmPath}`);
       }
     }
 
