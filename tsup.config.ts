@@ -3,7 +3,7 @@ import { copyFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/pipeline/analyzer.worker.ts'],
+  entry: ['src/index.ts', 'src/browser.ts', 'src/pipeline/analyzer.worker.ts'],
   format: ['esm', 'cjs'],
   target: 'es2022',
   dts: true,

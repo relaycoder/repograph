@@ -1,0 +1,113 @@
+import * as Parser from 'web-tree-sitter';
+import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config';
+import { logger } from '../utils/logger.util';
+import { ParserError } from '../utils/error.util';
+
+export interface ParserInitializationOptions {
+  /**
+   * For browser environments, sets the base URL from which to load Tree-sitter WASM files.
+   * For example, if your WASM files are in `public/wasm`, you would set this to `/wasm/`.
+   */
+  wasmBaseUrl?: string;
+}
+
+let wasmBaseUrl: string | null = null;
+let isInitialized = false;
+const loadedLanguages = new Map<string, LoadedLanguage>();
+
+/**
+ * Initializes the Tree-sitter parser system.
+ * This must be called before any other parser functions.
+ * This function is idempotent.
+ */
+export const initializeParser = async (options: ParserInitializationOptions = {}): Promise<void> => {
+  if (isInitialized) {
+    return;
+  }
+  if (options.wasmBaseUrl) wasmBaseUrl = options.wasmBaseUrl;
+
+  await Parser.Parser.init();
+  isInitialized = true;
+};
+
+/**
+ * Loads a specific language grammar.
+ * @param config The language configuration to load
+ * @returns A LoadedLanguage object containing the config and language
+ */
+export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLanguage> => {
+  if (loadedLanguages.has(config.name)) {
+    return loadedLanguages.get(config.name)!;
+  }
+
+  await initializeParser();
+
+  try {
+    if (!wasmBaseUrl) {
+      throw new ParserError(
+        'In a browser environment, you must call initializeParser({ wasmBaseUrl: "..." }) before loading languages.',
+        config.name
+      );
+    }
+    
+    const wasmFileName = config.wasmPath.split('/')[1];
+    if (!wasmFileName) {
+      throw new ParserError(`Invalid wasmPath for ${config.name}: ${config.wasmPath}`, config.name);
+    }
+    
+    const baseUrl = wasmBaseUrl.endsWith('/') ? wasmBaseUrl : `${wasmBaseUrl}/`;
+    const finalWasmPath = new URL(baseUrl + wasmFileName, window.location.href).href;
+
+    logger.debug(`Loading WASM from: ${finalWasmPath}`);
+    const language = await Parser.Language.load(finalWasmPath);
+
+    const loadedLanguage: LoadedLanguage = {
+      config,
+      language
+    };
+    
+    loadedLanguages.set(config.name, loadedLanguage);
+    return loadedLanguage;
+  } catch (error) {
+    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure WASM files are available.`;
+    logger.error(message, error);
+    throw new ParserError(message, config.name, error);
+  }
+};
+
+/**
+ * Creates a parser instance for a specific language.
+ * @param config The language configuration
+ * @returns A parser instance configured for the specified language
+ */
+export const createParserForLanguage = async (config: LanguageConfig): Promise<Parser.Parser> => {
+  const loadedLanguage = await loadLanguage(config);
+  const parser = new Parser.Parser();
+  parser.setLanguage(loadedLanguage.language);
+  return parser;
+};
+
+/**
+ * Gets all loaded languages.
+ * @returns A map of language names to LoadedLanguage objects
+ */
+export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
+  return new Map(loadedLanguages);
+};
+
+/**
+ * Preloads all supported languages.
+ * This can be called to eagerly load all language parsers.
+ */
+export const preloadAllLanguages = async (): Promise<void> => {
+  await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
+};
+
+// Legacy function for backward compatibility
+export const getParser = async (): Promise<Parser.Parser> => {
+  const tsConfig = LANGUAGE_CONFIGS.find(config => config.name === 'typescript');
+  if (!tsConfig) {
+    throw new Error('TypeScript configuration not found');
+  }
+  return createParserForLanguage(tsConfig);
+};
