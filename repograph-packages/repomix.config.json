@@ -1,0 +1,59 @@
+{
+  "$schema": "https://repomix.com/schemas/latest/schema.json",
+  "input": {
+    "maxFileSize": 52428800
+  },
+  "output": {
+    "filePath": "docs/repomix.md",
+    "style": "markdown",
+    "parsableStyle": true,
+    "fileSummary": false,
+    "directoryStructure": true,
+    "files": true,
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "compress": false,
+    "topFilesLength": 5,
+    "showLineNumbers": false,
+    "copyToClipboard": true,
+    "git": {
+      "sortByChanges": true,
+      "sortByChangesMaxCommits": 100,
+      "includeDiffs": false
+    }
+  },
+  "include": [
+    "repograph-browser/package.json",
+    "repograph-browser/tsconfig.json",
+    "repograph-browser/tsup.config.ts",
+    "repograph-browser/src",
+
+    "repograph-core/package.json",
+    "repograph-core/tsconfig.json",
+    "repograph-core/tsup.config.ts",
+    "repograph-core/src",
+
+    "repograph-web-demo/package.json",
+    "repograph-web-demo/tsconfig.json",
+    "repograph-web-demo/tsconfig.node.json",
+    "repograph-web-demo/vite.config.ts",
+    "repograph-web-demo/tailwind.config.js",
+    "repograph-web-demo/postcss.config.js",
+    "repograph-web-demo/index.html",
+    "repograph-web-demo/src",
+    "repograph-web-demo/scripts"
+
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  },
+  "tokenCount": {
+    "encoding": "o200k_base"
+  }
+}

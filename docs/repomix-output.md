@@ -264,6 +264,72 @@ export const getParser = async (): Promise<Parser.Parser> => {
 };
 ````
 
+## File: src/tree-sitter/queries.ts
+````typescript
+import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config';
+
+/**
+ * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
+ * This query is designed to find definitions of classes, functions, interfaces,
+ * and import statements to build the code graph.
+ * 
+ * @deprecated Use getQueryForLanguage() instead
+ */
+export const TS_QUERY = `
+(import_statement
+  source: (string) @import.source) @import.statement
+
+(class_declaration) @class.definition
+(export_statement declaration: (class_declaration)) @class.definition
+
+(function_declaration) @function.definition
+(export_statement declaration: (function_declaration)) @function.definition
+
+(variable_declarator value: (arrow_function)) @function.arrow.definition
+(public_field_definition value: (arrow_function)) @function.arrow.definition
+(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
+
+(interface_declaration) @interface.definition
+(export_statement declaration: (interface_declaration)) @interface.definition
+
+(type_alias_declaration) @type.definition
+(export_statement declaration: (type_alias_declaration)) @type.definition
+
+(method_definition) @method.definition
+(public_field_definition) @field.definition
+
+(call_expression
+  function: (identifier) @function.call)
+`;
+
+/**
+ * Get the Tree-sitter query for a specific language configuration.
+ * @param config The language configuration
+ * @returns The query string for the language
+ */
+export function getQueryForLanguage(config: LanguageConfig): string {
+  return config.query.trim();
+}
+
+/**
+ * Get the Tree-sitter query for a file based on its extension.
+ * @param filePath The file path
+ * @returns The query string for the file's language, or null if not supported
+ */
+export function getQueryForFile(filePath: string): string | null {
+  const config = getLanguageConfigForFile(filePath);
+  return config ? getQueryForLanguage(config) : null;
+}
+
+/**
+ * Get all supported language configurations.
+ * @returns Array of all language configurations
+ */
+export function getAllLanguageConfigs(): LanguageConfig[] {
+  return [...LANGUAGE_CONFIGS];
+}
+````
+
 ## File: src/utils/fs.util.ts
 ````typescript
 import fs from 'node:fs/promises';
@@ -367,44 +433,6 @@ export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<Ra
     throw new RepoGraphError(`Failed to analyze project`, error);
   }
 };
-````
-
-## File: src/browser.ts
-````typescript
-// Browser-compatible entry point for repograph
-// Only exports functions that work in the browser environment
-
-// High-level API - analyzeProject works in browser when files are provided
-export { analyzeProject } from './browser-high-level';
-export { initializeParser } from './tree-sitter/browser-languages';
-
-// Browser-compatible pipeline components only
-export { createTreeSitterAnalyzer } from './pipeline/browser-analyze';
-export { createPageRanker } from './pipeline/browser-rank';
-export { createMarkdownRenderer } from './pipeline/render';
-
-// Logger utilities
-export { logger } from './utils/logger.util';
-export type { LogLevel, Logger } from './utils/logger.util';
-export type { ParserInitializationOptions } from './tree-sitter/languages';
-
-// Core types for building custom components
-export type {
-  Analyzer,
-  FileContent,
-  CodeNode,
-  CodeNodeType,
-  CodeNodeVisibility,
-  CodeEdge,
-  CodeGraph,
-  RankedCodeGraph,
-  RepoGraphMap,
-  RepoGraphOptions,
-  CssIntent,
-  Ranker,
-  Renderer,
-  RendererOptions,
-} from './types';
 ````
 
 ## File: src/pipeline/browser-analyze.ts
@@ -635,6 +663,44 @@ const createLogger = (): Logger => {
 export const logger = createLogger();
 ````
 
+## File: src/browser.ts
+````typescript
+// Browser-compatible entry point for repograph
+// Only exports functions that work in the browser environment
+
+// High-level API - analyzeProject works in browser when files are provided
+export { analyzeProject } from './browser-high-level';
+export { initializeParser } from './tree-sitter/browser-languages';
+
+// Browser-compatible pipeline components only
+export { createTreeSitterAnalyzer } from './pipeline/browser-analyze';
+export { createPageRanker } from './pipeline/browser-rank';
+export { createMarkdownRenderer } from './pipeline/render';
+
+// Logger utilities
+export { logger } from './utils/logger.util';
+export type { LogLevel, Logger } from './utils/logger.util';
+export type { ParserInitializationOptions } from './tree-sitter/browser-languages';
+
+// Core types for building custom components
+export type {
+  Analyzer,
+  FileContent,
+  CodeNode,
+  CodeNodeType,
+  CodeNodeVisibility,
+  CodeEdge,
+  CodeGraph,
+  RankedCodeGraph,
+  RepoGraphMap,
+  RepoGraphOptions,
+  CssIntent,
+  Ranker,
+  Renderer,
+  RendererOptions,
+} from './types';
+````
+
 ## File: tsconfig.json
 ````json
 {
@@ -684,6 +750,266 @@ export const logger = createLogger();
 }
 ````
 
+## File: src/pipeline/discover.ts
+````typescript
+import { globby } from 'globby';
+import path from 'node:path';
+import { realpath } from 'node:fs/promises';
+import type { FileContent, FileDiscoverer } from '../types';
+import { isDirectory, readFile } from '../utils/fs.util';
+import { FileSystemError } from '../utils/error.util';
+import { logger } from '../utils/logger.util';
+
+/**
+ * Creates the default file discoverer. It uses globby to find all files,
+ * respecting .gitignore patterns and custom include/exclude rules.
+ * @returns A FileDiscoverer function.
+ */
+export const createDefaultDiscoverer = (): FileDiscoverer => {
+  return async ({ root, include, ignore: userIgnore, noGitignore = false }) => {
+    try {
+      if (!(await isDirectory(root))) {
+        throw new FileSystemError('Root path is not a directory or does not exist', root);
+      }
+    } catch (e) {
+      throw e;
+    }
+    const patterns = include && include.length > 0 ? [...include] : ['**/*'];
+    
+    // Manually build the ignore list to replicate the old logic without the `ignore` package.
+    const ignorePatterns = [
+      '**/node_modules/**',
+      '**/.git/**',
+      '.gitignore', // Always ignore the gitignore file itself
+    ];
+
+    if (userIgnore && userIgnore.length > 0) {
+      ignorePatterns.push(...userIgnore);
+    }
+    
+    if (!noGitignore) {
+      try {
+        const gitignoreContent = await readFile(path.join(root, '.gitignore'));
+        const gitignoreLines = gitignoreContent
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0 && !line.startsWith('#'));
+        ignorePatterns.push(...gitignoreLines);
+      } catch {
+        // .gitignore is optional, so we can ignore errors here.
+      }
+    }
+
+    // Use globby to find all files, passing our manually constructed ignore list.
+    // We set `gitignore: false` because we are handling it ourselves.
+    const foundPaths = await globby(patterns, {
+      cwd: root,
+      gitignore: false, // We handle gitignore patterns manually
+      ignore: ignorePatterns,
+      dot: true,
+      absolute: true,
+      followSymbolicLinks: true,
+      onlyFiles: true,
+    });
+
+    const relativePaths = foundPaths.map(p => path.relative(root, p).replace(/\\/g, '/'));
+
+    // Filter out files that are duplicates via symlinks
+    const visitedRealPaths = new Set<string>();
+    const safeRelativePaths: string[] = [];
+    
+    for (const relativePath of relativePaths) {
+      const fullPath = path.resolve(root, relativePath);
+      try {
+        const realPath = await realpath(fullPath);
+        if (!visitedRealPaths.has(realPath)) {
+          visitedRealPaths.add(realPath);
+          safeRelativePaths.push(relativePath);
+        }
+      } catch (error) {
+        // If we can't resolve the real path, skip this file
+        logger.debug(`Skipping file due to symlink resolution error: ${relativePath}`);
+      }
+    }
+    
+    // The `ignore` option in globby should have already done the filtering.
+    const filteredPaths = safeRelativePaths;
+
+    const fileContents = await Promise.all(
+      filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
+        try {
+          const absolutePath = path.join(root, relativePath);
+          const content = await readFile(absolutePath);
+          return { path: relativePath, content };
+        } catch (e) {
+          logger.debug(`Skipping file that could not be read: ${relativePath}`, e instanceof Error ? e.message : e);
+          return null;
+        }
+      })
+    );
+
+    return fileContents.filter((c): c is FileContent => c !== null);
+  };
+};
+````
+
+## File: src/tree-sitter/languages.ts
+````typescript
+import * as Parser from 'web-tree-sitter';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config';
+import { logger } from '../utils/logger.util';
+import { ParserError } from '../utils/error.util';
+
+// Helper to get the correct path in different environments
+const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
+
+const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+
+export interface ParserInitializationOptions {
+  /**
+   * For browser environments, sets the base URL from which to load Tree-sitter WASM files.
+   * For example, if your WASM files are in `public/wasm`, you would set this to `/wasm/`.
+   * This option is ignored in Node.js environments.
+   */
+  wasmBaseUrl?: string;
+}
+
+let wasmBaseUrl: string | null = null;
+let isInitialized = false;
+const loadedLanguages = new Map<string, LoadedLanguage>();
+
+/**
+ * Initializes the Tree-sitter parser system.
+ * This must be called before any other parser functions.
+ * This function is idempotent.
+ */
+export const initializeParser = async (options: ParserInitializationOptions = {}): Promise<void> => {
+  if (isInitialized) {
+    return;
+  }
+  if (isBrowser && options.wasmBaseUrl) wasmBaseUrl = options.wasmBaseUrl;
+
+  await Parser.Parser.init();
+  isInitialized = true;
+};
+
+/**
+ * Loads a specific language grammar.
+ * @param config The language configuration to load
+ * @returns A LoadedLanguage object containing the config and language
+ */
+export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLanguage> => {
+  if (loadedLanguages.has(config.name)) {
+    return loadedLanguages.get(config.name)!;
+  }
+
+  await initializeParser();
+
+  try {
+    let finalWasmPath: string;
+
+    if (isBrowser) {
+      if (!wasmBaseUrl) {
+        throw new ParserError(
+          'In a browser environment, you must call initializeParser({ wasmBaseUrl: "..." }) before loading languages.',
+          config.name
+        );
+      }
+      const wasmFileName = config.wasmPath.split('/')[1];
+      if (!wasmFileName) {
+        throw new ParserError(`Invalid wasmPath for ${config.name}: ${config.wasmPath}`, config.name);
+      }
+      const baseUrl = wasmBaseUrl.endsWith('/') ? wasmBaseUrl : `${wasmBaseUrl}/`;
+      finalWasmPath = new URL(baseUrl + wasmFileName, window.location.href).href;
+    } else {
+      // Node.js logic
+      const wasmFileName = config.wasmPath.split('/')[1];
+      if (!wasmFileName) {
+        throw new ParserError(`Invalid wasmPath format for ${config.name}: ${config.wasmPath}. Expected 'package/file.wasm'.`, config.name);
+      }
+      // Try multiple possible paths for WASM files
+      const currentDir = getDirname();
+      const distWasmPath = path.resolve(currentDir, '..', 'wasm', wasmFileName);
+      const nodeModulesWasmPath = path.resolve(currentDir, '..', '..', 'node_modules', config.wasmPath);
+      // For published packages, the WASM files should be in the same dist directory
+      const publishedWasmPath = path.resolve(currentDir, 'wasm', wasmFileName);
+      // When running from source, look in the project's dist/wasm directory
+      const projectDistWasmPath = path.resolve(currentDir, '..', '..', 'dist', 'wasm', wasmFileName);
+
+      logger.debug(`Trying WASM paths: dist=${distWasmPath}, published=${publishedWasmPath}, projectDist=${projectDistWasmPath}, nodeModules=${nodeModulesWasmPath}`);
+
+      const fs = await import('node:fs');
+      if (fs.existsSync(distWasmPath)) {
+        finalWasmPath = distWasmPath;
+      } else if (fs.existsSync(publishedWasmPath)) {
+        finalWasmPath = publishedWasmPath;
+      } else if (fs.existsSync(projectDistWasmPath)) {
+        finalWasmPath = projectDistWasmPath;
+      } else if (fs.existsSync(nodeModulesWasmPath)) {
+        finalWasmPath = nodeModulesWasmPath;
+      } else {
+        throw new Error(`WASM file not found at any of: ${distWasmPath}, ${publishedWasmPath}, ${projectDistWasmPath}, ${nodeModulesWasmPath}`);
+      }
+    }
+
+    logger.debug(`Loading WASM from: ${finalWasmPath}`);
+    const language = await Parser.Language.load(finalWasmPath);
+
+    const loadedLanguage: LoadedLanguage = {
+      config,
+      language
+    };
+    
+    loadedLanguages.set(config.name, loadedLanguage);
+    return loadedLanguage;
+  } catch (error) {
+    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure '${config.wasmPath.split('/')[0]}' is installed.`;
+    logger.error(message, error);
+    throw new ParserError(message, config.name, error);
+  }
+};
+
+/**
+ * Creates a parser instance for a specific language.
+ * @param config The language configuration
+ * @returns A parser instance configured for the specified language
+ */
+export const createParserForLanguage = async (config: LanguageConfig): Promise<Parser.Parser> => {
+  const loadedLanguage = await loadLanguage(config);
+  const parser = new Parser.Parser();
+  parser.setLanguage(loadedLanguage.language);
+  return parser;
+};
+
+/**
+ * Gets all loaded languages.
+ * @returns A map of language names to LoadedLanguage objects
+ */
+export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
+  return new Map(loadedLanguages);
+};
+
+/**
+ * Preloads all supported languages.
+ * This can be called to eagerly load all language parsers.
+ */
+export const preloadAllLanguages = async (): Promise<void> => {
+  await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
+};
+
+
+// Legacy function for backward compatibility
+export const getParser = async (): Promise<Parser.Parser> => {
+  const tsConfig = LANGUAGE_CONFIGS.find(config => config.name === 'typescript');
+  if (!tsConfig) {
+    throw new Error('TypeScript configuration not found');
+  }
+  return createParserForLanguage(tsConfig);
+};
+````
+
 ## File: tsup.config.ts
 ````typescript
 import { defineConfig } from 'tsup';
@@ -691,7 +1017,11 @@ import { copyFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/browser.ts', 'src/pipeline/analyzer.worker.ts'],
+  entry: {
+    index: 'src/index.ts',
+    browser: 'src/browser.ts',
+    'analyzer.worker': 'src/pipeline/analyzer.worker.ts',
+  },
   format: ['esm', 'cjs'],
   target: 'es2022',
   dts: true,
@@ -743,72 +1073,6 @@ export default defineConfig({
     }
   },
 });
-````
-
-## File: src/tree-sitter/queries.ts
-````typescript
-import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config';
-
-/**
- * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
- * This query is designed to find definitions of classes, functions, interfaces,
- * and import statements to build the code graph.
- * 
- * @deprecated Use getQueryForLanguage() instead
- */
-export const TS_QUERY = `
-(import_statement
-  source: (string) @import.source) @import.statement
-
-(class_declaration) @class.definition
-(export_statement declaration: (class_declaration)) @class.definition
-
-(function_declaration) @function.definition
-(export_statement declaration: (function_declaration)) @function.definition
-
-(variable_declarator value: (arrow_function)) @function.arrow.definition
-(public_field_definition value: (arrow_function)) @function.arrow.definition
-(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
-
-(interface_declaration) @interface.definition
-(export_statement declaration: (interface_declaration)) @interface.definition
-
-(type_alias_declaration) @type.definition
-(export_statement declaration: (type_alias_declaration)) @type.definition
-
-(method_definition) @method.definition
-(public_field_definition) @field.definition
-
-(call_expression
-  function: (identifier) @function.call)
-`;
-
-/**
- * Get the Tree-sitter query for a specific language configuration.
- * @param config The language configuration
- * @returns The query string for the language
- */
-export function getQueryForLanguage(config: LanguageConfig): string {
-  return config.query.trim();
-}
-
-/**
- * Get the Tree-sitter query for a file based on its extension.
- * @param filePath The file path
- * @returns The query string for the file's language, or null if not supported
- */
-export function getQueryForFile(filePath: string): string | null {
-  const config = getLanguageConfigForFile(filePath);
-  return config ? getQueryForLanguage(config) : null;
-}
-
-/**
- * Get all supported language configurations.
- * @returns Array of all language configurations
- */
-export function getAllLanguageConfigs(): LanguageConfig[] {
-  return [...LANGUAGE_CONFIGS];
-}
 ````
 
 ## File: src/pipeline/analyzer.worker.ts
@@ -1434,266 +1698,6 @@ export const createMarkdownRenderer = (): Renderer => {
 };
 ````
 
-## File: src/tree-sitter/languages.ts
-````typescript
-import * as Parser from 'web-tree-sitter';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config';
-import { logger } from '../utils/logger.util';
-import { ParserError } from '../utils/error.util';
-
-// Helper to get the correct path in different environments
-const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
-
-const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
-
-export interface ParserInitializationOptions {
-  /**
-   * For browser environments, sets the base URL from which to load Tree-sitter WASM files.
-   * For example, if your WASM files are in `public/wasm`, you would set this to `/wasm/`.
-   * This option is ignored in Node.js environments.
-   */
-  wasmBaseUrl?: string;
-}
-
-let wasmBaseUrl: string | null = null;
-let isInitialized = false;
-const loadedLanguages = new Map<string, LoadedLanguage>();
-
-/**
- * Initializes the Tree-sitter parser system.
- * This must be called before any other parser functions.
- * This function is idempotent.
- */
-export const initializeParser = async (options: ParserInitializationOptions = {}): Promise<void> => {
-  if (isInitialized) {
-    return;
-  }
-  if (isBrowser && options.wasmBaseUrl) wasmBaseUrl = options.wasmBaseUrl;
-
-  await Parser.Parser.init();
-  isInitialized = true;
-};
-
-/**
- * Loads a specific language grammar.
- * @param config The language configuration to load
- * @returns A LoadedLanguage object containing the config and language
- */
-export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLanguage> => {
-  if (loadedLanguages.has(config.name)) {
-    return loadedLanguages.get(config.name)!;
-  }
-
-  await initializeParser();
-
-  try {
-    let finalWasmPath: string;
-
-    if (isBrowser) {
-      if (!wasmBaseUrl) {
-        throw new ParserError(
-          'In a browser environment, you must call initializeParser({ wasmBaseUrl: "..." }) before loading languages.',
-          config.name
-        );
-      }
-      const wasmFileName = config.wasmPath.split('/')[1];
-      if (!wasmFileName) {
-        throw new ParserError(`Invalid wasmPath for ${config.name}: ${config.wasmPath}`, config.name);
-      }
-      const baseUrl = wasmBaseUrl.endsWith('/') ? wasmBaseUrl : `${wasmBaseUrl}/`;
-      finalWasmPath = new URL(baseUrl + wasmFileName, window.location.href).href;
-    } else {
-      // Node.js logic
-      const wasmFileName = config.wasmPath.split('/')[1];
-      if (!wasmFileName) {
-        throw new ParserError(`Invalid wasmPath format for ${config.name}: ${config.wasmPath}. Expected 'package/file.wasm'.`, config.name);
-      }
-      // Try multiple possible paths for WASM files
-      const currentDir = getDirname();
-      const distWasmPath = path.resolve(currentDir, '..', 'wasm', wasmFileName);
-      const nodeModulesWasmPath = path.resolve(currentDir, '..', '..', 'node_modules', config.wasmPath);
-      // For published packages, the WASM files should be in the same dist directory
-      const publishedWasmPath = path.resolve(currentDir, 'wasm', wasmFileName);
-      // When running from source, look in the project's dist/wasm directory
-      const projectDistWasmPath = path.resolve(currentDir, '..', '..', 'dist', 'wasm', wasmFileName);
-
-      logger.debug(`Trying WASM paths: dist=${distWasmPath}, published=${publishedWasmPath}, projectDist=${projectDistWasmPath}, nodeModules=${nodeModulesWasmPath}`);
-
-      const fs = await import('node:fs');
-      if (fs.existsSync(distWasmPath)) {
-        finalWasmPath = distWasmPath;
-      } else if (fs.existsSync(publishedWasmPath)) {
-        finalWasmPath = publishedWasmPath;
-      } else if (fs.existsSync(projectDistWasmPath)) {
-        finalWasmPath = projectDistWasmPath;
-      } else if (fs.existsSync(nodeModulesWasmPath)) {
-        finalWasmPath = nodeModulesWasmPath;
-      } else {
-        throw new Error(`WASM file not found at any of: ${distWasmPath}, ${publishedWasmPath}, ${projectDistWasmPath}, ${nodeModulesWasmPath}`);
-      }
-    }
-
-    logger.debug(`Loading WASM from: ${finalWasmPath}`);
-    const language = await Parser.Language.load(finalWasmPath);
-
-    const loadedLanguage: LoadedLanguage = {
-      config,
-      language
-    };
-    
-    loadedLanguages.set(config.name, loadedLanguage);
-    return loadedLanguage;
-  } catch (error) {
-    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure '${config.wasmPath.split('/')[0]}' is installed.`;
-    logger.error(message, error);
-    throw new ParserError(message, config.name, error);
-  }
-};
-
-/**
- * Creates a parser instance for a specific language.
- * @param config The language configuration
- * @returns A parser instance configured for the specified language
- */
-export const createParserForLanguage = async (config: LanguageConfig): Promise<Parser.Parser> => {
-  const loadedLanguage = await loadLanguage(config);
-  const parser = new Parser.Parser();
-  parser.setLanguage(loadedLanguage.language);
-  return parser;
-};
-
-/**
- * Gets all loaded languages.
- * @returns A map of language names to LoadedLanguage objects
- */
-export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
-  return new Map(loadedLanguages);
-};
-
-/**
- * Preloads all supported languages.
- * This can be called to eagerly load all language parsers.
- */
-export const preloadAllLanguages = async (): Promise<void> => {
-  await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
-};
-
-
-// Legacy function for backward compatibility
-export const getParser = async (): Promise<Parser.Parser> => {
-  const tsConfig = LANGUAGE_CONFIGS.find(config => config.name === 'typescript');
-  if (!tsConfig) {
-    throw new Error('TypeScript configuration not found');
-  }
-  return createParserForLanguage(tsConfig);
-};
-````
-
-## File: src/pipeline/discover.ts
-````typescript
-import { globby } from 'globby';
-import path from 'node:path';
-import { realpath } from 'node:fs/promises';
-import type { FileContent, FileDiscoverer } from '../types';
-import { isDirectory, readFile } from '../utils/fs.util';
-import { FileSystemError } from '../utils/error.util';
-import { logger } from '../utils/logger.util';
-
-/**
- * Creates the default file discoverer. It uses globby to find all files,
- * respecting .gitignore patterns and custom include/exclude rules.
- * @returns A FileDiscoverer function.
- */
-export const createDefaultDiscoverer = (): FileDiscoverer => {
-  return async ({ root, include, ignore: userIgnore, noGitignore = false }) => {
-    try {
-      if (!(await isDirectory(root))) {
-        throw new FileSystemError('Root path is not a directory or does not exist', root);
-      }
-    } catch (e) {
-      throw e;
-    }
-    const patterns = include && include.length > 0 ? [...include] : ['**/*'];
-    
-    // Manually build the ignore list to replicate the old logic without the `ignore` package.
-    const ignorePatterns = [
-      '**/node_modules/**',
-      '**/.git/**',
-      '.gitignore', // Always ignore the gitignore file itself
-    ];
-
-    if (userIgnore && userIgnore.length > 0) {
-      ignorePatterns.push(...userIgnore);
-    }
-    
-    if (!noGitignore) {
-      try {
-        const gitignoreContent = await readFile(path.join(root, '.gitignore'));
-        const gitignoreLines = gitignoreContent
-          .split('\n')
-          .map(line => line.trim())
-          .filter(line => line.length > 0 && !line.startsWith('#'));
-        ignorePatterns.push(...gitignoreLines);
-      } catch {
-        // .gitignore is optional, so we can ignore errors here.
-      }
-    }
-
-    // Use globby to find all files, passing our manually constructed ignore list.
-    // We set `gitignore: false` because we are handling it ourselves.
-    const foundPaths = await globby(patterns, {
-      cwd: root,
-      gitignore: false, // We handle gitignore patterns manually
-      ignore: ignorePatterns,
-      dot: true,
-      absolute: true,
-      followSymbolicLinks: true,
-      onlyFiles: true,
-    });
-
-    const relativePaths = foundPaths.map(p => path.relative(root, p).replace(/\\/g, '/'));
-
-    // Filter out files that are duplicates via symlinks
-    const visitedRealPaths = new Set<string>();
-    const safeRelativePaths: string[] = [];
-    
-    for (const relativePath of relativePaths) {
-      const fullPath = path.resolve(root, relativePath);
-      try {
-        const realPath = await realpath(fullPath);
-        if (!visitedRealPaths.has(realPath)) {
-          visitedRealPaths.add(realPath);
-          safeRelativePaths.push(relativePath);
-        }
-      } catch (error) {
-        // If we can't resolve the real path, skip this file
-        logger.debug(`Skipping file due to symlink resolution error: ${relativePath}`);
-      }
-    }
-    
-    // The `ignore` option in globby should have already done the filtering.
-    const filteredPaths = safeRelativePaths;
-
-    const fileContents = await Promise.all(
-      filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
-        try {
-          const absolutePath = path.join(root, relativePath);
-          const content = await readFile(absolutePath);
-          return { path: relativePath, content };
-        } catch (e) {
-          logger.debug(`Skipping file that could not be read: ${relativePath}`, e instanceof Error ? e.message : e);
-          return null;
-        }
-      })
-    );
-
-    return fileContents.filter((c): c is FileContent => c !== null);
-  };
-};
-````
-
 ## File: src/composer.ts
 ````typescript
 import path from 'node:path';
@@ -1776,6 +1780,114 @@ export const createMapGenerator = (pipeline: {
       }
       throw newError;
     }
+  };
+};
+````
+
+## File: src/pipeline/rank.ts
+````typescript
+import pagerank from 'graphology-pagerank';
+import Graph from 'graphology';
+import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
+
+import { execSync } from 'node:child_process';
+import { logger } from '../utils/logger.util';
+
+/**
+ * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
+ * other important nodes will receive a higher rank.
+ * @returns A Ranker function.
+ */
+export const createPageRanker = (): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    // PageRank can only be computed on graphs with nodes.
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks: new Map() };
+    }
+
+    // Convert CodeGraph to graphology Graph
+    const graphologyGraph = new Graph();
+    
+    // Add all nodes
+    for (const [nodeId] of graph.nodes) {
+      (graphologyGraph as any).addNode(nodeId);
+    }
+    
+    // Add all edges
+    for (const edge of graph.edges) {
+      // Only add edge if both nodes exist
+      if ((graphologyGraph as any).hasNode(edge.fromId) && (graphologyGraph as any).hasNode(edge.toId)) {
+        try {
+          (graphologyGraph as any).addEdge(edge.fromId, edge.toId);
+        } catch (error) {
+          // Edge might already exist, ignore duplicate edge errors
+        }
+      }
+    }
+    
+    const ranksData = pagerank(graphologyGraph);
+    const ranks = new Map<string, number>();
+    for (const node in ranksData) {
+      ranks.set(node, ranksData[node] ?? 0);
+    }
+    return { ...graph, ranks };
+  };
+};
+
+/**
+ * Creates a ranker based on Git commit history. Files changed more frequently are considered
+ * more important. Requires Git to be installed.
+ * @returns A Ranker function.
+ */
+export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
+  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
+    const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+    if (isBrowser) {
+      logger.warn('GitRanker is not supported in the browser. Returning 0 for all ranks.');
+      const ranks = new Map<string, number>();
+      for (const [nodeId] of graph.nodes) {
+        ranks.set(nodeId, 0);
+      }
+      return { ...graph, ranks };
+    }
+
+    const { maxCommits = 500 } = options;
+    const ranks = new Map<string, number>();
+
+    if (graph.nodes.size === 0) {
+      return { ...graph, ranks };
+    }
+
+    try {
+      const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
+      const output = execSync(command, { encoding: 'utf-8' });
+      const files = output.split('\n').filter(Boolean);
+
+      const changeCounts: Record<string, number> = {};
+      for (const file of files) {
+        changeCounts[file] = (changeCounts[file] || 0) + 1;
+      }
+
+      const maxChanges = Math.max(...Object.values(changeCounts), 1);
+
+      for (const [nodeId, attributes] of graph.nodes) {
+        // We only rank file nodes with this strategy
+        if (attributes.type === 'file') {
+          const count = changeCounts[attributes.filePath] ?? 0;
+          ranks.set(nodeId, count / maxChanges); // Normalize score
+        } else {
+          ranks.set(nodeId, 0);
+        }
+      }
+    } catch (e) {
+      // This is not a fatal error for the whole process, but this ranker cannot proceed.
+      logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
+      for (const [nodeId] of graph.nodes) {
+        ranks.set(nodeId, 0);
+      }
+    }
+
+    return { ...graph, ranks };
   };
 };
 ````
@@ -1888,114 +2000,6 @@ export const generateMap = async (options: RepoGraphOptions = {}): Promise<void>
     // The underlying `analyzeProject` already wraps the error, so we just re-throw.
     throw error;
   }
-};
-````
-
-## File: src/pipeline/rank.ts
-````typescript
-import pagerank from 'graphology-pagerank';
-import Graph from 'graphology';
-import type { CodeGraph, Ranker, RankedCodeGraph } from '../types';
-
-import { execSync } from 'node:child_process';
-import { logger } from '../utils/logger.util';
-
-/**
- * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
- * other important nodes will receive a higher rank.
- * @returns A Ranker function.
- */
-export const createPageRanker = (): Ranker => {
-  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
-    // PageRank can only be computed on graphs with nodes.
-    if (graph.nodes.size === 0) {
-      return { ...graph, ranks: new Map() };
-    }
-
-    // Convert CodeGraph to graphology Graph
-    const graphologyGraph = new Graph();
-    
-    // Add all nodes
-    for (const [nodeId] of graph.nodes) {
-      (graphologyGraph as any).addNode(nodeId);
-    }
-    
-    // Add all edges
-    for (const edge of graph.edges) {
-      // Only add edge if both nodes exist
-      if ((graphologyGraph as any).hasNode(edge.fromId) && (graphologyGraph as any).hasNode(edge.toId)) {
-        try {
-          (graphologyGraph as any).addEdge(edge.fromId, edge.toId);
-        } catch (error) {
-          // Edge might already exist, ignore duplicate edge errors
-        }
-      }
-    }
-    
-    const ranksData = pagerank(graphologyGraph);
-    const ranks = new Map<string, number>();
-    for (const node in ranksData) {
-      ranks.set(node, ranksData[node] ?? 0);
-    }
-    return { ...graph, ranks };
-  };
-};
-
-/**
- * Creates a ranker based on Git commit history. Files changed more frequently are considered
- * more important. Requires Git to be installed.
- * @returns A Ranker function.
- */
-export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
-  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
-    const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
-    if (isBrowser) {
-      logger.warn('GitRanker is not supported in the browser. Returning 0 for all ranks.');
-      const ranks = new Map<string, number>();
-      for (const [nodeId] of graph.nodes) {
-        ranks.set(nodeId, 0);
-      }
-      return { ...graph, ranks };
-    }
-
-    const { maxCommits = 500 } = options;
-    const ranks = new Map<string, number>();
-
-    if (graph.nodes.size === 0) {
-      return { ...graph, ranks };
-    }
-
-    try {
-      const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
-      const output = execSync(command, { encoding: 'utf-8' });
-      const files = output.split('\n').filter(Boolean);
-
-      const changeCounts: Record<string, number> = {};
-      for (const file of files) {
-        changeCounts[file] = (changeCounts[file] || 0) + 1;
-      }
-
-      const maxChanges = Math.max(...Object.values(changeCounts), 1);
-
-      for (const [nodeId, attributes] of graph.nodes) {
-        // We only rank file nodes with this strategy
-        if (attributes.type === 'file') {
-          const count = changeCounts[attributes.filePath] ?? 0;
-          ranks.set(nodeId, count / maxChanges); // Normalize score
-        } else {
-          ranks.set(nodeId, 0);
-        }
-      }
-    } catch (e) {
-      // This is not a fatal error for the whole process, but this ranker cannot proceed.
-      logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
-      for (const [nodeId] of graph.nodes) {
-        ranks.set(nodeId, 0);
-      }
-    }
-
-    return { ...graph, ranks };
-  };
 };
 ````
 
@@ -2197,6 +2201,286 @@ export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
 
 /** Renders a ranked graph into a string format. */
 export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions) => string;
+````
+
+## File: src/index.ts
+````typescript
+#!/usr/bin/env bun
+
+import { logger } from './utils/logger.util';
+import { RepoGraphError } from './utils/error.util';
+// High-Level API for simple use cases
+import { generateMap as executeGenerateMap } from './high-level';
+import { type RepoGraphOptions as IRepoGraphOptions } from './types';
+
+export { analyzeProject, generateMap } from './high-level';
+export { initializeParser } from './tree-sitter/languages';
+
+// Low-Level API for composition and advanced use cases
+export { createMapGenerator } from './composer';
+
+// Default pipeline component factories
+export { createDefaultDiscoverer } from './pipeline/discover';
+export { createTreeSitterAnalyzer } from './pipeline/analyze';
+export { createPageRanker, createGitRanker } from './pipeline/rank';
+export { createMarkdownRenderer } from './pipeline/render';
+
+// Logger utilities
+export { logger } from './utils/logger.util';
+export type { LogLevel, Logger } from './utils/logger.util';
+export type { ParserInitializationOptions } from './tree-sitter/languages';
+
+// Core types for building custom components
+export type {
+  Analyzer,
+  FileContent,
+  CodeNode,
+  CodeNodeType,
+  CodeNodeVisibility,
+  CodeEdge,
+  CodeGraph,
+  RankedCodeGraph,
+  RepoGraphMap,
+  RepoGraphOptions,
+  CssIntent,
+  Ranker,
+  Renderer,
+  RendererOptions,
+  FileDiscoverer,
+} from './types';
+
+// This section runs only when the script is executed directly from the CLI
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const isRunningDirectly = () => {
+  if (typeof process.argv[1] === 'undefined') return false;
+  const runningFile = path.resolve(process.argv[1]);
+  const currentFile = fileURLToPath(import.meta.url);
+  return runningFile === currentFile;
+};
+
+const copyWasmFiles = async (destination: string) => {
+  const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+  if (isBrowser) {
+    logger.error('File system operations are not available in the browser.');
+    return;
+  }
+
+  try {
+    const { promises: fs } = await import('node:fs');
+    const path = await import('node:path');
+
+    // Source is relative to the running script (dist/index.js)
+    const sourceDir = path.resolve(fileURLToPath(import.meta.url), '..', 'wasm');
+    
+    await fs.mkdir(destination, { recursive: true });
+
+    const wasmFiles = (await fs.readdir(sourceDir)).filter(file => file.endsWith('.wasm'));
+    for (const file of wasmFiles) {
+      const srcPath = path.join(sourceDir, file);
+      const destPath = path.join(destination, file);
+      await fs.copyFile(srcPath, destPath);
+      logger.info(`Copied ${file} to ${path.relative(process.cwd(), destPath)}`);
+    }
+    logger.info(`\n✅ All ${wasmFiles.length} WASM files copied successfully.`);
+  } catch (err) {
+    logger.error('Error copying WASM files.', err);
+  }
+};
+
+if (isRunningDirectly()) {
+  (async () => {
+    const args = process.argv.slice(2);
+
+    if (args.includes('--help') || args.includes('-h')) {
+      console.log(`
+Usage: repograph [root] [options]
+       repograph copy-wasm [destination]
+
+Commands:
+  [root]                   Analyze a repository at the given root path. This is the default command.
+  copy-wasm [destination]  Copy the necessary Tree-sitter WASM files to a specified directory
+                           for browser-based usage.
+                           (default destination: "./public/wasm")
+
+Arguments:
+  root                     The root directory of the repository to analyze. Defaults to the current working directory.
+
+Options:
+  -h, --help               Display this help message.
+  -v, --version            Display the version number.
+  --output <path>          Path to the output Markdown file. (default: "repograph.md")
+  --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
+  --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
+  --no-gitignore           Do not respect .gitignore files.
+  --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
+  --max-workers <num>      Set the maximum number of parallel workers for analysis. (default: 1)
+  --log-level <level>      Set the logging level. (default: "info", options: "silent", "error", "warn", "info", "debug")
+
+Output Formatting:
+  --no-header              Do not include the main "RepoGraph" header.
+  --no-overview            Do not include the project overview section.
+  --no-mermaid             Do not include the Mermaid dependency graph.
+  --no-file-list           Do not include the list of top-ranked files.
+  --no-symbol-details      Do not include the detailed file and symbol breakdown.
+  --top-file-count <num>   Set the number of files in the top list. (default: 10)
+  --file-section-separator <str> Custom separator for file sections. (default: "---")
+  --no-symbol-relations    Hide symbol relationship details (e.g., calls, implements).
+  --no-symbol-line-numbers Hide line numbers for symbols.
+  --no-symbol-snippets     Hide code snippets for symbols.
+  --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
+    `);
+      process.exit(0);
+    }
+
+    if (args[0] === 'copy-wasm') {
+      const destDir = args[1] || './public/wasm';
+      logger.info(`Copying WASM files to "${path.resolve(destDir)}"...`);
+      await copyWasmFiles(destDir);
+      process.exit(0);
+    }
+
+    if (args.includes('--version') || args.includes('-v')) {
+      const { readFileSync } = await import('node:fs');
+      const pkgPath = new URL('../package.json', import.meta.url);
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      console.log(pkg.version);
+      process.exit(0);
+    }
+
+    // We need a mutable version of the options to build it from arguments.
+    const options: {
+      root?: string;
+      output?: string;
+      include?: readonly string[];
+      ignore?: readonly string[];
+      noGitignore?: boolean;
+      maxWorkers?: number;
+      rankingStrategy?: 'pagerank' | 'git-changes';
+      logLevel?: IRepoGraphOptions['logLevel'];
+      rendererOptions?: IRepoGraphOptions['rendererOptions'];
+    } = {};
+    const includePatterns: string[] = [];
+    const ignorePatterns: string[] = [];
+    // We need a mutable version of rendererOptions to build from CLI args
+    const rendererOptions: {
+      customHeader?: string;
+      includeHeader?: boolean;
+      includeOverview?: boolean;
+      includeMermaidGraph?: boolean;
+      includeFileList?: boolean;
+      topFileCount?: number;
+      includeSymbolDetails?: boolean;
+      fileSectionSeparator?: string;
+      symbolDetailOptions?: {
+        includeRelations?: boolean;
+        includeLineNumber?: boolean;
+        includeCodeSnippet?: boolean;
+        maxRelationsToShow?: number;
+      };
+    } = {};
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (!arg) {
+        continue;
+      }
+      switch (arg) {
+        case '--output':
+          options.output = args[++i];
+          break;
+        case '--include':
+          includePatterns.push(args[++i] as string);
+          break;
+        case '--ignore':
+          ignorePatterns.push(args[++i] as string);
+          break;
+        case '--no-gitignore':
+          options.noGitignore = true;
+          break;
+        case '--ranking-strategy':
+          options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
+          break;
+        case '--max-workers':
+          options.maxWorkers = parseInt(args[++i] as string, 10);
+          break;
+        case '--log-level':
+          options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
+          break;
+        // --- Renderer Options ---
+        case '--no-header':
+          rendererOptions.includeHeader = false;
+          break;
+        case '--no-overview':
+          rendererOptions.includeOverview = false;
+          break;
+        case '--no-mermaid':
+          rendererOptions.includeMermaidGraph = false;
+          break;
+        case '--no-file-list':
+          rendererOptions.includeFileList = false;
+          break;
+        case '--no-symbol-details':
+          rendererOptions.includeSymbolDetails = false;
+          break;
+        case '--top-file-count':
+          rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
+          break;
+        case '--file-section-separator':
+          rendererOptions.fileSectionSeparator = args[++i];
+          break;
+        case '--no-symbol-relations':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
+          break;
+        case '--no-symbol-line-numbers':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
+          break;
+        case '--no-symbol-snippets':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
+          break;
+        case '--max-relations-to-show':
+          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
+          break;
+        default:
+          if (!arg.startsWith('-')) {
+            options.root = arg;
+          }
+          break;
+      }
+    }
+
+    if (includePatterns.length > 0) {
+      options.include = includePatterns;
+    }
+    if (ignorePatterns.length > 0) {
+      options.ignore = ignorePatterns;
+    }
+    if (Object.keys(rendererOptions).length > 0) {
+      options.rendererOptions = rendererOptions;
+    }
+
+    const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
+
+    logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
+
+    try {
+      await executeGenerateMap(options);
+      const relativePath = path.relative(process.cwd(), finalOutput);
+      logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
+    } catch (error: unknown) {
+      if (error instanceof RepoGraphError) {
+        logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
+      } else {
+        logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
+      }
+      process.exit(1);
+    }
+  })().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
+}
 ````
 
 ## File: src/tree-sitter/language-config.ts
@@ -2623,286 +2907,6 @@ export function getSupportedExtensions(): string[] {
 }
 ````
 
-## File: src/index.ts
-````typescript
-#!/usr/bin/env bun
-
-import { logger } from './utils/logger.util';
-import { RepoGraphError } from './utils/error.util';
-// High-Level API for simple use cases
-import { generateMap as executeGenerateMap } from './high-level';
-import { type RepoGraphOptions as IRepoGraphOptions } from './types';
-
-export { analyzeProject, generateMap } from './high-level';
-export { initializeParser } from './tree-sitter/languages';
-
-// Low-Level API for composition and advanced use cases
-export { createMapGenerator } from './composer';
-
-// Default pipeline component factories
-export { createDefaultDiscoverer } from './pipeline/discover';
-export { createTreeSitterAnalyzer } from './pipeline/analyze';
-export { createPageRanker, createGitRanker } from './pipeline/rank';
-export { createMarkdownRenderer } from './pipeline/render';
-
-// Logger utilities
-export { logger } from './utils/logger.util';
-export type { LogLevel, Logger } from './utils/logger.util';
-export type { ParserInitializationOptions } from './tree-sitter/languages';
-
-// Core types for building custom components
-export type {
-  Analyzer,
-  FileContent,
-  CodeNode,
-  CodeNodeType,
-  CodeNodeVisibility,
-  CodeEdge,
-  CodeGraph,
-  RankedCodeGraph,
-  RepoGraphMap,
-  RepoGraphOptions,
-  CssIntent,
-  Ranker,
-  Renderer,
-  RendererOptions,
-  FileDiscoverer,
-} from './types';
-
-// This section runs only when the script is executed directly from the CLI
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-
-const isRunningDirectly = () => {
-  if (typeof process.argv[1] === 'undefined') return false;
-  const runningFile = path.resolve(process.argv[1]);
-  const currentFile = fileURLToPath(import.meta.url);
-  return runningFile === currentFile;
-};
-
-const copyWasmFiles = async (destination: string) => {
-  const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
-  if (isBrowser) {
-    logger.error('File system operations are not available in the browser.');
-    return;
-  }
-
-  try {
-    const { promises: fs } = await import('node:fs');
-    const path = await import('node:path');
-
-    // Source is relative to the running script (dist/index.js)
-    const sourceDir = path.resolve(fileURLToPath(import.meta.url), '..', 'wasm');
-    
-    await fs.mkdir(destination, { recursive: true });
-
-    const wasmFiles = (await fs.readdir(sourceDir)).filter(file => file.endsWith('.wasm'));
-    for (const file of wasmFiles) {
-      const srcPath = path.join(sourceDir, file);
-      const destPath = path.join(destination, file);
-      await fs.copyFile(srcPath, destPath);
-      logger.info(`Copied ${file} to ${path.relative(process.cwd(), destPath)}`);
-    }
-    logger.info(`\n✅ All ${wasmFiles.length} WASM files copied successfully.`);
-  } catch (err) {
-    logger.error('Error copying WASM files.', err);
-  }
-};
-
-if (isRunningDirectly()) {
-  (async () => {
-    const args = process.argv.slice(2);
-
-    if (args.includes('--help') || args.includes('-h')) {
-      console.log(`
-Usage: repograph [root] [options]
-       repograph copy-wasm [destination]
-
-Commands:
-  [root]                   Analyze a repository at the given root path. This is the default command.
-  copy-wasm [destination]  Copy the necessary Tree-sitter WASM files to a specified directory
-                           for browser-based usage.
-                           (default destination: "./public/wasm")
-
-Arguments:
-  root                     The root directory of the repository to analyze. Defaults to the current working directory.
-
-Options:
-  -h, --help               Display this help message.
-  -v, --version            Display the version number.
-  --output <path>          Path to the output Markdown file. (default: "repograph.md")
-  --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
-  --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
-  --no-gitignore           Do not respect .gitignore files.
-  --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
-  --max-workers <num>      Set the maximum number of parallel workers for analysis. (default: 1)
-  --log-level <level>      Set the logging level. (default: "info", options: "silent", "error", "warn", "info", "debug")
-
-Output Formatting:
-  --no-header              Do not include the main "RepoGraph" header.
-  --no-overview            Do not include the project overview section.
-  --no-mermaid             Do not include the Mermaid dependency graph.
-  --no-file-list           Do not include the list of top-ranked files.
-  --no-symbol-details      Do not include the detailed file and symbol breakdown.
-  --top-file-count <num>   Set the number of files in the top list. (default: 10)
-  --file-section-separator <str> Custom separator for file sections. (default: "---")
-  --no-symbol-relations    Hide symbol relationship details (e.g., calls, implements).
-  --no-symbol-line-numbers Hide line numbers for symbols.
-  --no-symbol-snippets     Hide code snippets for symbols.
-  --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
-    `);
-      process.exit(0);
-    }
-
-    if (args[0] === 'copy-wasm') {
-      const destDir = args[1] || './public/wasm';
-      logger.info(`Copying WASM files to "${path.resolve(destDir)}"...`);
-      await copyWasmFiles(destDir);
-      process.exit(0);
-    }
-
-    if (args.includes('--version') || args.includes('-v')) {
-      const { readFileSync } = await import('node:fs');
-      const pkgPath = new URL('../package.json', import.meta.url);
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-      console.log(pkg.version);
-      process.exit(0);
-    }
-
-    // We need a mutable version of the options to build it from arguments.
-    const options: {
-      root?: string;
-      output?: string;
-      include?: readonly string[];
-      ignore?: readonly string[];
-      noGitignore?: boolean;
-      maxWorkers?: number;
-      rankingStrategy?: 'pagerank' | 'git-changes';
-      logLevel?: IRepoGraphOptions['logLevel'];
-      rendererOptions?: IRepoGraphOptions['rendererOptions'];
-    } = {};
-    const includePatterns: string[] = [];
-    const ignorePatterns: string[] = [];
-    // We need a mutable version of rendererOptions to build from CLI args
-    const rendererOptions: {
-      customHeader?: string;
-      includeHeader?: boolean;
-      includeOverview?: boolean;
-      includeMermaidGraph?: boolean;
-      includeFileList?: boolean;
-      topFileCount?: number;
-      includeSymbolDetails?: boolean;
-      fileSectionSeparator?: string;
-      symbolDetailOptions?: {
-        includeRelations?: boolean;
-        includeLineNumber?: boolean;
-        includeCodeSnippet?: boolean;
-        maxRelationsToShow?: number;
-      };
-    } = {};
-
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (!arg) {
-        continue;
-      }
-      switch (arg) {
-        case '--output':
-          options.output = args[++i];
-          break;
-        case '--include':
-          includePatterns.push(args[++i] as string);
-          break;
-        case '--ignore':
-          ignorePatterns.push(args[++i] as string);
-          break;
-        case '--no-gitignore':
-          options.noGitignore = true;
-          break;
-        case '--ranking-strategy':
-          options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
-          break;
-        case '--max-workers':
-          options.maxWorkers = parseInt(args[++i] as string, 10);
-          break;
-        case '--log-level':
-          options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
-          break;
-        // --- Renderer Options ---
-        case '--no-header':
-          rendererOptions.includeHeader = false;
-          break;
-        case '--no-overview':
-          rendererOptions.includeOverview = false;
-          break;
-        case '--no-mermaid':
-          rendererOptions.includeMermaidGraph = false;
-          break;
-        case '--no-file-list':
-          rendererOptions.includeFileList = false;
-          break;
-        case '--no-symbol-details':
-          rendererOptions.includeSymbolDetails = false;
-          break;
-        case '--top-file-count':
-          rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
-          break;
-        case '--file-section-separator':
-          rendererOptions.fileSectionSeparator = args[++i];
-          break;
-        case '--no-symbol-relations':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
-          break;
-        case '--no-symbol-line-numbers':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
-          break;
-        case '--no-symbol-snippets':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
-          break;
-        case '--max-relations-to-show':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
-          break;
-        default:
-          if (!arg.startsWith('-')) {
-            options.root = arg;
-          }
-          break;
-      }
-    }
-
-    if (includePatterns.length > 0) {
-      options.include = includePatterns;
-    }
-    if (ignorePatterns.length > 0) {
-      options.ignore = ignorePatterns;
-    }
-    if (Object.keys(rendererOptions).length > 0) {
-      options.rendererOptions = rendererOptions;
-    }
-
-    const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
-
-    logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
-
-    try {
-      await executeGenerateMap(options);
-      const relativePath = path.relative(process.cwd(), finalOutput);
-      logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
-    } catch (error: unknown) {
-      if (error instanceof RepoGraphError) {
-        logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
-      } else {
-        logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
-      }
-      process.exit(1);
-    }
-  })().catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
-}
-````
-
 ## File: src/pipeline/analyze.ts
 ````typescript
 const browserPath = {
@@ -3195,7 +3199,7 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
 ````json
 {
   "name": "repograph",
-  "version": "0.1.33",
+  "version": "0.1.36",
   "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
   "type": "module",
   "main": "./dist/index.js",
@@ -3207,8 +3211,18 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "browser": {
+        "types": "./dist/browser.d.ts",
+        "import": "./dist/browser.js",
+        "require": "./dist/browser.cjs"
+      },
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js",
+      "require": "./dist/browser.cjs"
     }
   },
   "files": [
