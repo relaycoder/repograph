@@ -13,7 +13,7 @@ export { createMarkdownRenderer } from './pipeline/render';
 // Logger utilities
 export { logger } from './utils/logger.util';
 export type { LogLevel, Logger } from './utils/logger.util';
-export type { ParserInitializationOptions } from './tree-sitter/languages';
+export type { ParserInitializationOptions } from './tree-sitter/browser-languages';
 
 // Core types for building custom components
 export type {
