@@ -1,0 +1,244 @@
+uuid: bf3a116b-b27b-4022-8edb-cd7895eb8713
+projectId: repograph
+createdAt: '2025-07-28T03:50:19.087Z'
+linesAdded: 10
+linesRemoved: 1
+gitCommitMsg: 'fix: add browser export and correct worker output path'
+promptSummary: >-
+  The user is unable to use the library in a browser environment with Vite due
+  to a module resolution error for the browser-specific entry point. The fix
+  involves updating `package.json` exports and `tsup.config.ts`.
+reasoning:
+  - >-
+    Hello! As an expert AI programmer, I've analyzed your request and identified
+    the root cause of the browser compatibility issue. The problem stems from
+    how package entry points are defined, which prevents bundlers like Vite from
+    resolving your browser-specific build. I'll fix this and also correct a
+    related issue with the build configuration to improve robustness.
+  - 'Here are the changes:'
+  - '### 1. Update `package.json` to expose the browser entry point'
+  - >-
+    The core issue is that your `package.json` `exports` field doesn't declare
+    the browser-specific build, preventing bundlers from finding it. I'll add an
+    export for `./browser`, which will make the browser build accessible via the
+    cleaner import path `repograph/browser`. You will need to update your
+    application code to use this new path instead of `repograph/dist/browser`.
+  - '### 2. Adjust `tsup.config.ts` for correct worker pathing'
+  - >-
+    While investigating, I found that the Node.js analyzer worker's output path
+    was incorrect, which could lead to runtime errors. By changing the `entry`
+    configuration in `tsup.config.ts` to an object, I can explicitly name the
+    output files. This ensures `analyzer.worker.ts` is compiled to
+    `dist/analyzer.worker.js`, matching the path the main script expects.
+  - >-
+    These changes will resolve the browser import issue and make your package's
+    build process more reliable.
+operations:
+  - type: write
+    path: package.json
+    content: |-
+      <<<<<<< SEARCH
+      :start_line: 11
+      :end_line: 18
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs"
+          }
+        },
+      =======
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs"
+          },
+          "./browser": {
+            "types": "./dist/browser.d.ts",
+            "import": "./dist/browser.js",
+            "require": "./dist/browser.cjs"
+          }
+        },
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+  - type: write
+    path: tsup.config.ts
+    content: >-
+      --- tsup.config.ts
+
+      +++ tsup.config.ts
+
+      @@ -4,7 +4,11 @@
+       import { join } from 'path';
+       
+       export default defineConfig({
+      -  entry: ['src/index.ts', 'src/browser.ts',
+      'src/pipeline/analyzer.worker.ts'],
+
+      +  entry: {
+
+      +    index: 'src/index.ts',
+
+      +    browser: 'src/browser.ts',
+
+      +    'analyzer.worker': 'src/pipeline/analyzer.worker.ts',
+
+      +  },
+         format: ['esm', 'cjs'],
+         target: 'es2022',
+         dts: true,
+    patchStrategy: new-unified
+snapshot:
+  package.json: |
+    {
+      "name": "repograph",
+      "version": "0.1.33",
+      "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
+      "type": "module",
+      "main": "./dist/index.js",
+      "module": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "bin": {
+        "repograph": "./dist/index.js"
+      },
+      "exports": {
+        ".": {
+          "types": "./dist/index.d.ts",
+          "import": "./dist/index.js",
+          "require": "./dist/index.cjs"
+        }
+      },
+      "files": [
+        "dist"
+      ],
+      "scripts": {
+        "build": "tsup",
+        "prepublishOnly": "npm run build",
+        "dev": "tsup --watch",
+        "test": "bun run test/run-tests.ts",
+        "test:unit": "bun run test/run-tests.ts unit",
+        "test:integration": "bun run test/run-tests.ts integration",
+        "test:e2e": "bun run test/run-tests.ts e2e",
+        "test:watch": "bun test --watch test/**/*.test.ts",
+        "test:coverage": "bun test --coverage test/**/*.test.ts",
+        "test:basic": "bun test test-basic.js",
+        "lint": "eslint . --ext .ts",
+        "format": "prettier --write \"src/**/*.ts\""
+      },
+      "dependencies": {
+        "tinypool": "^0.8.2",
+        "@types/js-yaml": "^4.0.9",
+        "globby": "^14.1.0",
+        "graphology": "^0.26.0",
+        "graphology-pagerank": "^1.1.0",
+        "js-yaml": "^4.1.0",
+        "tree-sitter-c": "^0.24.1",
+        "tree-sitter-c-sharp": "^0.23.1",
+        "tree-sitter-cpp": "^0.23.4",
+        "tree-sitter-css": "^0.23.2",
+        "tree-sitter-go": "^0.23.4",
+        "tree-sitter-java": "^0.23.5",
+        "tree-sitter-php": "^0.23.12",
+        "tree-sitter-python": "^0.23.6",
+        "tree-sitter-ruby": "^0.23.1",
+        "tree-sitter-rust": "^0.24.0",
+        "tree-sitter-solidity": "^1.2.11",
+        "tree-sitter-swift": "^0.7.1",
+        "tree-sitter-typescript": "^0.23.2",
+        "tree-sitter-vue": "^0.2.1",
+        "web-tree-sitter": "^0.25.6"
+      },
+      "devDependencies": {
+        "@types/node": "^20.12.12",
+        "bun-types": "^1.1.12",
+        "eslint": "^8.57.0",
+        "prettier": "^3.2.5",
+        "tsup": "^8.0.2",
+        "typescript": "^5.4.5"
+      },
+      "keywords": [
+        "codemap",
+        "graph",
+        "visualization",
+        "code-analysis",
+        "tree-sitter",
+        "repo-analysis",
+        "ai-context",
+        "bun",
+        "functional-programming"
+      ],
+      "author": "RelayCoder <you@example.com>",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/relaycoder/repograph.git"
+      },
+      "homepage": "https://github.com/relaycoder/repograph#readme",
+      "bugs": {
+        "url": "https://github.com/relaycoder/repograph/issues"
+      },
+      "engines": {
+        "node": ">=18.0.0",
+        "bun": ">=1.0.0"
+      }
+    }
+  tsup.config.ts: |-
+    import { defineConfig } from 'tsup';
+    import { copyFileSync, mkdirSync, existsSync } from 'fs';
+    import { join } from 'path';
+
+    export default defineConfig({
+      entry: ['src/index.ts', 'src/browser.ts', 'src/pipeline/analyzer.worker.ts'],
+      format: ['esm', 'cjs'],
+      target: 'es2022',
+      dts: true,
+      sourcemap: true,
+      clean: true,
+      splitting: false, // Disable splitting for CJS compatibility
+      treeshake: true,
+      minify: false,
+      outDir: 'dist',
+      onSuccess: async () => {
+        // Copy WASM files to dist folder
+        const wasmDir = join('dist', 'wasm');
+        if (!existsSync(wasmDir)) {
+          mkdirSync(wasmDir, { recursive: true });
+        }
+
+        const wasmFiles = [
+          'tree-sitter-typescript/tree-sitter-typescript.wasm',
+          'tree-sitter-typescript/tree-sitter-tsx.wasm',
+          'tree-sitter-javascript/tree-sitter-javascript.wasm',
+          'tree-sitter-python/tree-sitter-python.wasm',
+          'tree-sitter-java/tree-sitter-java.wasm',
+          'tree-sitter-c/tree-sitter-c.wasm',
+          'tree-sitter-cpp/tree-sitter-cpp.wasm',
+          'tree-sitter-c-sharp/tree-sitter-c-sharp.wasm',
+          'tree-sitter-css/tree-sitter-css.wasm',
+          'tree-sitter-go/tree-sitter-go.wasm',
+          'tree-sitter-php/tree-sitter-php.wasm',
+          'tree-sitter-ruby/tree-sitter-ruby.wasm',
+          'tree-sitter-rust/tree-sitter-rust.wasm',
+          'tree-sitter-solidity/tree-sitter-solidity.wasm',
+          'tree-sitter-swift/tree-sitter-swift.wasm',
+          'tree-sitter-vue/tree-sitter-vue.wasm',
+        ];
+
+        for (const wasmFile of wasmFiles) {
+          const srcPath = join('node_modules', wasmFile);
+          const wasmFileName = wasmFile.split('/')[1];
+          if (!wasmFileName) {
+            console.warn(`Skipping invalid wasmFile path: ${wasmFile}`);
+            continue;
+          }
+          const destPath = join('dist', 'wasm', wasmFileName);
+          
+          if (existsSync(srcPath)) {
+            copyFileSync(srcPath, destPath);
+            console.log(`Copied ${wasmFileName} to dist/wasm/`);
+          }
+        }
+      },
+    });
+approved: true

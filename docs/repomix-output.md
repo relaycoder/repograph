@@ -33,6 +33,20 @@ tsup.config.ts
 
 # Files
 
+## File: src/types/graphology-pagerank.d.ts
+````typescript
+declare module 'graphology-pagerank' {
+  import type Graph from 'graphology';
+
+  export default function pagerank<T = any>(graph: Graph<T>, options?: {
+    alpha?: number;
+    tolerance?: number;
+    maxIterations?: number;
+    getEdgeWeight?: (edge: string) => number;
+  }): Record<string, number>;
+}
+````
+
 ## File: src/utils/error.util.ts
 ````typescript
 export class RepoGraphError extends Error {
@@ -248,20 +262,6 @@ export const getParser = async (): Promise<Parser.Parser> => {
   }
   return createParserForLanguage(tsConfig);
 };
-````
-
-## File: src/types/graphology-pagerank.d.ts
-````typescript
-declare module 'graphology-pagerank' {
-  import type Graph from 'graphology';
-
-  export default function pagerank<T = any>(graph: Graph<T>, options?: {
-    alpha?: number;
-    tolerance?: number;
-    maxIterations?: number;
-    getEdgeWeight?: (edge: string) => number;
-  }): Record<string, number>;
-}
 ````
 
 ## File: src/utils/fs.util.ts
@@ -635,6 +635,55 @@ const createLogger = (): Logger => {
 export const logger = createLogger();
 ````
 
+## File: tsconfig.json
+````json
+{
+  "compilerOptions": {
+    // Environment setup & latest features
+    "lib": ["ESNext", "DOM"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowJs": true,
+
+    // Bundler mode
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+    // Best practices
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+
+    // Some stricter flags (disabled by default)
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitAny": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    // Include bun types
+    "types": ["bun-types"]
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "web-demo/src/**/*",
+    "bun.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "docs",
+    ".relay",
+    ".relaycode"
+  ]
+}
+````
+
 ## File: tsup.config.ts
 ````typescript
 import { defineConfig } from 'tsup';
@@ -696,52 +745,69 @@ export default defineConfig({
 });
 ````
 
-## File: tsconfig.json
-````json
-{
-  "compilerOptions": {
-    // Environment setup & latest features
-    "lib": ["ESNext", "DOM"],
-    "target": "ESNext",
-    "module": "Preserve",
-    "moduleDetection": "force",
-    "jsx": "react-jsx",
-    "allowJs": true,
+## File: src/tree-sitter/queries.ts
+````typescript
+import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config';
 
-    // Bundler mode
-    "moduleResolution": "bundler",
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
+/**
+ * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
+ * This query is designed to find definitions of classes, functions, interfaces,
+ * and import statements to build the code graph.
+ * 
+ * @deprecated Use getQueryForLanguage() instead
+ */
+export const TS_QUERY = `
+(import_statement
+  source: (string) @import.source) @import.statement
 
-    // Best practices
-    "strict": true,
-    "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
+(class_declaration) @class.definition
+(export_statement declaration: (class_declaration)) @class.definition
 
-    // Some stricter flags (disabled by default)
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitAny": true,
-    "noPropertyAccessFromIndexSignature": true,
+(function_declaration) @function.definition
+(export_statement declaration: (function_declaration)) @function.definition
 
-    // Include bun types
-    "types": ["bun-types"]
-  },
-  "include": [
-    "src/**/*",
-    "test/**/*",
-    "web-demo/src/**/*",
-    "bun.d.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "docs",
-    ".relay",
-    ".relaycode"
-  ]
+(variable_declarator value: (arrow_function)) @function.arrow.definition
+(public_field_definition value: (arrow_function)) @function.arrow.definition
+(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
+
+(interface_declaration) @interface.definition
+(export_statement declaration: (interface_declaration)) @interface.definition
+
+(type_alias_declaration) @type.definition
+(export_statement declaration: (type_alias_declaration)) @type.definition
+
+(method_definition) @method.definition
+(public_field_definition) @field.definition
+
+(call_expression
+  function: (identifier) @function.call)
+`;
+
+/**
+ * Get the Tree-sitter query for a specific language configuration.
+ * @param config The language configuration
+ * @returns The query string for the language
+ */
+export function getQueryForLanguage(config: LanguageConfig): string {
+  return config.query.trim();
+}
+
+/**
+ * Get the Tree-sitter query for a file based on its extension.
+ * @param filePath The file path
+ * @returns The query string for the file's language, or null if not supported
+ */
+export function getQueryForFile(filePath: string): string | null {
+  const config = getLanguageConfigForFile(filePath);
+  return config ? getQueryForLanguage(config) : null;
+}
+
+/**
+ * Get all supported language configurations.
+ * @returns Array of all language configurations
+ */
+export function getAllLanguageConfigs(): LanguageConfig[] {
+  return [...LANGUAGE_CONFIGS];
 }
 ````
 
@@ -1197,72 +1263,6 @@ export default async function processFile({ file, langConfig }: { file: FileCont
   }
 
   return { nodes, relations };
-}
-````
-
-## File: src/tree-sitter/queries.ts
-````typescript
-import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config';
-
-/**
- * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
- * This query is designed to find definitions of classes, functions, interfaces,
- * and import statements to build the code graph.
- * 
- * @deprecated Use getQueryForLanguage() instead
- */
-export const TS_QUERY = `
-(import_statement
-  source: (string) @import.source) @import.statement
-
-(class_declaration) @class.definition
-(export_statement declaration: (class_declaration)) @class.definition
-
-(function_declaration) @function.definition
-(export_statement declaration: (function_declaration)) @function.definition
-
-(variable_declarator value: (arrow_function)) @function.arrow.definition
-(public_field_definition value: (arrow_function)) @function.arrow.definition
-(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
-
-(interface_declaration) @interface.definition
-(export_statement declaration: (interface_declaration)) @interface.definition
-
-(type_alias_declaration) @type.definition
-(export_statement declaration: (type_alias_declaration)) @type.definition
-
-(method_definition) @method.definition
-(public_field_definition) @field.definition
-
-(call_expression
-  function: (identifier) @function.call)
-`;
-
-/**
- * Get the Tree-sitter query for a specific language configuration.
- * @param config The language configuration
- * @returns The query string for the language
- */
-export function getQueryForLanguage(config: LanguageConfig): string {
-  return config.query.trim();
-}
-
-/**
- * Get the Tree-sitter query for a file based on its extension.
- * @param filePath The file path
- * @returns The query string for the file's language, or null if not supported
- */
-export function getQueryForFile(filePath: string): string | null {
-  const config = getLanguageConfigForFile(filePath);
-  return config ? getQueryForLanguage(config) : null;
-}
-
-/**
- * Get all supported language configurations.
- * @returns Array of all language configurations
- */
-export function getAllLanguageConfigs(): LanguageConfig[] {
-  return [...LANGUAGE_CONFIGS];
 }
 ````
 
@@ -1999,6 +1999,206 @@ export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker =
 };
 ````
 
+## File: src/types.ts
+````typescript
+// Core Data Structures
+
+/** Represents a single file read from disk. Immutable. */
+export type FileContent = {
+  readonly path: string;
+  readonly content: string;
+};
+
+/** The type of a symbol identified in the code. */
+export type CodeNodeType =
+  | 'file'
+  | 'class'
+  | 'function'
+  | 'interface'
+  | 'variable'
+  | 'type'
+  | 'arrow_function'
+  | 'method'
+  | 'field'
+  | 'struct'
+  | 'enum'
+  | 'namespace'
+  | 'trait'
+  | 'impl'
+  | 'constructor'
+  | 'property'
+  | 'constant'
+  | 'static'
+  | 'union'
+  | 'template'
+  | 'html_element'
+  | 'css_rule';
+
+/** For CSS nodes, a semantic grouping of its properties. */
+export type CssIntent = 'layout' | 'typography' | 'appearance';
+
+/** New type for access modifiers. */
+export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
+
+/** Represents a single, identifiable symbol (or a file) in the code. Immutable. */
+export type CodeNode = {
+  readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
+  readonly type: CodeNodeType;
+  readonly name: string; // e.g., 'MyClass'
+  readonly filePath: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly language?: string; // For file nodes, the detected language
+  readonly codeSnippet?: string; // e.g., function signature
+
+  // --- NEW FIELDS from scn-ts report ---
+  /** The access modifier of the symbol (e.g., public, private). Maps to SCN '+' or '-'. */
+  readonly visibility?: CodeNodeVisibility;
+  /** Whether the symbol (e.g., a function or method) is asynchronous. Maps to SCN '...'. */
+  readonly isAsync?: boolean;
+  /** Whether the symbol is a static member of a class/struct. */
+  readonly isStatic?: boolean;
+  /** The return type of a function/method, as a string. Maps to SCN '#(type)'. */
+  readonly returnType?: string;
+  /** An array of parameters for functions/methods. */
+  readonly parameters?: { name: string; type?: string }[];
+  /** Whether a function is known to throw exceptions. Maps to SCN '!' */
+  readonly canThrow?: boolean; // Populated by analyzer
+  /** Whether a function is believed to be pure. Maps to SCN 'o' */
+  readonly isPure?: boolean; // Not implemented yet
+  /** For UI nodes, the HTML tag name (e.g., 'div'). */
+  readonly htmlTag?: string;
+  /** For UI nodes, a map of attributes. */
+  readonly attributes?: ReadonlyMap<string, string>; // Not used yet
+  /** For CSS nodes, the full selector. */
+  readonly cssSelector?: string;
+  /** For CSS rules, a list of semantic intents. */
+  readonly cssIntents?: readonly CssIntent[]; // Not implemented yet
+};
+
+/** Represents a directed relationship between two CodeNodes. Immutable. */
+export type CodeEdge = {
+  readonly fromId: string; // ID of the source CodeNode
+  readonly toId: string;   // ID of the target CodeNode
+  readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
+};
+
+/** Represents a potential relationship discovered in a file, to be resolved later. */
+export type UnresolvedRelation = {
+  readonly fromId: string;
+  readonly toName: string;
+  readonly type: 'imports' | 'calls' | 'inherits' | 'implements' | 'reference';
+};
+
+/** The complete, raw model of the repository's structure. Immutable. */
+export type CodeGraph = {
+  readonly nodes: ReadonlyMap<string, CodeNode>;
+  readonly edges: readonly CodeEdge[];
+};
+
+/** A CodeGraph with an added 'rank' score for each node. Immutable. */
+export type RankedCodeGraph = CodeGraph & {
+  readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
+};
+
+/** The output of a map generation process, containing the graph and rendered output. */
+export type RepoGraphMap = {
+  readonly graph: RankedCodeGraph;
+  readonly markdown: string;
+};
+
+// High-Level API Options
+
+/** Configuration for the final Markdown output. */
+export type RendererOptions = {
+  /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */
+  readonly customHeader?: string;
+  /** Include the default `RepoGraph` header. @default true */
+  readonly includeHeader?: boolean;
+  /** Include the project overview section. @default true */
+  readonly includeOverview?: boolean;
+  /** Include a Mermaid.js dependency graph. @default true */
+  readonly includeMermaidGraph?: boolean;
+  /** Include the list of top-ranked files. @default true */
+  readonly includeFileList?: boolean;
+  /** Number of files to show in the top list. @default 10 */
+  readonly topFileCount?: number;
+  /** Include detailed breakdowns for each symbol. @default true */
+  readonly includeSymbolDetails?: boolean;
+  /** String to use as a separator between file sections. @default '---' */
+  readonly fileSectionSeparator?: string;
+
+  /** Options for how individual symbols are rendered */
+  readonly symbolDetailOptions?: {
+    /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */
+    readonly includeRelations?: boolean;
+    /** Include the starting line number. @default true */
+    readonly includeLineNumber?: boolean;
+    /** Include the code snippet for the symbol. @default true */
+    readonly includeCodeSnippet?: boolean;
+    /** Max number of relations to show per type (e.g., 'calls'). @default 3 */
+    readonly maxRelationsToShow?: number;
+  };
+};
+
+/** Configuration options for the main `generateMap` function. */
+export type RepoGraphOptions = {
+  /**
+   * Root directory to analyze. Not used if `files` is provided.
+   * @default process.cwd() in Node.js.
+   */
+  readonly root?: string;
+  /**
+   * Output path for the Markdown file. Writing files is not supported in the browser.
+   * @default './repograph.md'
+   */
+  readonly output?: string;
+  /** Glob patterns for files to include. Not used if `files` is provided. */
+  readonly include?: readonly string[];
+  /** Glob patterns for files to exclude. Not used if `files` is provided. */
+  readonly ignore?: readonly string[];
+  /** Disables the use of .gitignore. Not used if `files` is provided. @default false */
+  readonly noGitignore?: boolean;
+  /** The ranking strategy to use. @default 'pagerank' */
+  readonly rankingStrategy?: 'pagerank' | 'git-changes';
+  /** Configuration for the final Markdown output. */
+  readonly rendererOptions?: RendererOptions;
+  /**
+   * The maximum number of parallel workers to use for analysis.
+   * When set to 1, analysis runs in the main thread without workers.
+   * @default 1
+   */
+  readonly maxWorkers?: number;
+  /** Logging level. @default 'info' */
+  readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
+  /**
+   * Optional. An array of file content objects to analyze.
+   * If provided, the file discovery step (including `root`, `include`, `ignore`, `noGitignore`) will be skipped.
+   * This is useful for browser-based environments or when file discovery is handled externally.
+   */
+  readonly files?: readonly FileContent[];
+};
+
+// Low-Level Functional Pipeline Contracts
+
+/** Discovers files and returns their content. */
+export type FileDiscoverer = (config: {
+  readonly root: string;
+  readonly include?: readonly string[];
+  readonly ignore?: readonly string[];
+  readonly noGitignore?: boolean;
+}) => Promise<readonly FileContent[]>;
+
+/** Analyzes file content and builds the dependency graph. */
+export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
+
+/** Ranks the nodes in a graph. */
+export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
+
+/** Renders a ranked graph into a string format. */
+export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions) => string;
+````
+
 ## File: src/tree-sitter/language-config.ts
 ````typescript
 import type { Language } from 'web-tree-sitter';
@@ -2423,206 +2623,6 @@ export function getSupportedExtensions(): string[] {
 }
 ````
 
-## File: src/types.ts
-````typescript
-// Core Data Structures
-
-/** Represents a single file read from disk. Immutable. */
-export type FileContent = {
-  readonly path: string;
-  readonly content: string;
-};
-
-/** The type of a symbol identified in the code. */
-export type CodeNodeType =
-  | 'file'
-  | 'class'
-  | 'function'
-  | 'interface'
-  | 'variable'
-  | 'type'
-  | 'arrow_function'
-  | 'method'
-  | 'field'
-  | 'struct'
-  | 'enum'
-  | 'namespace'
-  | 'trait'
-  | 'impl'
-  | 'constructor'
-  | 'property'
-  | 'constant'
-  | 'static'
-  | 'union'
-  | 'template'
-  | 'html_element'
-  | 'css_rule';
-
-/** For CSS nodes, a semantic grouping of its properties. */
-export type CssIntent = 'layout' | 'typography' | 'appearance';
-
-/** New type for access modifiers. */
-export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
-
-/** Represents a single, identifiable symbol (or a file) in the code. Immutable. */
-export type CodeNode = {
-  readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
-  readonly type: CodeNodeType;
-  readonly name: string; // e.g., 'MyClass'
-  readonly filePath: string;
-  readonly startLine: number;
-  readonly endLine: number;
-  readonly language?: string; // For file nodes, the detected language
-  readonly codeSnippet?: string; // e.g., function signature
-
-  // --- NEW FIELDS from scn-ts report ---
-  /** The access modifier of the symbol (e.g., public, private). Maps to SCN '+' or '-'. */
-  readonly visibility?: CodeNodeVisibility;
-  /** Whether the symbol (e.g., a function or method) is asynchronous. Maps to SCN '...'. */
-  readonly isAsync?: boolean;
-  /** Whether the symbol is a static member of a class/struct. */
-  readonly isStatic?: boolean;
-  /** The return type of a function/method, as a string. Maps to SCN '#(type)'. */
-  readonly returnType?: string;
-  /** An array of parameters for functions/methods. */
-  readonly parameters?: { name: string; type?: string }[];
-  /** Whether a function is known to throw exceptions. Maps to SCN '!' */
-  readonly canThrow?: boolean; // Populated by analyzer
-  /** Whether a function is believed to be pure. Maps to SCN 'o' */
-  readonly isPure?: boolean; // Not implemented yet
-  /** For UI nodes, the HTML tag name (e.g., 'div'). */
-  readonly htmlTag?: string;
-  /** For UI nodes, a map of attributes. */
-  readonly attributes?: ReadonlyMap<string, string>; // Not used yet
-  /** For CSS nodes, the full selector. */
-  readonly cssSelector?: string;
-  /** For CSS rules, a list of semantic intents. */
-  readonly cssIntents?: readonly CssIntent[]; // Not implemented yet
-};
-
-/** Represents a directed relationship between two CodeNodes. Immutable. */
-export type CodeEdge = {
-  readonly fromId: string; // ID of the source CodeNode
-  readonly toId: string;   // ID of the target CodeNode
-  readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
-};
-
-/** Represents a potential relationship discovered in a file, to be resolved later. */
-export type UnresolvedRelation = {
-  readonly fromId: string;
-  readonly toName: string;
-  readonly type: 'imports' | 'calls' | 'inherits' | 'implements' | 'reference';
-};
-
-/** The complete, raw model of the repository's structure. Immutable. */
-export type CodeGraph = {
-  readonly nodes: ReadonlyMap<string, CodeNode>;
-  readonly edges: readonly CodeEdge[];
-};
-
-/** A CodeGraph with an added 'rank' score for each node. Immutable. */
-export type RankedCodeGraph = CodeGraph & {
-  readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
-};
-
-/** The output of a map generation process, containing the graph and rendered output. */
-export type RepoGraphMap = {
-  readonly graph: RankedCodeGraph;
-  readonly markdown: string;
-};
-
-// High-Level API Options
-
-/** Configuration for the final Markdown output. */
-export type RendererOptions = {
-  /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */
-  readonly customHeader?: string;
-  /** Include the default `RepoGraph` header. @default true */
-  readonly includeHeader?: boolean;
-  /** Include the project overview section. @default true */
-  readonly includeOverview?: boolean;
-  /** Include a Mermaid.js dependency graph. @default true */
-  readonly includeMermaidGraph?: boolean;
-  /** Include the list of top-ranked files. @default true */
-  readonly includeFileList?: boolean;
-  /** Number of files to show in the top list. @default 10 */
-  readonly topFileCount?: number;
-  /** Include detailed breakdowns for each symbol. @default true */
-  readonly includeSymbolDetails?: boolean;
-  /** String to use as a separator between file sections. @default '---' */
-  readonly fileSectionSeparator?: string;
-
-  /** Options for how individual symbols are rendered */
-  readonly symbolDetailOptions?: {
-    /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */
-    readonly includeRelations?: boolean;
-    /** Include the starting line number. @default true */
-    readonly includeLineNumber?: boolean;
-    /** Include the code snippet for the symbol. @default true */
-    readonly includeCodeSnippet?: boolean;
-    /** Max number of relations to show per type (e.g., 'calls'). @default 3 */
-    readonly maxRelationsToShow?: number;
-  };
-};
-
-/** Configuration options for the main `generateMap` function. */
-export type RepoGraphOptions = {
-  /**
-   * Root directory to analyze. Not used if `files` is provided.
-   * @default process.cwd() in Node.js.
-   */
-  readonly root?: string;
-  /**
-   * Output path for the Markdown file. Writing files is not supported in the browser.
-   * @default './repograph.md'
-   */
-  readonly output?: string;
-  /** Glob patterns for files to include. Not used if `files` is provided. */
-  readonly include?: readonly string[];
-  /** Glob patterns for files to exclude. Not used if `files` is provided. */
-  readonly ignore?: readonly string[];
-  /** Disables the use of .gitignore. Not used if `files` is provided. @default false */
-  readonly noGitignore?: boolean;
-  /** The ranking strategy to use. @default 'pagerank' */
-  readonly rankingStrategy?: 'pagerank' | 'git-changes';
-  /** Configuration for the final Markdown output. */
-  readonly rendererOptions?: RendererOptions;
-  /**
-   * The maximum number of parallel workers to use for analysis.
-   * When set to 1, analysis runs in the main thread without workers.
-   * @default 1
-   */
-  readonly maxWorkers?: number;
-  /** Logging level. @default 'info' */
-  readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
-  /**
-   * Optional. An array of file content objects to analyze.
-   * If provided, the file discovery step (including `root`, `include`, `ignore`, `noGitignore`) will be skipped.
-   * This is useful for browser-based environments or when file discovery is handled externally.
-   */
-  readonly files?: readonly FileContent[];
-};
-
-// Low-Level Functional Pipeline Contracts
-
-/** Discovers files and returns their content. */
-export type FileDiscoverer = (config: {
-  readonly root: string;
-  readonly include?: readonly string[];
-  readonly ignore?: readonly string[];
-  readonly noGitignore?: boolean;
-}) => Promise<readonly FileContent[]>;
-
-/** Analyzes file content and builds the dependency graph. */
-export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
-
-/** Ranks the nodes in a graph. */
-export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
-
-/** Renders a ranked graph into a string format. */
-export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions) => string;
-````
-
 ## File: src/index.ts
 ````typescript
 #!/usr/bin/env bun
@@ -2900,102 +2900,6 @@ Output Formatting:
     console.error('Fatal error:', error);
     process.exit(1);
   });
-}
-````
-
-## File: package.json
-````json
-{
-  "name": "repograph",
-  "version": "0.1.19",
-  "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "bin": {
-    "repograph": "./dist/index.js"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    }
-  },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "tsup",
-    "prepublishOnly": "npm run build",
-    "dev": "tsup --watch",
-    "test": "bun run test/run-tests.ts",
-    "test:unit": "bun run test/run-tests.ts unit",
-    "test:integration": "bun run test/run-tests.ts integration",
-    "test:e2e": "bun run test/run-tests.ts e2e",
-    "test:watch": "bun test --watch test/**/*.test.ts",
-    "test:coverage": "bun test --coverage test/**/*.test.ts",
-    "test:basic": "bun test test-basic.js",
-    "lint": "eslint . --ext .ts",
-    "format": "prettier --write \"src/**/*.ts\""
-  },
-  "dependencies": {
-    "tinypool": "^0.8.2",
-    "@types/js-yaml": "^4.0.9",
-    "globby": "^14.1.0",
-    "graphology": "^0.26.0",
-    "graphology-pagerank": "^1.1.0",
-    "js-yaml": "^4.1.0",
-    "tree-sitter-c": "^0.24.1",
-    "tree-sitter-c-sharp": "^0.23.1",
-    "tree-sitter-cpp": "^0.23.4",
-    "tree-sitter-css": "^0.23.2",
-    "tree-sitter-go": "^0.23.4",
-    "tree-sitter-java": "^0.23.5",
-    "tree-sitter-php": "^0.23.12",
-    "tree-sitter-python": "^0.23.6",
-    "tree-sitter-ruby": "^0.23.1",
-    "tree-sitter-rust": "^0.24.0",
-    "tree-sitter-solidity": "^1.2.11",
-    "tree-sitter-swift": "^0.7.1",
-    "tree-sitter-typescript": "^0.23.2",
-    "tree-sitter-vue": "^0.2.1",
-    "web-tree-sitter": "^0.25.6"
-  },
-  "devDependencies": {
-    "@types/node": "^20.12.12",
-    "bun-types": "^1.1.12",
-    "eslint": "^8.57.0",
-    "prettier": "^3.2.5",
-    "tsup": "^8.0.2",
-    "typescript": "^5.4.5"
-  },
-  "keywords": [
-    "codemap",
-    "graph",
-    "visualization",
-    "code-analysis",
-    "tree-sitter",
-    "repo-analysis",
-    "ai-context",
-    "bun",
-    "functional-programming"
-  ],
-  "author": "RelayCoder <you@example.com>",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/relaycoder/repograph.git"
-  },
-  "homepage": "https://github.com/relaycoder/repograph#readme",
-  "bugs": {
-    "url": "https://github.com/relaycoder/repograph/issues"
-  },
-  "engines": {
-    "node": ">=18.0.0",
-    "bun": ">=1.0.0"
-  }
 }
 ````
 
@@ -3285,4 +3189,100 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
     return { nodes: Object.freeze(nodes), edges: Object.freeze(uniqueEdges) };
   };
 };
+````
+
+## File: package.json
+````json
+{
+  "name": "repograph",
+  "version": "0.1.33",
+  "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "repograph": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build",
+    "dev": "tsup --watch",
+    "test": "bun run test/run-tests.ts",
+    "test:unit": "bun run test/run-tests.ts unit",
+    "test:integration": "bun run test/run-tests.ts integration",
+    "test:e2e": "bun run test/run-tests.ts e2e",
+    "test:watch": "bun test --watch test/**/*.test.ts",
+    "test:coverage": "bun test --coverage test/**/*.test.ts",
+    "test:basic": "bun test test-basic.js",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "tinypool": "^0.8.2",
+    "@types/js-yaml": "^4.0.9",
+    "globby": "^14.1.0",
+    "graphology": "^0.26.0",
+    "graphology-pagerank": "^1.1.0",
+    "js-yaml": "^4.1.0",
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-css": "^0.23.2",
+    "tree-sitter-go": "^0.23.4",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-php": "^0.23.12",
+    "tree-sitter-python": "^0.23.6",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-rust": "^0.24.0",
+    "tree-sitter-solidity": "^1.2.11",
+    "tree-sitter-swift": "^0.7.1",
+    "tree-sitter-typescript": "^0.23.2",
+    "tree-sitter-vue": "^0.2.1",
+    "web-tree-sitter": "^0.25.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "bun-types": "^1.1.12",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "tsup": "^8.0.2",
+    "typescript": "^5.4.5"
+  },
+  "keywords": [
+    "codemap",
+    "graph",
+    "visualization",
+    "code-analysis",
+    "tree-sitter",
+    "repo-analysis",
+    "ai-context",
+    "bun",
+    "functional-programming"
+  ],
+  "author": "RelayCoder <you@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/relaycoder/repograph.git"
+  },
+  "homepage": "https://github.com/relaycoder/repograph#readme",
+  "bugs": {
+    "url": "https://github.com/relaycoder/repograph/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  }
+}
 ````
