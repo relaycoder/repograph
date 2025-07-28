@@ -1,0 +1,161 @@
+uuid: 4a6c6c59-b132-42da-9195-21d966e39846
+projectId: repograph
+createdAt: '2025-07-28T03:56:27.916Z'
+linesAdded: 2
+linesRemoved: 2
+gitCommitMsg: 'fix(build): correct order of conditions in package.json exports'
+promptSummary: >-
+  User's build process shows a warning about the `types` condition in
+  `package.json` being in the wrong order, potentially causing type resolution
+  issues. The fix is to reorder the keys in the `exports` map to place `types`
+  first.
+reasoning:
+  - >-
+    You've spotted a crucial detail! That warning from `tsup` is important.
+    While it didn't block the publish, it indicates that some tools might fail
+    to find your type definitions because the `types` condition in
+    `package.json` is not in the conventional order.
+  - >-
+    The fix is simple: the `types` condition must always be listed *before* the
+    `import` and `require` conditions in the `exports` map.
+  - I'll correct the order in your `package.json`.
+  - >-
+    By moving `"types": "./dist/index.d.ts"` to the top of the `.` export map,
+    we are following the standard convention that tools like TypeScript and
+    bundlers expect. This will resolve the warning on your next build and ensure
+    your package's types are resolved correctly in all environments.
+operations:
+  - type: write
+    path: package.json
+    content: |-
+      <<<<<<< SEARCH
+      :start_line: 12
+      :end_line: 21
+          ".": {
+            "browser": {
+              "types": "./dist/browser.d.ts",
+              "import": "./dist/browser.js",
+              "require": "./dist/browser.cjs"
+            },
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs",
+            "types": "./dist/index.d.ts"
+          },
+      =======
+          ".": {
+            "types": "./dist/index.d.ts",
+            "browser": {
+              "types": "./dist/browser.d.ts",
+              "import": "./dist/browser.js",
+              "require": "./dist/browser.cjs"
+            },
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs"
+          },
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+snapshot:
+  package.json: |
+    {
+      "name": "repograph",
+      "version": "0.1.35",
+      "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
+      "type": "module",
+      "main": "./dist/index.js",
+      "module": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "bin": {
+        "repograph": "./dist/index.js"
+      },
+      "exports": {
+        ".": {
+          "browser": {
+            "types": "./dist/browser.d.ts",
+            "import": "./dist/browser.js",
+            "require": "./dist/browser.cjs"
+          },
+          "import": "./dist/index.js",
+          "require": "./dist/index.cjs",
+          "types": "./dist/index.d.ts"
+        },
+        "./browser": {
+          "types": "./dist/browser.d.ts",
+          "import": "./dist/browser.js",
+          "require": "./dist/browser.cjs"
+        }
+      },
+      "files": [
+        "dist"
+      ],
+      "scripts": {
+        "build": "tsup",
+        "prepublishOnly": "npm run build",
+        "dev": "tsup --watch",
+        "test": "bun run test/run-tests.ts",
+        "test:unit": "bun run test/run-tests.ts unit",
+        "test:integration": "bun run test/run-tests.ts integration",
+        "test:e2e": "bun run test/run-tests.ts e2e",
+        "test:watch": "bun test --watch test/**/*.test.ts",
+        "test:coverage": "bun test --coverage test/**/*.test.ts",
+        "test:basic": "bun test test-basic.js",
+        "lint": "eslint . --ext .ts",
+        "format": "prettier --write \"src/**/*.ts\""
+      },
+      "dependencies": {
+        "tinypool": "^0.8.2",
+        "@types/js-yaml": "^4.0.9",
+        "globby": "^14.1.0",
+        "graphology": "^0.26.0",
+        "graphology-pagerank": "^1.1.0",
+        "js-yaml": "^4.1.0",
+        "tree-sitter-c": "^0.24.1",
+        "tree-sitter-c-sharp": "^0.23.1",
+        "tree-sitter-cpp": "^0.23.4",
+        "tree-sitter-css": "^0.23.2",
+        "tree-sitter-go": "^0.23.4",
+        "tree-sitter-java": "^0.23.5",
+        "tree-sitter-php": "^0.23.12",
+        "tree-sitter-python": "^0.23.6",
+        "tree-sitter-ruby": "^0.23.1",
+        "tree-sitter-rust": "^0.24.0",
+        "tree-sitter-solidity": "^1.2.11",
+        "tree-sitter-swift": "^0.7.1",
+        "tree-sitter-typescript": "^0.23.2",
+        "tree-sitter-vue": "^0.2.1",
+        "web-tree-sitter": "^0.25.6"
+      },
+      "devDependencies": {
+        "@types/node": "^20.12.12",
+        "bun-types": "^1.1.12",
+        "eslint": "^8.57.0",
+        "prettier": "^3.2.5",
+        "tsup": "^8.0.2",
+        "typescript": "^5.4.5"
+      },
+      "keywords": [
+        "codemap",
+        "graph",
+        "visualization",
+        "code-analysis",
+        "tree-sitter",
+        "repo-analysis",
+        "ai-context",
+        "bun",
+        "functional-programming"
+      ],
+      "author": "RelayCoder <you@example.com>",
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/relaycoder/repograph.git"
+      },
+      "homepage": "https://github.com/relaycoder/repograph#readme",
+      "bugs": {
+        "url": "https://github.com/relaycoder/repograph/issues"
+      },
+      "engines": {
+        "node": ">=18.0.0",
+        "bun": ">=1.0.0"
+      }
+    }
+approved: true
