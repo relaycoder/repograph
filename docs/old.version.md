@@ -1,4 +1,12 @@
-# Directory Structure
+
+
+
+
+
+
+
+
+# 9948 Directory Structure
 ```
 src/
   pipeline/
@@ -95,12 +103,12 @@ export const createPageRanker = (): Ranker => {
 
     // Convert CodeGraph to graphology Graph
     const graphologyGraph = new Graph();
-    
+
     // Add all nodes
     for (const [nodeId] of graph.nodes) {
       (graphologyGraph as any).addNode(nodeId);
     }
-    
+
     // Add all edges
     for (const edge of graph.edges) {
       // Only add edge if both nodes exist
@@ -112,7 +120,7 @@ export const createPageRanker = (): Ranker => {
         }
       }
     }
-    
+
     const ranksData = pagerank(graphologyGraph);
     const ranks = new Map<string, number>();
     for (const node in ranksData) {
@@ -187,12 +195,12 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
         config.name
       );
     }
-    
+
     const wasmFileName = config.wasmPath.split('/').pop();
     if (!wasmFileName) {
       throw new ParserError(`Invalid wasmPath for ${config.name}: ${config.wasmPath}`, config.name);
     }
-    
+
     const baseUrl = wasmBaseUrl.endsWith('/') ? wasmBaseUrl : `${wasmBaseUrl}/`;
     const finalWasmPath = new URL(wasmFileName, new URL(baseUrl, window.location.origin)).href;
 
@@ -201,7 +209,7 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
     console.log(`[DEBUG] wasmFileName: ${wasmFileName}`);
     console.log(`[DEBUG] baseUrl: ${baseUrl}`);
     console.log(`[DEBUG] finalWasmPath: ${finalWasmPath}`);
-    
+
     // Fetch the WASM file to check if it's accessible
     const response = await fetch(finalWasmPath);
     if (!response.ok) {
@@ -209,14 +217,14 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
     }
     const wasmBytes = await response.arrayBuffer();
     console.log(`[DEBUG] WASM file loaded, size: ${wasmBytes.byteLength} bytes`);
-    
+
     const language = await Parser.Language.load(new Uint8Array(wasmBytes));
 
     const loadedLanguage: LoadedLanguage = {
       config,
       language
     };
-    
+
     loadedLanguages.set(config.name, loadedLanguage);
     return loadedLanguage;
   } catch (error) {
@@ -272,7 +280,7 @@ import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from 
  * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
  * This query is designed to find definitions of classes, functions, interfaces,
  * and import statements to build the code graph.
- * 
+ *
  * @deprecated Use getQueryForLanguage() instead
  */
 export const TS_QUERY = `
@@ -470,15 +478,15 @@ interface AnalyzerOptions {
 export const createTreeSitterAnalyzer = (_options: AnalyzerOptions = {}): Analyzer => {
   return async (files: readonly FileContent[]): Promise<CodeGraph> => {
     logger.debug(`Starting analysis of ${files.length} files (browser mode - single threaded)`);
-    
+
     const nodes = new Map<string, CodeNode>();
     const edges: CodeEdge[] = [];
-    
+
     // Phase 1: Add all files as nodes
     for (const file of files) {
       const ext = browserPath.extname(file.path);
       const config = LANGUAGE_CONFIGS.find(c => c.extensions.includes(ext));
-      
+
       const fileNode = {
         id: file.path,
         type: 'file' as const,
@@ -488,11 +496,11 @@ export const createTreeSitterAnalyzer = (_options: AnalyzerOptions = {}): Analyz
         endLine: file.content.split('\n').length,
         language: config?.name,
       };
-      
+
       nodes.set(file.path, fileNode);
       console.debug(`[DEBUG] Added file node: ${file.path}, type: ${fileNode.type}`);
     }
-    
+
     // Phase 2: Process files sequentially in browser to extract symbols
     for (const file of files) {
       try {
@@ -501,7 +509,7 @@ export const createTreeSitterAnalyzer = (_options: AnalyzerOptions = {}): Analyz
         logger.warn(`Failed to process file ${file.path}:`, error instanceof Error ? error.message : error);
       }
     }
-    
+
     logger.debug(`Analysis complete: ${nodes.size} nodes, ${edges.length} edges`);
     return { nodes, edges };
   };
@@ -514,7 +522,7 @@ async function processFile(
 ): Promise<void> {
   const ext = browserPath.extname(file.path);
   const config = LANGUAGE_CONFIGS.find(c => c.extensions.includes(ext));
-  
+
   if (!config) {
     logger.debug(`No language config found for extension: ${ext}`);
     return;
@@ -524,18 +532,18 @@ async function processFile(
     const parser = await createParserForLanguage(config);
     const tree = parser.parse(file.content);
     const queryString = getQueryForLanguage(config);
-    
+
     if (!queryString) {
       logger.debug(`No query available for ${config.name}`);
       return;
     }
-    
+
     try {
       const loadedLanguage = await import('../tree-sitter/browser-languages').then(m => m.loadLanguage(config));
       const Query = (await import('web-tree-sitter')).Query;
       const query = new Query(loadedLanguage.language, queryString);
       const captures = query.captures(tree!.rootNode);
-      
+
       for (const capture of captures) {
         processCapture(capture, file, nodes, edges);
       }
@@ -554,14 +562,14 @@ function processCapture(
   edges: CodeEdge[]
 ): void {
   const { node, name: captureName } = capture;
-  
+
   // Create node ID
   const nodeId = `${file.path}:${node.startPosition.row}:${node.startPosition.column}`;
-  
+
   // Determine node type and visibility
   let nodeType: CodeNode['type'] = 'variable';
   let visibility: CodeNode['visibility'] = 'public';
-  
+
   if (captureName.includes('function')) {
     nodeType = 'function';
   } else if (captureName.includes('class')) {
@@ -569,7 +577,7 @@ function processCapture(
   } else if (captureName.includes('interface')) {
     nodeType = 'interface';
   }
-  
+
   // Create or update node
   if (!nodes.has(nodeId)) {
     const codeNode: CodeNode = {
@@ -582,10 +590,10 @@ function processCapture(
       endLine: node.endPosition.row + 1,
       codeSnippet: node.text.slice(0, 200), // Truncated snippet
     };
-    
+
     nodes.set(nodeId, codeNode);
   }
-  
+
   // Handle relationships (simplified)
   if (captureName.includes('import') && node.text.includes('from')) {
     // Create import edge
@@ -775,7 +783,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
       throw e;
     }
     const patterns = include && include.length > 0 ? [...include] : ['**/*'];
-    
+
     // Manually build the ignore list to replicate the old logic without the `ignore` package.
     const ignorePatterns = [
       '**/node_modules/**',
@@ -786,7 +794,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     if (userIgnore && userIgnore.length > 0) {
       ignorePatterns.push(...userIgnore);
     }
-    
+
     if (!noGitignore) {
       try {
         const gitignoreContent = await readFile(path.join(root, '.gitignore'));
@@ -817,7 +825,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
     // Filter out files that are duplicates via symlinks
     const visitedRealPaths = new Set<string>();
     const safeRelativePaths: string[] = [];
-    
+
     for (const relativePath of relativePaths) {
       const fullPath = path.resolve(root, relativePath);
       try {
@@ -831,7 +839,7 @@ export const createDefaultDiscoverer = (): FileDiscoverer => {
         logger.debug(`Skipping file due to symlink resolution error: ${relativePath}`);
       }
     }
-    
+
     // The `ignore` option in globby should have already done the filtering.
     const filteredPaths = safeRelativePaths;
 
@@ -863,7 +871,7 @@ const generateMermaidGraph = (rankedGraph: RankedCodeGraph): string => {
 
   let mermaidString = '```mermaid\n';
   mermaidString += 'graph TD\n';
-  
+
   const edges = new Set<string>();
   for (const edge of rankedGraph.edges) {
       const sourceNode = rankedGraph.nodes.get(edge.fromId);
@@ -892,14 +900,14 @@ const buildRelationString = (
 ): string | null => {
   const names = edges.map(e => `\`${allNodes.get(e.toId)?.name ?? 'unknown'}\``);
   if (names.length === 0) return null;
-  
+
   let displayNames = names;
   let suffix = '';
   if (limit && names.length > limit) {
       displayNames = names.slice(0, limit);
       suffix = '...';
   }
-  
+
   return `${label} ${displayNames.join(', ')}${suffix}`;
 };
 
@@ -922,7 +930,7 @@ export const createMarkdownRenderer = (): Renderer => {
       fileSectionSeparator = '---',
       symbolDetailOptions,
     } = options;
-    
+
     const {
       includeRelations = true,
       includeLineNumber = true,
@@ -933,9 +941,9 @@ export const createMarkdownRenderer = (): Renderer => {
     const fileNodes = [...nodes.values()].filter(attrs => attrs.type === 'file');
     const sortedFiles = fileNodes
       .sort((a, b) => getRank(b.id, ranks) - getRank(a.id, ranks));
-    
+
     // Debug logging
-    console.debug(`[DEBUG] Total nodes: ${nodes.size}, File nodes: ${fileNodes.length}, Node types:`, 
+    console.debug(`[DEBUG] Total nodes: ${nodes.size}, File nodes: ${fileNodes.length}, Node types:`,
       [...nodes.values()].map(n => n.type).reduce((acc, type) => {
         acc[type] = (acc[type] || 0) + 1;
         return acc;
@@ -958,7 +966,7 @@ export const createMarkdownRenderer = (): Renderer => {
       md += `### Module Dependency Graph\n\n`;
       md += generateMermaidGraph(rankedGraph);
     }
-    
+
     if (includeFileList && sortedFiles.length > 0) {
       md += `### Top ${topFileCount} Most Important Files\n\n`;
       md += `| Rank | File | Description |\n`;
@@ -973,7 +981,7 @@ export const createMarkdownRenderer = (): Renderer => {
       md += `## 📂 File & Symbol Breakdown\n\n`;
       for (const fileNode of sortedFiles) {
         md += `### [\`${fileNode.filePath}\`](./${fileNode.filePath})\n\n`;
-        
+
         const symbolNodes = [...nodes.values()]
           .filter(node => node.filePath === fileNode.filePath && node.type !== 'file')
           .sort((a, b) => a.startLine - b.startLine);
@@ -988,7 +996,7 @@ export const createMarkdownRenderer = (): Renderer => {
                   (acc[edge.type] = acc[edge.type] || []).push(edge);
                   return acc;
                 }, {} as Record<CodeEdge['type'], CodeEdge[]>);
-                
+
                 const relationParts = [
                   buildRelationString('inherits', edgeGroups.inherits || [], nodes),
                   buildRelationString('implements', edgeGroups.implements || [], nodes),
@@ -1002,7 +1010,7 @@ export const createMarkdownRenderer = (): Renderer => {
             }
 
             md += `- **\`${symbol.type} ${symbol.name}\`**${detailParts.length > 0 ? ` ${detailParts.join(' ')}` : ''}\n`;
-            
+
             if (includeCodeSnippet && symbol.codeSnippet) {
               // Use language from file extension for syntax highlighting if possible
               const lang = fileNode.language || fileNode.filePath.split('.').pop() || '';
@@ -1129,7 +1137,7 @@ export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLangua
       config,
       language
     };
-    
+
     loadedLanguages.set(config.name, loadedLanguage);
     return loadedLanguage;
   } catch (error) {
@@ -1233,7 +1241,7 @@ export default defineConfig({
         continue;
       }
       const destPath = join('dist', 'wasm', wasmFileName);
-      
+
       if (existsSync(srcPath)) {
         copyFileSync(srcPath, destPath);
         console.log(`Copied ${wasmFileName} to dist/wasm/`);
@@ -1807,12 +1815,12 @@ export const createPageRanker = (): Ranker => {
 
     // Convert CodeGraph to graphology Graph
     const graphologyGraph = new Graph();
-    
+
     // Add all nodes
     for (const [nodeId] of graph.nodes) {
       (graphologyGraph as any).addNode(nodeId);
     }
-    
+
     // Add all edges
     for (const edge of graph.edges) {
       // Only add edge if both nodes exist
@@ -1824,7 +1832,7 @@ export const createPageRanker = (): Ranker => {
         }
       }
     }
-    
+
     const ranksData = pagerank(graphologyGraph);
     const ranks = new Map<string, number>();
     for (const node in ranksData) {
@@ -2273,7 +2281,7 @@ const copyWasmFiles = async (destination: string) => {
 
     // Source is relative to the running script (dist/index.js)
     const sourceDir = path.resolve(fileURLToPath(import.meta.url), '..', 'wasm');
-    
+
     await fs.mkdir(destination, { recursive: true });
 
     const wasmFiles = (await fs.readdir(sourceDir)).filter(file => file.endsWith('.wasm'));
@@ -2889,13 +2897,13 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
  */
 export function getLanguageConfigForFile(filePath: string): LanguageConfig | null {
   const extension = filePath.substring(filePath.lastIndexOf('.'));
-  
+
   for (const config of LANGUAGE_CONFIGS) {
     if (config.extensions.includes(extension)) {
       return config;
     }
   }
-  
+
   return null;
 }
 
@@ -2962,7 +2970,7 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
   if (browserPath.extname(importPath) && allFiles.includes(importPath)) {
     return importPath;
   }
-  
+
   // Also try without the './' prefix for root-level files with extensions
   if (browserPath.extname(importPath) && importPath.startsWith('./')) {
     const withoutDotSlash = importPath.substring(2);
@@ -2971,23 +2979,23 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
 
   const parsedPath = browserPath.parse(importPath);
   const basePath = normalizePath(browserPath.join(parsedPath.dir, parsedPath.name));
-  
+
   // Try with extensions
   for (const ext of extensions) {
       const potentialFile = basePath + ext;
       if (allFiles.includes(potentialFile)) return potentialFile;
-      
+
       // Also try without the './' prefix for root-level files
       if (potentialFile.startsWith('./')) {
         const withoutDotSlash = potentialFile.substring(2);
         if (allFiles.includes(withoutDotSlash)) return withoutDotSlash;
       }
   }
-  
+
   for (const ext of extensions) {
       const potentialIndexFile = normalizePath(browserPath.join(importPath, 'index' + ext));
       if (allFiles.includes(potentialIndexFile)) return potentialIndexFile;
-      
+
       // Also try without the './' prefix for root-level files
       if (potentialIndexFile.startsWith('./')) {
         const withoutDotSlash = potentialIndexFile.substring(2);
@@ -2996,7 +3004,7 @@ const createModuleResolver = (extensions: string[]) => (fromFile: string, source
   }
 
   if (allFiles.includes(importPath)) return importPath;
-  return null;      
+  return null;
 };
 
 const resolveImportFactory = (endings: string[], packageStyle: boolean = false) => (fromFile: string, sourcePath: string, allFiles: string[]): string | null => {
@@ -3010,7 +3018,7 @@ const resolveImportFactory = (endings: string[], packageStyle: boolean = false) 
     const potentialPath = basePath + end;
     if (allFiles.includes(potentialPath)) return potentialPath;
   }
-  
+
   if (packageStyle && sourcePath.includes('.')) {
     const packagePath = normalizePath(sourcePath.replace(/\./g, '/'));
     for (const end of endings) {
@@ -3080,7 +3088,7 @@ class SymbolResolver {
       const importedId = `${file}#${symbolName}`;
       if (this.nodes.has(importedId)) return this.nodes.get(importedId)!;
     }
-    
+
     // 3. CSS Selector
     for (const node of this.nodes.values()) {
         if (node.type === 'css_rule' && node.cssSelector === symbolName) return node;
@@ -3099,7 +3107,7 @@ class SymbolResolver {
 
 export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}): Analyzer => {
   const { maxWorkers = 1 } = options;
-  
+
   return async (files: readonly FileContent[]) => {
     const nodes = new Map<string, CodeNode>();
     let unresolvedRelations: UnresolvedRelation[] = [];
@@ -3117,7 +3125,7 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
     const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
     const filesToProcess = files.map(file => ({ file, langConfig: getLanguageConfigForFile(normalizePath(file.path)) }))
       .filter((item): item is { file: FileContent, langConfig: LanguageConfig } => !!item.langConfig);
-    
+
     if (maxWorkers > 1 && !isBrowser) {
       logger.debug(`Analyzing files in parallel with ${maxWorkers} workers.`);
       const { default: Tinypool } = await import('tinypool');
@@ -3131,7 +3139,7 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
 
       const tasks = filesToProcess.map(item => pool.run(item));
       const results = await Promise.all(tasks);
-      
+
       for (const result of results) {
         if (result) {
           result.nodes.forEach((node: CodeNode) => nodes.set(node.id, node));
@@ -3159,13 +3167,13 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
     // --- Phase 3: Resolve all relationships ---
     const edges: CodeEdge[] = [];
     const importEdges: CodeEdge[] = [];
-    
+
     // Resolve imports first, as they are needed by the SymbolResolver
     for (const rel of unresolvedRelations) {
       if (rel.type === 'imports') {
         const fromNode = nodes.get(rel.fromId);
         if (!fromNode || fromNode.type !== 'file' || !fromNode.language) continue;
-        
+
         const resolver = getImportResolver(fromNode.language);
         const toId = resolver(rel.fromId, rel.toName, allFilePaths);
         if (toId && nodes.has(toId)) {
@@ -3173,19 +3181,19 @@ export const createTreeSitterAnalyzer = (options: { maxWorkers?: number } = {}):
         }
       }
     }
-    
+
     const symbolResolver = new SymbolResolver(nodes, importEdges);
 
     for (const rel of unresolvedRelations) {
         if (rel.type === 'imports') continue; // Already handled
-        
+
         const toNode = symbolResolver.resolve(rel.toName, rel.fromId.split('#')[0]!);
         if (toNode && rel.fromId !== toNode.id) {
           const edgeType = rel.type === 'reference' ? 'calls' : rel.type;
           edges.push({ fromId: rel.fromId, toId: toNode.id, type: edgeType });
         }
     }
-    
+
     const finalEdges = [...importEdges, ...edges];
     // Remove duplicates
     const uniqueEdges = [...new Map(finalEdges.map(e => [`${e.fromId}->${e.toId}->${e.type}`, e])).values()];

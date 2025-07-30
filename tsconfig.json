@@ -5,8 +5,13 @@
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
-    "jsx": "react-jsx",
     "allowJs": true,
+
+    // Path mapping for local development
+    // "baseUrl": ".",
+    // "paths": {
+    //   "repograph-core": ["packages/repograph-core/src/index.ts"]
+    // },
 
     // Bundler mode
     "moduleResolution": "bundler",
@@ -20,13 +25,14 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
 
-    // Some stricter flags (disabled by default)
+    // Some stricter flags
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitAny": true,
     "noPropertyAccessFromIndexSignature": true,
 
-    // Type roots
-    "typeRoots": ["./node_modules/@types", "./src/types", "./test/**/*"]
-  }
+    "types": ["bun-types"]
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

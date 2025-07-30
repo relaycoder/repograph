@@ -1,7 +1,7 @@
 {
   "name": "repograph",
-  "version": "0.1.12",
-  "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
+  "version": "0.1.46",
+  "description": "Generate rich, semantic, and interactive codemaps with a functional, composable API for Node.js.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -11,37 +11,25 @@
   },
   "exports": {
     ".": {
-      "browser": "./dist/index.browser.js",
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.cjs"
     }
   },
-  "browser": "./dist/index.browser.js",
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "tsup",
     "prepublishOnly": "npm run build",
-    "dev": "tsup --watch",
-    "test": "bun run test/run-tests.ts",
-    "test:unit": "bun run test/run-tests.ts unit",
-    "test:integration": "bun run test/run-tests.ts integration",
-    "test:e2e": "bun run test/run-tests.ts e2e",
-    "test:watch": "bun test --watch test/**/*.test.ts",
-    "test:coverage": "bun test --coverage test/**/*.test.ts",
-    "test:basic": "bun test test-basic.js",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
   "dependencies": {
-    "tinypool": "^0.8.2",
     "@types/js-yaml": "^4.0.9",
     "globby": "^14.1.0",
-    "graphology": "^0.26.0",
-    "graphology-pagerank": "^1.1.0",
-    "ignore": "^7.0.5",
-    "js-yaml": "^4.1.0",
+    "repograph-core": "0.1.20",
+    "tinypool": "^0.8.2",
     "tree-sitter-c": "^0.24.1",
     "tree-sitter-c-sharp": "^0.23.1",
     "tree-sitter-cpp": "^0.23.4",
@@ -60,7 +48,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
-    "bun-types": "^1.1.12",
+    "bun-types": "latest",
     "eslint": "^8.57.0",
     "prettier": "^3.2.5",
     "tsup": "^8.0.2",
@@ -74,21 +62,20 @@
     "tree-sitter",
     "repo-analysis",
     "ai-context",
-    "bun",
-    "functional-programming"
+    "cli"
   ],
   "author": "RelayCoder <you@example.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/relaycoder/repograph.git"
+    "url": "https://github.com/relaycoder/repograph.git",
+    "directory": "packages/repograph"
   },
   "homepage": "https://github.com/relaycoder/repograph#readme",
   "bugs": {
     "url": "https://github.com/relaycoder/repograph/issues"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "bun": ">=1.0.0"
+    "node": ">=18.0.0"
   }
 }

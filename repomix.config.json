@@ -4,7 +4,7 @@
     "maxFileSize": 52428800
   },
   "output": {
-    "filePath": "docs/repomix-output.md",
+    "filePath": "docs/repomix.md",
     "style": "markdown",
     "parsableStyle": true,
     "fileSummary": false,
@@ -23,13 +23,78 @@
     }
   },
   "include": [
-//    "test"
-    "package.json",
-    "tsconfig.json",
-    "tsconfig.build.json",
-//    "docs/scn.readme.md",
-    "src"
-//    "docs/scn-ts-2.report.md"
+    "packages/repograph-browser/package.json",
+    "packages/repograph-browser/tsconfig.json",
+    "packages/repograph-browser/tsup.config.ts",
+    "packages/repograph-browser/src",
+
+    "packages/scn-ts-core/package.json",
+    "packages/scn-ts-core/tsconfig.json",
+    "packages/scn-ts-core/tsup.config.ts",
+    "packages/scn-ts-core/src",
+
+    "packages/scn-ts-browser/package.json",
+    "packages/scn-ts-browser/tsconfig.json",
+    "packages/scn-ts-browser/tsup.config.ts",
+    "packages/scn-ts-browser/src",
+
+    // "package.json",
+    // "tsconfig.json",
+    // "tsup.config.ts",
+    // "src",
+
+    "packages/repograph-web-demo/package.json",
+    "packages/repograph-web-demo/postcss.config.js",
+    "packages/repograph-web-demo/tailwind.config.js",
+    "packages/repograph-web-demo/tsconfig.json",
+    "packages/repograph-web-demo/tsconfig.node.json",
+    "packages/repograph-web-demo/vite.config.ts",
+    "packages/repograph-web-demo/scripts",
+    "packages/repograph-web-demo/src"
+
+    // "packages/scn-ts/package.json",
+    // "packages/scn-ts/tsconfig.json",
+    // "packages/scn-ts/tsup.config.ts",
+    // "packages/scn-ts/src"
+
+    // "packages/repograph-core/package.json",
+    // "packages/repograph-core/tsconfig.json",
+    // "packages/repograph-core/tsup.config.ts",
+    // "packages/repograph-core/src",
+    // "packages/repograph-core/src/index.ts",
+    // "repograph-core/src/types.ts",
+    // "repograph-core/test",
+    // "repograph-core/test/test.util.ts",
+
+    // "repograph-web-demo/package.json",
+    // "repograph-web-demo/tsconfig.json",
+    // "repograph-web-demo/tsconfig.node.json",
+    // "repograph-web-demo/vite.config.ts",
+    // "repograph-web-demo/tailwind.config.js",
+    // "repograph-web-demo/postcss.config.js",
+    // "repograph-web-demo/index.html",
+    // "repograph-web-demo/src",
+    // "repograph-web-demo/scripts",
+
+    // "repograph/package.json",
+    // "repograph/tsconfig.json",
+    // "repograph/tsup.config.ts",
+    // "repograph/src",
+    // "repograph/src/index.ts",
+    // "repograph/test"
+    // "repograph/test/unit/composer.test.ts"
+
+    // "scn-ts/package.json",
+    // "scn-ts/tsconfig.json",
+    // "scn-ts/tsup.config.ts",
+    // "scn-ts/src"
+
+    // "test"
+    //
+    //
+
+    // "packages/scn-ts/test"
+    // "packages/scn-ts/test"
   ],
   "ignore": {
     "useGitignore": true,
